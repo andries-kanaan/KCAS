@@ -6,6 +6,14 @@ Last updated: 2026-05-31
 
 Rewrite the legacy Yii1 `kanaanclients` application into the modern Blazor project in this repository (`kcas` / `KCAS.Admin`) with a corrected database design, modern authentication, role-based permissions, and a staged migration path from the legacy MySQL data.
 
+## Current State and Next Step
+
+- Local `main` is clean and synced with `origin/main`.
+- PR #3, `Add normalized client import and notes display`, has been merged into `main`.
+- The next recommended feature branch is `feature/kyc-policy-import`.
+- The next functional goal is to import legacy KYC/policy data so the client detail page can populate life/disability cover and related planning sections.
+- Before any new feature work, create a branch from clean `main` and keep changes scoped to one domain slice.
+
 ## Local Development Setup
 
 - Repository: `C:\Users\andriesvt\OneDrive\KCAS`
@@ -127,7 +135,7 @@ Project and infrastructure:
 - WAMP restart was performed by the user and the proxy setup appeared to work.
 - Added `Start-KCAS.ps1` for local startup.
 
-Security implementation already edited into the working tree:
+Security/RBAC implementation completed and merged:
 
 - Added `Microsoft.AspNetCore.Authentication.Negotiate`.
 - Expanded `ApplicationUser` with:
@@ -147,6 +155,7 @@ Security implementation already edited into the working tree:
 - Added policy protection to the clients page.
 - Added Security nav item visible only to users with `Security.Manage`.
 - Added supporting CSS.
+- Merged through PR #1, `feature/security-and-kanaan-branding`.
 
 Database migration status:
 
@@ -160,22 +169,22 @@ Build status:
 - A build succeeded after the registration and Identity role changes.
 - A test project exists under `tests\KCAS.Admin.Tests`.
 - Baseline tests cover app smoke routes, static branding assets, security role seeding, stale permission cleanup, and first-user admin promotion.
-- Added the first client rewrite slice:
+- Added the first client rewrite slice and merged it through PR #3:
   - Replaced the placeholder `Clients` columns with a normalized client aggregate.
   - Added `ClientPersonalProfiles`, `ClientContactPoints`, `ClientAddresses`, `ClientRelationships`, `ClientFinancialProfiles`, and `ClientLegacySnapshots`.
-  - Added a searchable client register and read-only client detail page.
+  - Added a searchable client register with separate Name and Surname columns, per-column filters, clickable sort headers, and links to detail pages.
+  - Added a read-only client detail page.
   - Added a console importer under `tools\KCAS.LegacyImport`.
   - Imported the local legacy `tbl_client` data into the new schema.
   - Preserved raw legacy client rows as JSON snapshots.
   - Added mapper and client-search tests.
-  - Added per-column client register filters and clickable sort headers.
   - Surfaced more legacy client-section fields on the detail page, including physical/postal addresses, family detail, qualifications, spouse employer/income, goals, will/bank details, and representative fields.
   - Left life and disability cover for the KYC/policy import because it is derived from the legacy `tbl_kyc` classification data, not just `tbl_client`.
   - Added read-only client notes import and display:
     - Added `ClientNotes` with legacy note IDs, final/deleted status, audit fields, and raw snapshots.
     - Extended the console importer to import `tbl_clientnote` after clients.
     - Imported 11,856 local legacy notes with 0 skipped and 0 failed.
-    - Added a Notes section to client detail pages.
+    - Added a paged, searchable Notes section to client detail pages so large note histories do not render as one long list.
     - Deferred note create/edit/finalize/delete workflow until after read/import is reviewed.
 
 ## Current Verification Status
@@ -215,9 +224,9 @@ Still to verify manually in browser:
 
 ## Remaining Rewrite Phases
 
-1. Finish security foundation.
-   - Commit the security foundation.
+1. Verify security foundation manually.
    - Manually verify first-user promotion, approval workflow, and Windows login behavior in the browser.
+   - Keep automated security seed and smoke tests in place.
 
 2. Legacy domain analysis.
    - Document current Yii models, controllers, workflows, and screen behavior.
@@ -253,7 +262,13 @@ Still to verify manually in browser:
 ## Important Resume Notes
 
 - Do not revert unrelated working tree changes unless the user explicitly asks.
-- Before continuing feature work, inspect `git status --short`.
-- The current uncommitted work is the security/RBAC implementation.
+- Before continuing feature work, inspect `git status --short --branch`.
+- Start new work from clean `main` and create a feature branch first.
+- Use `feature/kyc-policy-import` for the next recommended domain slice unless the user chooses a different priority.
+- Do not commit local secrets, logs, build output, or generated `artifacts/`.
+- Before committing feature work, run:
+  - `.\.dotnet\dotnet.exe build KCAS.slnx`
+  - `.\.dotnet\dotnet.exe test tests\KCAS.Admin.Tests\KCAS.Admin.Tests.csproj`
+  - `.\.dotnet\dotnet.exe ef migrations has-pending-model-changes --project src\KCAS.Admin\KCAS.Admin.csproj`
 - If the app fails at startup, capture logs before changing more code.
 - Avoid exposing database passwords in committed files or final responses.
