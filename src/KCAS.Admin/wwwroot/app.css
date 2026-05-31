@@ -485,6 +485,249 @@ a, .btn-link {
     border-color: rgba(19, 25, 35, .08);
 }
 
+.sort-header {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    width: 100%;
+    padding: 0;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    font: inherit;
+    font-weight: 800;
+    text-align: left;
+    text-transform: uppercase;
+}
+
+.sort-header:hover {
+    color: #001a70;
+}
+
+.filter-row th {
+    background: #fbfaf6 !important;
+    text-transform: none;
+}
+
+.filter-table .form-control-sm {
+    min-width: 8rem;
+}
+
+.toolbar-panel,
+.detail-panel {
+    margin-bottom: 1rem;
+    padding: 1.1rem;
+    background: rgba(255, 255, 255, .88);
+    border: 1px solid rgba(19, 25, 35, .1);
+    border-radius: 8px;
+    box-shadow: 0 12px 36px rgba(23, 37, 43, .08);
+}
+
+.search-row {
+    display: grid;
+    grid-template-columns: minmax(12rem, 1fr) auto auto;
+    gap: .65rem;
+    align-items: center;
+}
+
+.detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1rem;
+}
+
+.detail-panel h2 {
+    margin: 0 0 .85rem;
+    color: #131923;
+    font-size: 1.18rem;
+    font-weight: 800;
+}
+
+.section-heading-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: .85rem;
+}
+
+.section-heading-row h2 {
+    margin-bottom: .2rem;
+}
+
+.section-subtitle {
+    margin: 0;
+    color: #5d6370;
+    font-size: .88rem;
+}
+
+.detail-panel h3 {
+    margin: .85rem 0 .35rem;
+    color: #3e4653;
+    font-size: .96rem;
+    font-weight: 800;
+}
+
+.detail-panel dl {
+    display: grid;
+    grid-template-columns: minmax(8rem, .42fr) minmax(0, 1fr);
+    gap: .45rem .8rem;
+    margin: 0;
+}
+
+.financial-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1.25rem;
+}
+
+.financial-grid dl {
+    align-content: start;
+}
+
+.detail-panel dt {
+    color: #5d6370;
+    font-weight: 800;
+}
+
+.detail-panel dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.preserve-lines {
+    white-space: pre-wrap;
+}
+
+.legacy-json {
+    max-height: 22rem;
+    margin: 0;
+    overflow: auto;
+    padding: .85rem;
+    color: #f5f1e7;
+    background: #11141b;
+    border-radius: 6px;
+}
+
+.note-list {
+    display: grid;
+    gap: .85rem;
+}
+
+.notes-toolbar {
+    display: grid;
+    grid-template-columns: minmax(14rem, 1fr) auto;
+    gap: .75rem;
+    align-items: center;
+    margin-bottom: .85rem;
+}
+
+.note-count {
+    color: #5d6370;
+    font-size: .88rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.note-table-wrap {
+    overflow-x: auto;
+    box-shadow: none;
+}
+
+.note-table th:nth-child(1) {
+    width: 8.5rem;
+}
+
+.note-table th:nth-child(3) {
+    width: 12rem;
+}
+
+.note-table th:nth-child(4) {
+    width: 9rem;
+}
+
+.note-table tr.is-deleted {
+    opacity: .72;
+}
+
+.note-date {
+    white-space: nowrap;
+}
+
+.note-details summary {
+    cursor: pointer;
+    color: #001a70;
+    font-weight: 800;
+}
+
+.note-details[open] summary {
+    margin-bottom: .55rem;
+}
+
+.note-details p {
+    margin-bottom: .35rem;
+}
+
+.note-item {
+    padding: .95rem;
+    border: 1px solid rgba(19, 25, 35, .1);
+    border-radius: 8px;
+    background: #fff;
+}
+
+.note-item.is-deleted {
+    opacity: .72;
+}
+
+.note-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: .6rem;
+}
+
+.note-heading h3 {
+    margin: 0;
+}
+
+.note-heading p,
+.note-meta {
+    margin: .2rem 0 0;
+    color: #5d6370;
+    font-size: .86rem;
+}
+
+.note-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .35rem;
+}
+
+.note-badges span {
+    display: inline-flex;
+    min-height: 1.5rem;
+    align-items: center;
+    padding: .2rem .5rem;
+    color: #11141b;
+    background: #f2ecdd;
+    border: 1px solid rgba(107, 80, 39, .18);
+    border-radius: 6px;
+    font-size: .75rem;
+    font-weight: 800;
+}
+
+.notes-pager {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: .75rem;
+    margin-top: .85rem;
+    color: #5d6370;
+    font-weight: 700;
+}
+
 .auth-shell {
     min-height: calc(100vh - 11rem);
     display: grid;
@@ -561,6 +804,10 @@ a, .btn-link {
 
     .top-title {
         min-width: 0;
+    }
+
+    .search-row {
+        grid-template-columns: 1fr;
     }
 }
 

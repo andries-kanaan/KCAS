@@ -3,6 +3,7 @@ bin/
 obj/
 [Bb]uild/
 [Pp]ublish/
+artifacts/
 
 # Local .NET SDK install
 .dotnet/
