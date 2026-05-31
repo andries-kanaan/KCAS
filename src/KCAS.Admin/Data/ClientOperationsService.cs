@@ -81,6 +81,7 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
 
         ReplaceContacts(client, model.ContactPoints);
         ReplaceAddresses(client, model.Addresses);
+        ReplaceRelationships(client, model.Relationships);
 
         await db.SaveChangesAsync();
         return client.Id;
@@ -192,6 +193,7 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
             .Include(client => client.FinancialProfile)
             .Include(client => client.ContactPoints)
             .Include(client => client.Addresses)
+            .Include(client => client.Relationships)
             .SingleOrDefaultAsync(client => client.Id == clientId)
             ?? throw new InvalidOperationException("Client not found.");
     }
@@ -257,6 +259,78 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
         }
     }
 
+    private void ReplaceRelationships(Client client, IEnumerable<ClientRelationshipEditModel> relationships)
+    {
+        db.ClientRelationships.RemoveRange(client.Relationships);
+        client.Relationships.Clear();
+
+        foreach (var relationship in relationships)
+        {
+            var relationshipType = Normalize(relationship.RelationshipType);
+            var name = Normalize(relationship.Name);
+            var initials = Normalize(relationship.Initials);
+            var gender = Normalize(relationship.Gender);
+            var southAfricanIdNumber = Normalize(relationship.SouthAfricanIdNumber);
+            var email = Normalize(relationship.Email);
+            var homePhone = Normalize(relationship.HomePhone);
+            var workPhone = Normalize(relationship.WorkPhone);
+            var mobilePhone = Normalize(relationship.MobilePhone);
+            var employer = Normalize(relationship.Employer);
+            var occupation = Normalize(relationship.Occupation);
+            var highestQualification = Normalize(relationship.HighestQualification);
+            var pensionFundName = Normalize(relationship.PensionFundName);
+
+            if (string.IsNullOrWhiteSpace(relationshipType) &&
+                string.IsNullOrWhiteSpace(name) &&
+                string.IsNullOrWhiteSpace(initials) &&
+                string.IsNullOrWhiteSpace(gender) &&
+                relationship.BirthDate is null &&
+                string.IsNullOrWhiteSpace(southAfricanIdNumber) &&
+                string.IsNullOrWhiteSpace(email) &&
+                string.IsNullOrWhiteSpace(homePhone) &&
+                string.IsNullOrWhiteSpace(workPhone) &&
+                string.IsNullOrWhiteSpace(mobilePhone) &&
+                string.IsNullOrWhiteSpace(employer) &&
+                string.IsNullOrWhiteSpace(occupation) &&
+                string.IsNullOrWhiteSpace(highestQualification) &&
+                relationship.GrossMonthlySalary is null &&
+                relationship.GrossAnnualSalary is null &&
+                relationship.YearlyBonus is null &&
+                relationship.OtherIncome is null &&
+                string.IsNullOrWhiteSpace(pensionFundName) &&
+                relationship.EmployerPensionContributionAmount is null &&
+                relationship.EmployerPensionContributionPercent is null)
+            {
+                continue;
+            }
+
+            client.Relationships.Add(new ClientRelationship
+            {
+                RelationshipType = relationshipType ?? "Other",
+                LegacyRelatedClientId = relationship.LegacyRelatedClientId,
+                Name = name,
+                Initials = initials,
+                Gender = gender,
+                BirthDate = relationship.BirthDate,
+                SouthAfricanIdNumber = southAfricanIdNumber,
+                Email = email,
+                HomePhone = homePhone,
+                WorkPhone = workPhone,
+                MobilePhone = mobilePhone,
+                Employer = employer,
+                Occupation = occupation,
+                HighestQualification = highestQualification,
+                GrossMonthlySalary = relationship.GrossMonthlySalary,
+                GrossAnnualSalary = relationship.GrossAnnualSalary,
+                YearlyBonus = relationship.YearlyBonus,
+                OtherIncome = relationship.OtherIncome,
+                PensionFundName = pensionFundName,
+                EmployerPensionContributionAmount = relationship.EmployerPensionContributionAmount,
+                EmployerPensionContributionPercent = relationship.EmployerPensionContributionPercent
+            });
+        }
+    }
+
     private static string? Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
@@ -296,6 +370,7 @@ public sealed class ClientEditModel
     public string? OtherDetailsRaw { get; set; }
     public List<ClientContactPointEditModel> ContactPoints { get; set; } = [];
     public List<ClientAddressEditModel> Addresses { get; set; } = [];
+    public List<ClientRelationshipEditModel> Relationships { get; set; } = [];
 
     public static ClientEditModel FromClient(Client client)
     {
@@ -349,6 +424,34 @@ public sealed class ClientEditModel
                     AddressType = address.AddressType,
                     LinesRaw = address.LinesRaw
                 })
+                .ToList(),
+            Relationships = client.Relationships
+                .OrderBy(relationship => relationship.RelationshipType)
+                .ThenBy(relationship => relationship.Name)
+                .Select(relationship => new ClientRelationshipEditModel
+                {
+                    RelationshipType = relationship.RelationshipType,
+                    LegacyRelatedClientId = relationship.LegacyRelatedClientId,
+                    Name = relationship.Name,
+                    Initials = relationship.Initials,
+                    Gender = relationship.Gender,
+                    BirthDate = relationship.BirthDate,
+                    SouthAfricanIdNumber = relationship.SouthAfricanIdNumber,
+                    Email = relationship.Email,
+                    HomePhone = relationship.HomePhone,
+                    WorkPhone = relationship.WorkPhone,
+                    MobilePhone = relationship.MobilePhone,
+                    Employer = relationship.Employer,
+                    Occupation = relationship.Occupation,
+                    HighestQualification = relationship.HighestQualification,
+                    GrossMonthlySalary = relationship.GrossMonthlySalary,
+                    GrossAnnualSalary = relationship.GrossAnnualSalary,
+                    YearlyBonus = relationship.YearlyBonus,
+                    OtherIncome = relationship.OtherIncome,
+                    PensionFundName = relationship.PensionFundName,
+                    EmployerPensionContributionAmount = relationship.EmployerPensionContributionAmount,
+                    EmployerPensionContributionPercent = relationship.EmployerPensionContributionPercent
+                })
                 .ToList()
         };
     }
@@ -366,6 +469,31 @@ public sealed class ClientAddressEditModel
 {
     public string AddressType { get; set; } = "Physical";
     public string? LinesRaw { get; set; }
+}
+
+public sealed class ClientRelationshipEditModel
+{
+    public string RelationshipType { get; set; } = "Spouse";
+    public int? LegacyRelatedClientId { get; set; }
+    public string? Name { get; set; }
+    public string? Initials { get; set; }
+    public string? Gender { get; set; }
+    public DateTime? BirthDate { get; set; }
+    public string? SouthAfricanIdNumber { get; set; }
+    public string? Email { get; set; }
+    public string? HomePhone { get; set; }
+    public string? WorkPhone { get; set; }
+    public string? MobilePhone { get; set; }
+    public string? Employer { get; set; }
+    public string? Occupation { get; set; }
+    public string? HighestQualification { get; set; }
+    public decimal? GrossMonthlySalary { get; set; }
+    public decimal? GrossAnnualSalary { get; set; }
+    public decimal? YearlyBonus { get; set; }
+    public decimal? OtherIncome { get; set; }
+    public string? PensionFundName { get; set; }
+    public decimal? EmployerPensionContributionAmount { get; set; }
+    public decimal? EmployerPensionContributionPercent { get; set; }
 }
 
 public sealed class ClientNoteEditModel

@@ -8,9 +8,9 @@ Rewrite the legacy Yii1 `kanaanclients` application into the modern Blazor proje
 
 ## Current State and Next Step
 
-- PR #4, `Add KYC policy import workflow`, has been merged into `main`.
+- PR #5, `Add standalone client operations`, has been merged into `main`.
 - The current product-development phase is `Standalone Client Operations`.
-- The next functional goal is to make KCAS usable for day-to-day client administration as its own system: create/edit KCAS-owned client records, assign Kanaan IDs where needed, and manage KCAS notes without runtime dependence on `kanaanclients`.
+- The next functional goal is to polish day-to-day client administration by adding relationship editing for spouse, child, dependent, family contact, and other relationship rows.
 - Current legacy imports are development seed data. They help design and test KCAS against realistic records, but they are disposable.
 - The final production import will happen later, from the latest `kanaanclients` data, once KCAS is ready for switch-over. At that point current seed/imported data can be cleared and replaced.
 
@@ -207,6 +207,11 @@ Build status:
   - Surfaced life/disability cover and current KYC policy summaries on client detail pages.
   - Added note create/edit/finalize/delete workflow and client edit pages.
   - Added operational tests for client notes and KYC import mapping.
+- Added the standalone client operations slice and merged it through PR #5:
+  - Added Kanaan ID generation for native client records when left blank.
+  - Preserved Kanaan ID as a shared family-unit administration identifier.
+  - Added operational tests for native Kanaan ID generation and shared Kanaan IDs.
+  - Added a local restart helper and verified clean legacy seed import from an empty client-domain state.
 
 ## Current Verification Status
 
@@ -254,6 +259,7 @@ Still to verify manually in browser:
    - Create and edit normalized client records in KCAS.
    - Generate Kanaan IDs for new records when one is not entered manually.
    - Manage client contact points and addresses from the operational UI.
+   - Manage spouse, child, dependent, family contact, and other relationship rows from the operational UI.
    - Add, edit, finalize, and soft-delete KCAS client notes.
    - Treat current imported rows as disposable development seed data, not as permanent production data.
    - Keep import traceability only for mapping checks and final-import reconciliation.
