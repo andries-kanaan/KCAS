@@ -8,9 +8,9 @@ Rewrite the legacy Yii1 `kanaanclients` application into the modern Blazor proje
 
 ## Current State and Next Step
 
-- PR #5, `Add standalone client operations`, has been merged into `main`.
-- The current product-development phase is `Standalone Client Operations`.
-- The next functional goal is to polish day-to-day client administration by adding relationship editing for spouse, child, dependent, family contact, and other relationship rows.
+- PR #6, `Add client relationship editing`, has been merged into `main`.
+- The current product-development phase is `Investments Read Model`.
+- The next functional goal is to review the imported investment/current-value display and then decide whether to add investment editing, fuller fund summaries/reports, or KYC workflow next.
 - Current legacy imports are development seed data. They help design and test KCAS against realistic records, but they are disposable.
 - The final production import will happen later, from the latest `kanaanclients` data, once KCAS is ready for switch-over. At that point current seed/imported data can be cleared and replaced.
 
@@ -53,6 +53,8 @@ Rewrite the legacy Yii1 `kanaanclients` application into the modern Blazor proje
   - Models: `C:\wamp64\www\yii\demos\kanaanclients\protected\models`
   - Client screens: `C:\wamp64\www\yii\demos\kanaanclients\protected\views\client`
   - Note screens: `C:\wamp64\www\yii\demos\kanaanclients\protected\views\clientnote`
+- Current domain analysis document:
+  - `docs\LEGACY_DOMAIN_ANALYSIS.md`
 - Legacy SQL dumps available in the app root:
   - `kanaanclients.sql`
   - `kanaanclientsmonthly.sql`
@@ -80,7 +82,7 @@ Rewrite the legacy Yii1 `kanaanclients` application into the modern Blazor proje
   - notes: 11670
   - funds: 710
   - investment accounts: 1524
-  - investment history: 6156
+  - investment history: 6150
   - KYC records: 1089
   - users: 9
 
@@ -212,6 +214,26 @@ Build status:
   - Preserved Kanaan ID as a shared family-unit administration identifier.
   - Added operational tests for native Kanaan ID generation and shared Kanaan IDs.
   - Added a local restart helper and verified clean legacy seed import from an empty client-domain state.
+- Added the client relationship editing slice and merged it through PR #6:
+  - Added relationship create/edit/delete behavior for spouse, child, dependent, family contact, and other relationship rows.
+  - Kept relationship changes behind `Clients.Manage`.
+  - Added focused tests for relationship operations.
+- Added the legacy domain analysis slice:
+  - Reviewed the Yii client, notes, KYC, investment, fund, reference data, and report workflows.
+  - Documented the observed business modules in `docs\LEGACY_DOMAIN_ANALYSIS.md`.
+  - Recommended investment account/history read import as the next implementation slice.
+- Added the investments read model and seed import slice:
+  - Added normalized investment account and investment transaction entities.
+  - Added EF migration `20260531194916_AddClientInvestments`.
+  - Imported `tbl_investmentaccount` and `tbl_investmenthistory` as disposable development seed data.
+  - Added read-only investment account summaries and collapsible recent transaction history to client detail pages.
+  - Verified local import of 1,524 investment accounts and 6,150 investment history rows with 0 skipped and 0 failed.
+- Added the fund current-value seed import refinement:
+  - Added `ClientFundValuations` for current values from legacy `tbl_fund`.
+  - Added EF migration `20260531204111_AddClientFundValuations`.
+  - Imported 710 local legacy fund valuation rows with 0 skipped and 0 failed.
+  - Updated the client Investments section to prefer matched fund current values by account number, falling back to the latest captured investment-history balance where no fund value is available.
+  - Kept full fund summary reports, fee calculations, and report exports deferred; this slice only brings current values into the client investment review surface.
 
 ## Current Verification Status
 
@@ -264,31 +286,41 @@ Still to verify manually in browser:
    - Treat current imported rows as disposable development seed data, not as permanent production data.
    - Keep import traceability only for mapping checks and final-import reconciliation.
    - Enforce `Clients.Manage` and `Notes.Manage` for operational changes.
+   - Status: core v1 client operations are implemented; remaining work here is acceptance review and refinements found during use.
 
 3. Legacy domain analysis.
    - Document current Yii models, controllers, workflows, and screen behavior.
    - Identify actual business concepts behind legacy table/field names.
    - Decide which legacy screens should be rebuilt first.
+   - Status: first pass documented in `docs\LEGACY_DOMAIN_ANALYSIS.md`.
 
-4. New schema design.
+4. Investments read model and seed import.
+   - Design normalized EF Core entities for investment accounts and investment history.
+   - Import `tbl_investmentaccount` and `tbl_investmenthistory` as disposable development seed data.
+   - Import `tbl_fund` current values as disposable development seed data.
+   - Add read-only investment account/history/current-value display to client detail pages.
+   - Preserve legacy traceability for reconciliation without making legacy row IDs KCAS identifiers.
+   - Add mapper/import tests using realistic legacy rows.
+   - Status: implemented; remaining work here is review of the display and follow-up refinement.
+
+5. New schema design.
    - Design normalized EF Core entities for clients, contacts, notes, products, investments, KYC, documents, and reporting.
    - Break up over-wide legacy structures where needed.
    - Add explicit relationships, constraints, indexes, audit fields, and import traceability.
 
-5. Continue the client workflow.
+6. Continue the client workflow.
    - Review imported client detail fields against the old Yii screens.
    - Review imported notes display against the old Yii notes grid.
-   - Expand edit coverage for spouse/dependent relationships after the core client operations UI is accepted.
-   - Import KYC/policy data to populate life and disability cover and related calculated planning sections.
+   - Refine client operations after acceptance review.
+   - Expand KYC/policy workflow beyond the current imported summaries.
 
-6. Expand functional modules.
-   - Investments/accounts/history.
+7. Expand functional modules.
    - KYC and recommendations.
    - Funds/products/reference data.
    - Reports.
    - Administration/security.
 
-7. Production readiness.
+8. Production readiness.
    - Decide final hosting target.
    - Add CI/CD using GitHub once the remote is created.
    - Use `dotnet publish` in the deployment pipeline.
@@ -300,7 +332,7 @@ Still to verify manually in browser:
 - Do not revert unrelated working tree changes unless the user explicitly asks.
 - Before continuing feature work, inspect `git status --short --branch`.
 - Start new work from clean `main` and create a feature branch first.
-- Use `feature/standalone-client-operations` for the next recommended domain slice unless the user chooses a different priority.
+- Use `feature/investment-read-model` for the next recommended domain slice unless the user chooses a different priority.
 - Do not commit local secrets, logs, build output, or generated `artifacts/`.
 - Before committing feature work, run:
   - `.\.dotnet\dotnet.exe build KCAS.slnx`

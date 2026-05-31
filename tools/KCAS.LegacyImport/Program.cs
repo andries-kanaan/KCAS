@@ -250,10 +250,253 @@ if (!options.DryRun && pendingKycChanges > 0)
     await db.SaveChangesAsync();
 }
 
+var investmentAccountImported = 0;
+var investmentAccountUpdated = 0;
+var investmentAccountSkipped = 0;
+var investmentAccountFailed = 0;
+var pendingInvestmentAccountChanges = 0;
+const int investmentAccountSaveBatchSize = 250;
+
+var investmentAccountsByLegacyId = await db.ClientInvestmentAccounts
+    .ToDictionaryAsync(account => account.LegacyInvestmentAccountId);
+
+await foreach (var row in ReadLegacyRowsAsync(legacyConnection, "tbl_investmentaccount"))
+{
+    var legacyClientId = ReadInt(row, "client_id");
+    if (legacyClientId is null)
+    {
+        investmentAccountSkipped++;
+        Console.Error.WriteLine($"Skipped legacy investment account id '{ValueOrUnknown(row, "id")}' because it has no client_id.");
+        continue;
+    }
+
+    if (!clientsByLegacyId.TryGetValue(legacyClientId.Value, out var clientId))
+    {
+        investmentAccountSkipped++;
+        Console.Error.WriteLine($"Skipped legacy investment account id '{ValueOrUnknown(row, "id")}' because legacy client '{legacyClientId}' was not imported.");
+        continue;
+    }
+
+    ClientInvestmentAccount mapped;
+    try
+    {
+        mapped = LegacyInvestmentAccountImportMapper.Map(row, clientId, startedAtUtc);
+    }
+    catch (Exception ex)
+    {
+        investmentAccountFailed++;
+        Console.Error.WriteLine($"Failed to map legacy investment account id '{ValueOrUnknown(row, "id")}': {ex.Message}");
+        continue;
+    }
+
+    if (options.DryRun)
+    {
+        investmentAccountImported++;
+        continue;
+    }
+
+    try
+    {
+        if (!investmentAccountsByLegacyId.TryGetValue(mapped.LegacyInvestmentAccountId, out var existing))
+        {
+            db.ClientInvestmentAccounts.Add(mapped);
+            investmentAccountsByLegacyId[mapped.LegacyInvestmentAccountId] = mapped;
+            investmentAccountImported++;
+        }
+        else
+        {
+            LegacyInvestmentAccountImportMapper.ApplyUpdatedValues(existing, mapped);
+            investmentAccountUpdated++;
+        }
+
+        pendingInvestmentAccountChanges++;
+        if (pendingInvestmentAccountChanges >= investmentAccountSaveBatchSize)
+        {
+            await db.SaveChangesAsync();
+            pendingInvestmentAccountChanges = 0;
+        }
+    }
+    catch (Exception ex)
+    {
+        investmentAccountFailed++;
+        db.ChangeTracker.Clear();
+        Console.Error.WriteLine($"Failed to import legacy investment account id '{mapped.LegacyInvestmentAccountId}': {ex.Message}");
+    }
+}
+
+if (!options.DryRun && pendingInvestmentAccountChanges > 0)
+{
+    await db.SaveChangesAsync();
+}
+
+investmentAccountsByLegacyId = await db.ClientInvestmentAccounts
+    .ToDictionaryAsync(account => account.LegacyInvestmentAccountId);
+
+var investmentTransactionImported = 0;
+var investmentTransactionUpdated = 0;
+var investmentTransactionSkipped = 0;
+var investmentTransactionFailed = 0;
+var pendingInvestmentTransactionChanges = 0;
+const int investmentTransactionSaveBatchSize = 250;
+
+var investmentTransactionsByLegacyId = await db.ClientInvestmentTransactions
+    .ToDictionaryAsync(transaction => transaction.LegacyInvestmentHistoryId);
+
+await foreach (var row in ReadLegacyRowsAsync(legacyConnection, "tbl_investmenthistory"))
+{
+    var legacyInvestmentAccountId = ReadInt(row, "ia_id");
+    if (legacyInvestmentAccountId is null)
+    {
+        investmentTransactionSkipped++;
+        Console.Error.WriteLine($"Skipped legacy investment history id '{ValueOrUnknown(row, "id")}' because it has no ia_id.");
+        continue;
+    }
+
+    if (!investmentAccountsByLegacyId.TryGetValue(legacyInvestmentAccountId.Value, out var account))
+    {
+        investmentTransactionSkipped++;
+        Console.Error.WriteLine($"Skipped legacy investment history id '{ValueOrUnknown(row, "id")}' because legacy investment account '{legacyInvestmentAccountId}' was not imported.");
+        continue;
+    }
+
+    ClientInvestmentTransaction mapped;
+    try
+    {
+        mapped = LegacyInvestmentTransactionImportMapper.Map(row, account.Id, startedAtUtc);
+    }
+    catch (Exception ex)
+    {
+        investmentTransactionFailed++;
+        Console.Error.WriteLine($"Failed to map legacy investment history id '{ValueOrUnknown(row, "id")}': {ex.Message}");
+        continue;
+    }
+
+    if (options.DryRun)
+    {
+        investmentTransactionImported++;
+        continue;
+    }
+
+    try
+    {
+        if (!investmentTransactionsByLegacyId.TryGetValue(mapped.LegacyInvestmentHistoryId, out var existing))
+        {
+            db.ClientInvestmentTransactions.Add(mapped);
+            investmentTransactionsByLegacyId[mapped.LegacyInvestmentHistoryId] = mapped;
+            investmentTransactionImported++;
+        }
+        else
+        {
+            LegacyInvestmentTransactionImportMapper.ApplyUpdatedValues(existing, mapped);
+            investmentTransactionUpdated++;
+        }
+
+        pendingInvestmentTransactionChanges++;
+        if (pendingInvestmentTransactionChanges >= investmentTransactionSaveBatchSize)
+        {
+            await db.SaveChangesAsync();
+            pendingInvestmentTransactionChanges = 0;
+        }
+    }
+    catch (Exception ex)
+    {
+        investmentTransactionFailed++;
+        db.ChangeTracker.Clear();
+        Console.Error.WriteLine($"Failed to import legacy investment history id '{mapped.LegacyInvestmentHistoryId}': {ex.Message}");
+    }
+}
+
+if (!options.DryRun && pendingInvestmentTransactionChanges > 0)
+{
+    await db.SaveChangesAsync();
+}
+
+var fundValuationImported = 0;
+var fundValuationUpdated = 0;
+var fundValuationSkipped = 0;
+var fundValuationFailed = 0;
+var pendingFundValuationChanges = 0;
+const int fundValuationSaveBatchSize = 250;
+
+var fundValuationsByLegacyId = await db.ClientFundValuations
+    .ToDictionaryAsync(valuation => valuation.LegacyFundId);
+
+await foreach (var row in ReadLegacyRowsAsync(legacyConnection, "tbl_fund"))
+{
+    var legacyClientId = ReadInt(row, "client_id");
+    if (legacyClientId is null)
+    {
+        fundValuationSkipped++;
+        Console.Error.WriteLine($"Skipped legacy fund id '{ValueOrUnknown(row, "id")}' because it has no client_id.");
+        continue;
+    }
+
+    if (!clientsByLegacyId.TryGetValue(legacyClientId.Value, out var clientId))
+    {
+        fundValuationSkipped++;
+        Console.Error.WriteLine($"Skipped legacy fund id '{ValueOrUnknown(row, "id")}' because legacy client '{legacyClientId}' was not imported.");
+        continue;
+    }
+
+    ClientFundValuation mapped;
+    try
+    {
+        mapped = LegacyFundValuationImportMapper.Map(row, clientId, startedAtUtc);
+    }
+    catch (Exception ex)
+    {
+        fundValuationFailed++;
+        Console.Error.WriteLine($"Failed to map legacy fund id '{ValueOrUnknown(row, "id")}': {ex.Message}");
+        continue;
+    }
+
+    if (options.DryRun)
+    {
+        fundValuationImported++;
+        continue;
+    }
+
+    try
+    {
+        if (!fundValuationsByLegacyId.TryGetValue(mapped.LegacyFundId, out var existing))
+        {
+            db.ClientFundValuations.Add(mapped);
+            fundValuationsByLegacyId[mapped.LegacyFundId] = mapped;
+            fundValuationImported++;
+        }
+        else
+        {
+            LegacyFundValuationImportMapper.ApplyUpdatedValues(existing, mapped);
+            fundValuationUpdated++;
+        }
+
+        pendingFundValuationChanges++;
+        if (pendingFundValuationChanges >= fundValuationSaveBatchSize)
+        {
+            await db.SaveChangesAsync();
+            pendingFundValuationChanges = 0;
+        }
+    }
+    catch (Exception ex)
+    {
+        fundValuationFailed++;
+        db.ChangeTracker.Clear();
+        Console.Error.WriteLine($"Failed to import legacy fund id '{mapped.LegacyFundId}': {ex.Message}");
+    }
+}
+
+if (!options.DryRun && pendingFundValuationChanges > 0)
+{
+    await db.SaveChangesAsync();
+}
+
 Console.WriteLine($"Legacy client import complete. Imported: {clientImported}; Updated: {clientUpdated}; Skipped: {clientSkipped}; Failed: {clientFailed}; Dry run: {options.DryRun}");
 Console.WriteLine($"Legacy client note import complete. Imported: {noteImported}; Updated: {noteUpdated}; Skipped: {noteSkipped}; Failed: {noteFailed}; Dry run: {options.DryRun}");
 Console.WriteLine($"Legacy KYC import complete. Imported: {kycImported}; Updated: {kycUpdated}; Skipped: {kycSkipped}; Failed: {kycFailed}; Dry run: {options.DryRun}");
-return clientFailed == 0 && noteFailed == 0 && kycFailed == 0 ? 0 : 1;
+Console.WriteLine($"Legacy investment account import complete. Imported: {investmentAccountImported}; Updated: {investmentAccountUpdated}; Skipped: {investmentAccountSkipped}; Failed: {investmentAccountFailed}; Dry run: {options.DryRun}");
+Console.WriteLine($"Legacy investment history import complete. Imported: {investmentTransactionImported}; Updated: {investmentTransactionUpdated}; Skipped: {investmentTransactionSkipped}; Failed: {investmentTransactionFailed}; Dry run: {options.DryRun}");
+Console.WriteLine($"Legacy fund valuation import complete. Imported: {fundValuationImported}; Updated: {fundValuationUpdated}; Skipped: {fundValuationSkipped}; Failed: {fundValuationFailed}; Dry run: {options.DryRun}");
+return clientFailed == 0 && noteFailed == 0 && kycFailed == 0 && investmentAccountFailed == 0 && investmentTransactionFailed == 0 && fundValuationFailed == 0 ? 0 : 1;
 
 static async IAsyncEnumerable<IReadOnlyDictionary<string, string?>> ReadLegacyRowsAsync(MySqlConnection connection, string tableName)
 {

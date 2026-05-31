@@ -53,4 +53,8 @@ public class Client
     public ICollection<ClientNote> Notes { get; } = [];
 
     public ICollection<ClientKycPolicy> KycPolicies { get; } = [];
+
+    public ICollection<ClientInvestmentAccount> InvestmentAccounts { get; } = [];
+
+    public ICollection<ClientFundValuation> FundValuations { get; } = [];
 }

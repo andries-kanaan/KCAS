@@ -152,4 +152,56 @@ public sealed class ClientSearchServiceTests(KcasWebApplicationFactory factory)
 
         Assert.Contains(loaded.KycPolicies, policy => policy.LegacyKycId == 9101 && policy.SubClassName == "Life and Disability Cover");
     }
+
+    [Fact]
+    public async Task Client_can_load_imported_investment_accounts_and_transactions()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        var client = new Client
+        {
+            LegacyClientId = 505,
+            KanaanId = "505",
+            SurnameOrEntityName = "Investments",
+            DisplayName = "Investments Client"
+        };
+        client.InvestmentAccounts.Add(new ClientInvestmentAccount
+        {
+            LegacyInvestmentAccountId = 9201,
+            LegacyClientId = 505,
+            Administrator = "Glacier",
+            AccountNumber = "ACC-505",
+            ProductName = "Retirement Annuity",
+            ProductType = "Compulsory",
+            FundName = "Stable SA",
+            PayloadJson = "{}",
+            Transactions =
+            {
+                new ClientInvestmentTransaction
+                {
+                    LegacyInvestmentHistoryId = 9301,
+                    LegacyInvestmentAccountId = 9201,
+                    TransactionDate = new DateOnly(2026, 5, 31),
+                    Description = "Imported transaction",
+                    InvestmentAmountZar = 1000m,
+                    BalanceZar = 25000m,
+                    IsFinal = true,
+                    PayloadJson = "{}"
+                }
+            }
+        });
+        db.Clients.Add(client);
+        await db.SaveChangesAsync();
+        var clientId = client.Id;
+
+        var loaded = await db.Clients
+            .Include(client => client.InvestmentAccounts)
+                .ThenInclude(account => account.Transactions)
+            .SingleAsync(client => client.Id == clientId);
+
+        var account = Assert.Single(loaded.InvestmentAccounts);
+        Assert.Equal(9201, account.LegacyInvestmentAccountId);
+        Assert.Contains(account.Transactions, transaction => transaction.LegacyInvestmentHistoryId == 9301);
+    }
 }

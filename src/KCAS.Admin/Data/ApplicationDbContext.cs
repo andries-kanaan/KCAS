@@ -16,6 +16,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<ClientLegacySnapshot> ClientLegacySnapshots => Set<ClientLegacySnapshot>();
     public DbSet<ClientNote> ClientNotes => Set<ClientNote>();
     public DbSet<ClientKycPolicy> ClientKycPolicies => Set<ClientKycPolicy>();
+    public DbSet<ClientInvestmentAccount> ClientInvestmentAccounts => Set<ClientInvestmentAccount>();
+    public DbSet<ClientInvestmentTransaction> ClientInvestmentTransactions => Set<ClientInvestmentTransaction>();
+    public DbSet<ClientFundValuation> ClientFundValuations => Set<ClientFundValuation>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -198,6 +201,75 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.HasIndex(policy => policy.PolicyNumber);
             entity.HasIndex(policy => new { policy.LegacyMainClassId, policy.LegacySubClassId });
             entity.HasIndex(policy => new { policy.IncludeInCalculations, policy.IsQuote });
+        });
+
+        builder.Entity<ClientInvestmentAccount>(entity =>
+        {
+            entity.HasOne(account => account.Client)
+                .WithMany(client => client.InvestmentAccounts)
+                .HasForeignKey(account => account.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(account => account.InvestmentDate)
+                .HasColumnType("date")
+                .HasConversion(new ValueConverter<DateOnly?, DateTime?>(
+                    value => value.HasValue ? value.Value.ToDateTime(TimeOnly.MinValue) : null,
+                    value => value.HasValue ? DateOnly.FromDateTime(value.Value) : null));
+            entity.Property(account => account.SurrenderDate)
+                .HasColumnType("date")
+                .HasConversion(new ValueConverter<DateOnly?, DateTime?>(
+                    value => value.HasValue ? value.Value.ToDateTime(TimeOnly.MinValue) : null,
+                    value => value.HasValue ? DateOnly.FromDateTime(value.Value) : null));
+            entity.HasIndex(account => account.LegacyInvestmentAccountId).IsUnique();
+            entity.HasIndex(account => account.ClientId);
+            entity.HasIndex(account => account.LegacyClientId);
+            entity.HasIndex(account => account.LegacyLinkedAccountId);
+            entity.HasIndex(account => account.AccountNumber);
+        });
+
+        builder.Entity<ClientInvestmentTransaction>(entity =>
+        {
+            entity.HasOne(transaction => transaction.InvestmentAccount)
+                .WithMany(account => account.Transactions)
+                .HasForeignKey(transaction => transaction.ClientInvestmentAccountId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(transaction => transaction.TransactionDate)
+                .HasColumnType("date")
+                .HasConversion(new ValueConverter<DateOnly?, DateTime?>(
+                    value => value.HasValue ? value.Value.ToDateTime(TimeOnly.MinValue) : null,
+                    value => value.HasValue ? DateOnly.FromDateTime(value.Value) : null));
+            entity.Property(transaction => transaction.ExchangeRate).HasPrecision(18, 6);
+            entity.Property(transaction => transaction.InvestmentAmountForeign).HasPrecision(18, 2);
+            entity.Property(transaction => transaction.InvestmentAmountZar).HasPrecision(18, 2);
+            entity.Property(transaction => transaction.WithdrawalAmountForeign).HasPrecision(18, 2);
+            entity.Property(transaction => transaction.WithdrawalAmountZar).HasPrecision(18, 2);
+            entity.Property(transaction => transaction.AnnualIncreasePercent).HasPrecision(9, 4);
+            entity.Property(transaction => transaction.BalanceForeign).HasPrecision(18, 2);
+            entity.Property(transaction => transaction.BalanceZar).HasPrecision(18, 2);
+            entity.HasIndex(transaction => transaction.LegacyInvestmentHistoryId).IsUnique();
+            entity.HasIndex(transaction => transaction.ClientInvestmentAccountId);
+            entity.HasIndex(transaction => transaction.LegacyInvestmentAccountId);
+            entity.HasIndex(transaction => transaction.TransactionDate);
+        });
+
+        builder.Entity<ClientFundValuation>(entity =>
+        {
+            entity.HasOne(valuation => valuation.Client)
+                .WithMany(client => client.FundValuations)
+                .HasForeignKey(valuation => valuation.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(valuation => valuation.ValuationDate)
+                .HasColumnType("date")
+                .HasConversion(new ValueConverter<DateOnly?, DateTime?>(
+                    value => value.HasValue ? value.Value.ToDateTime(TimeOnly.MinValue) : null,
+                    value => value.HasValue ? DateOnly.FromDateTime(value.Value) : null));
+            entity.Property(valuation => valuation.AmountForeign).HasPrecision(18, 2);
+            entity.Property(valuation => valuation.AmountZar).HasPrecision(18, 2);
+            entity.HasIndex(valuation => valuation.LegacyFundId).IsUnique();
+            entity.HasIndex(valuation => valuation.ClientId);
+            entity.HasIndex(valuation => valuation.LegacyClientId);
+            entity.HasIndex(valuation => valuation.KanaanId);
+            entity.HasIndex(valuation => valuation.InvestmentUniqueNumber);
+            entity.HasIndex(valuation => valuation.ValuationDate);
         });
     }
 }

@@ -3,6 +3,7 @@ using System;
 using KCAS.Admin.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace KCAS.Admin.Data.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260531194916_AddClientInvestments")]
+    partial class AddClientInvestments
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -366,112 +369,6 @@ namespace KCAS.Admin.Data.Migrations
                     b.HasKey("ClientId");
 
                     b.ToTable("ClientFinancialProfiles");
-                });
-
-            modelBuilder.Entity("KCAS.Admin.Data.ClientFundValuation", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    b.Property<string>("Administrator")
-                        .HasMaxLength(256)
-                        .HasColumnType("varchar(256)");
-
-                    b.Property<decimal?>("AmountForeign")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<decimal?>("AmountZar")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<int>("ClientId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("CompanyClientNumber")
-                        .HasMaxLength(256)
-                        .HasColumnType("varchar(256)");
-
-                    b.Property<string>("CompanyDescription")
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("FundDescription")
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("FundName")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("varchar(256)");
-
-                    b.Property<DateTime>("ImportedAtUtc")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("InvestmentUniqueNumber")
-                        .HasMaxLength(256)
-                        .HasColumnType("varchar(256)");
-
-                    b.Property<string>("KanaanId")
-                        .HasMaxLength(30)
-                        .HasColumnType("varchar(30)");
-
-                    b.Property<int?>("LegacyClientId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("LegacyFundId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime?>("LegacyOpenedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<int?>("LegacyOpenedByUserId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime?>("LegacyUpdatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<int?>("LegacyUpdatedByUserId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("OpenedBy")
-                        .HasMaxLength(256)
-                        .HasColumnType("varchar(256)");
-
-                    b.Property<string>("PayloadJson")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("ProductName")
-                        .HasMaxLength(256)
-                        .HasColumnType("varchar(256)");
-
-                    b.Property<string>("ProductType")
-                        .HasMaxLength(256)
-                        .HasColumnType("varchar(256)");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasMaxLength(256)
-                        .HasColumnType("varchar(256)");
-
-                    b.Property<DateTime?>("ValuationDate")
-                        .HasColumnType("date");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ClientId");
-
-                    b.HasIndex("InvestmentUniqueNumber");
-
-                    b.HasIndex("KanaanId");
-
-                    b.HasIndex("LegacyClientId");
-
-                    b.HasIndex("LegacyFundId")
-                        .IsUnique();
-
-                    b.HasIndex("ValuationDate");
-
-                    b.ToTable("ClientFundValuations");
                 });
 
             modelBuilder.Entity("KCAS.Admin.Data.ClientInvestmentAccount", b =>
@@ -1275,17 +1172,6 @@ namespace KCAS.Admin.Data.Migrations
                     b.Navigation("Client");
                 });
 
-            modelBuilder.Entity("KCAS.Admin.Data.ClientFundValuation", b =>
-                {
-                    b.HasOne("KCAS.Admin.Data.Client", "Client")
-                        .WithMany("FundValuations")
-                        .HasForeignKey("ClientId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Client");
-                });
-
             modelBuilder.Entity("KCAS.Admin.Data.ClientInvestmentAccount", b =>
                 {
                     b.HasOne("KCAS.Admin.Data.Client", "Client")
@@ -1421,8 +1307,6 @@ namespace KCAS.Admin.Data.Migrations
                     b.Navigation("ContactPoints");
 
                     b.Navigation("FinancialProfile");
-
-                    b.Navigation("FundValuations");
 
                     b.Navigation("InvestmentAccounts");
 
