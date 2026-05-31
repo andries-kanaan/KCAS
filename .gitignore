@@ -11,6 +11,7 @@ artifacts/
 # User and IDE files
 .vs/
 .vscode/
+.chrome-codex/
 *.user
 *.suo
 *.userosscache

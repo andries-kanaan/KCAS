@@ -1,0 +1,190 @@
+@page "/clients/new"
+@page "/clients/{Id:int}/edit"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ClientsManage)]
+@using System.ComponentModel.DataAnnotations
+@using KCAS.Admin.Data
+@inject ClientOperationsService ClientOperations
+@inject NavigationManager Navigation
+
+<PageTitle>@(Id is null ? "New client" : "Edit client")</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Client operations</p>
+        <h1>@(Id is null ? "New client" : "Edit client")</h1>
+        <p class="lede">Maintain the normalized KCAS client record. Imported legacy snapshots remain unchanged for audit.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="@(Id is null ? "/clients" : $"/clients/{Id}")">Cancel</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(statusMessage))
+{
+    <div class="alert alert-warning">@statusMessage</div>
+}
+
+<EditForm Model="model" OnValidSubmit="SaveAsync" FormName="client-edit">
+    <section class="detail-grid">
+        <article class="detail-panel form-panel">
+            <h2>Overview</h2>
+            <label>Kanaan ID <InputText class="form-control" @bind-Value="model.KanaanId" /></label>
+            <label>Title <InputText class="form-control" @bind-Value="model.Title" /></label>
+            <label>Initials <InputText class="form-control" @bind-Value="model.Initials" /></label>
+            <label>Full name <InputText class="form-control" @bind-Value="model.FullName" /></label>
+            <label>Surname/entity <InputText class="form-control" @bind-Value="model.SurnameOrEntityName" /></label>
+            <label>Display name <InputText class="form-control" @bind-Value="model.DisplayName" /></label>
+            <label>Language <InputText class="form-control" @bind-Value="model.Language" /></label>
+            <label>Client folder <InputText class="form-control" @bind-Value="model.ClientFolder" /></label>
+            <label class="check-row"><InputCheckbox @bind-Value="model.IsActive" /> Active</label>
+        </article>
+
+        <article class="detail-panel form-panel">
+            <h2>Personal</h2>
+            <label>ID number <InputText class="form-control" @bind-Value="model.SouthAfricanIdNumber" /></label>
+            <label>Gender <InputText class="form-control" @bind-Value="model.Gender" /></label>
+            <label>Marital status <InputText class="form-control" @bind-Value="model.MaritalStatus" /></label>
+            <label>Tax number <InputText class="form-control" @bind-Value="model.TaxNumber" /></label>
+            <label>Tax office <InputText class="form-control" @bind-Value="model.TaxOffice" /></label>
+            <label>Qualification <InputText class="form-control" @bind-Value="model.HighestQualification" /></label>
+            <label>Dependents <InputNumber class="form-control" @bind-Value="model.NumberOfDependents" /></label>
+            <label>Workday travelling % <InputNumber class="form-control" @bind-Value="model.WorkdayTravelPercent" /></label>
+            <label>Family detail <InputTextArea class="form-control" @bind-Value="model.FamilyDetailRaw" /></label>
+        </article>
+    </section>
+
+    <section class="detail-panel form-panel">
+        <div class="section-heading-row">
+            <div>
+                <h2>Contact</h2>
+                <p class="section-subtitle">Blank rows are ignored when saved.</p>
+            </div>
+            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="AddContact">Add contact</button>
+        </div>
+        @for (var index = 0; index < model.ContactPoints.Count; index++)
+        {
+            var rowIndex = index;
+            <div class="edit-row" @key="model.ContactPoints[rowIndex]">
+                <label>Type <InputText class="form-control" @bind-Value="model.ContactPoints[rowIndex].ContactType" /></label>
+                <label>Label <InputText class="form-control" @bind-Value="model.ContactPoints[rowIndex].Label" /></label>
+                <label>Value <InputText class="form-control" @bind-Value="model.ContactPoints[rowIndex].Value" /></label>
+                <label class="check-row"><InputCheckbox @bind-Value="model.ContactPoints[rowIndex].IsPrimary" /> Primary</label>
+                <button class="btn btn-outline-danger btn-sm" type="button" @onclick="() => RemoveContact(rowIndex)">Remove</button>
+            </div>
+        }
+    </section>
+
+    <section class="detail-panel form-panel">
+        <div class="section-heading-row">
+            <div>
+                <h2>Addresses</h2>
+                <p class="section-subtitle">Use one row per address block.</p>
+            </div>
+            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="AddAddress">Add address</button>
+        </div>
+        @for (var index = 0; index < model.Addresses.Count; index++)
+        {
+            var rowIndex = index;
+            <div class="edit-row address-edit-row" @key="model.Addresses[rowIndex]">
+                <label>Type <InputText class="form-control" @bind-Value="model.Addresses[rowIndex].AddressType" /></label>
+                <label>Lines <InputTextArea class="form-control" @bind-Value="model.Addresses[rowIndex].LinesRaw" /></label>
+                <button class="btn btn-outline-danger btn-sm" type="button" @onclick="() => RemoveAddress(rowIndex)">Remove</button>
+            </div>
+        }
+    </section>
+
+    <section class="detail-grid">
+        <article class="detail-panel form-panel">
+            <h2>Financial</h2>
+            <label>Employer <InputText class="form-control" @bind-Value="model.Employer" /></label>
+            <label>Occupation <InputText class="form-control" @bind-Value="model.Occupation" /></label>
+            <label>Gross monthly salary <InputNumber class="form-control" @bind-Value="model.GrossMonthlySalary" /></label>
+            <label>Monthly expenses <InputNumber class="form-control" @bind-Value="model.MonthlyExpenses" /></label>
+            <label>Retirement age <InputNumber class="form-control" @bind-Value="model.RetirementAge" /></label>
+            <label>Pension fund <InputText class="form-control" @bind-Value="model.PensionFundName" /></label>
+            <label>Broker <InputText class="form-control" @bind-Value="model.RepresentativeName" /></label>
+        </article>
+
+        <article class="detail-panel form-panel">
+            <h2>Planning notes</h2>
+            <label>Goals <InputTextArea class="form-control" @bind-Value="model.OtherGoalsRaw" /></label>
+            <label>Bank details <InputTextArea class="form-control" @bind-Value="model.BankDetailRaw" /></label>
+            <label>Will details <InputTextArea class="form-control" @bind-Value="model.WillDetailRaw" /></label>
+            <label>Important notes <InputTextArea class="form-control" @bind-Value="model.OtherDetailsRaw" /></label>
+        </article>
+    </section>
+
+    <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Save client</button>
+        <a class="btn btn-outline-secondary" href="@(Id is null ? "/clients" : $"/clients/{Id}")">Cancel</a>
+    </div>
+</EditForm>
+
+@code {
+    [Parameter]
+    public int? Id { get; set; }
+
+    private ClientEditModel model = new();
+    private string? statusMessage;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        model = await ClientOperations.LoadClientAsync(Id);
+        EnsureEditableRows();
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            var clientId = await ClientOperations.SaveClientAsync(model);
+            Navigation.NavigateTo($"/clients/{clientId}");
+        }
+        catch (ValidationException ex)
+        {
+            statusMessage = ex.Message;
+        }
+        catch (InvalidOperationException ex)
+        {
+            statusMessage = ex.Message;
+        }
+    }
+
+    private void AddContact() => model.ContactPoints.Add(new ClientContactPointEditModel());
+
+    private void RemoveContact(int index)
+    {
+        if (index >= 0 && index < model.ContactPoints.Count)
+        {
+            model.ContactPoints.RemoveAt(index);
+        }
+
+        EnsureEditableRows();
+    }
+
+    private void AddAddress() => model.Addresses.Add(new ClientAddressEditModel());
+
+    private void RemoveAddress(int index)
+    {
+        if (index >= 0 && index < model.Addresses.Count)
+        {
+            model.Addresses.RemoveAt(index);
+        }
+
+        EnsureEditableRows();
+    }
+
+    private void EnsureEditableRows()
+    {
+        if (model.ContactPoints.Count == 0)
+        {
+            model.ContactPoints.Add(new ClientContactPointEditModel { ContactType = "Email", IsPrimary = true });
+            model.ContactPoints.Add(new ClientContactPointEditModel { ContactType = "Mobile", IsPrimary = true });
+        }
+
+        if (model.Addresses.Count == 0)
+        {
+            model.Addresses.Add(new ClientAddressEditModel { AddressType = "Physical" });
+            model.Addresses.Add(new ClientAddressEditModel { AddressType = "Postal" });
+        }
+    }
+}

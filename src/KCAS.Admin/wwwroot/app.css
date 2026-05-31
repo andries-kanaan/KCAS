@@ -555,6 +555,57 @@ a, .btn-link {
     margin-bottom: .2rem;
 }
 
+.header-actions,
+.form-actions,
+.row-actions {
+    display: flex;
+    align-items: center;
+    gap: .55rem;
+    flex-wrap: wrap;
+}
+
+.form-actions {
+    margin: 1rem 0 0;
+}
+
+.form-panel {
+    display: grid;
+    gap: .85rem;
+}
+
+.form-panel label {
+    display: grid;
+    gap: .3rem;
+    font-weight: 600;
+}
+
+.form-panel .form-control {
+    font-weight: 400;
+}
+
+.check-row {
+    display: flex !important;
+    align-items: center;
+    gap: .45rem !important;
+}
+
+.edit-row {
+    display: grid;
+    grid-template-columns: minmax(8rem, 1fr) minmax(8rem, 1fr) minmax(12rem, 2fr) auto auto;
+    gap: .75rem;
+    align-items: end;
+    padding: .8rem 0;
+    border-top: 1px solid rgba(0, 0, 0, .08);
+}
+
+.address-edit-row {
+    grid-template-columns: minmax(8rem, 1fr) minmax(16rem, 3fr) auto;
+}
+
+.tall-textarea {
+    min-height: 14rem;
+}
+
 .section-subtitle {
     margin: 0;
     color: #5d6370;
@@ -649,6 +700,25 @@ a, .btn-link {
 
 .note-table tr.is-deleted {
     opacity: .72;
+}
+
+.kyc-table-wrap {
+    margin-top: .9rem;
+}
+
+.kyc-table {
+    min-width: 860px;
+}
+
+.kyc-table th:nth-child(1),
+.kyc-table th:nth-child(2),
+.kyc-table th:nth-child(3) {
+    width: 11rem;
+}
+
+.kyc-table th:nth-child(6),
+.kyc-table th:nth-child(7) {
+    width: 9rem;
 }
 
 .note-date {

@@ -4,6 +4,8 @@
 @using Microsoft.EntityFrameworkCore
 @using KCAS.Admin.Data
 @inject ApplicationDbContext Db
+@inject ClientOperationsService ClientOperations
+@inject AuthenticationStateProvider AuthenticationStateProvider
 
 <PageTitle>@(client?.DisplayName ?? "Client")</PageTitle>
 
@@ -22,8 +24,20 @@ else
             <h1>@client.DisplayName</h1>
             <p class="text-muted mb-0">Kanaan ID: @(client.KanaanId ?? "Not captured")</p>
         </div>
-        <a class="btn btn-outline-secondary" href="/clients">Back to clients</a>
+        <div class="header-actions">
+            <AuthorizeView Policy="@KcasPermissions.ClientsManage">
+                <Authorized>
+                    <a class="btn btn-primary" href="@($"/clients/{Id}/edit")">Edit client</a>
+                </Authorized>
+            </AuthorizeView>
+            <a class="btn btn-outline-secondary" href="/clients">Back to clients</a>
+        </div>
     </div>
+
+    @if (!string.IsNullOrWhiteSpace(statusMessage))
+    {
+        <div class="alert alert-info">@statusMessage</div>
+    }
 
     <section class="detail-grid">
         <article class="detail-panel">
@@ -218,19 +232,169 @@ else
 
     <section class="detail-panel">
         <h2>Life and disability cover</h2>
-        <p class="text-muted">This is policy/KYC-derived data in the legacy app, so it will be imported with the KYC and investment modules rather than from the client master record.</p>
+        @{
+            var lifePolicies = LifeAndDisabilityPolicies;
+        }
+        @if (lifePolicies.Count == 0)
+        {
+            <p class="text-muted">No life or disability cover records imported for this client.</p>
+        }
+        else
+        {
+            <div class="financial-grid">
+                <dl>
+                    <dt>Life cover</dt>
+                    <dd>@Money(Sum(lifePolicies, policy => policy.LifeCover))</dd>
+                    <dt>Disability cover</dt>
+                    <dd>@Money(Sum(lifePolicies, policy => policy.DisabilityCover))</dd>
+                    <dt>Dread disease cover</dt>
+                    <dd>@Money(Sum(lifePolicies, policy => policy.DreadDiseaseCover))</dd>
+                </dl>
+                <dl>
+                    <dt>Compulsory values</dt>
+                    <dd>@Money(Sum(lifePolicies, policy => policy.CompulsoryContributionValue))</dd>
+                    <dt>Voluntary values</dt>
+                    <dd>@Money(Sum(lifePolicies, policy => policy.VoluntaryContributionValue))</dd>
+                    <dt>Monthly premium</dt>
+                    <dd>@Money(Sum(lifePolicies, policy => policy.MonthlyPremium))</dd>
+                </dl>
+            </div>
+
+            <div class="table-responsive note-table-wrap kyc-table-wrap">
+                <table class="table align-middle kyc-table">
+                    <thead>
+                        <tr>
+                            <th>Administrator</th>
+                            <th>Product</th>
+                            <th>Policy no</th>
+                            <th>Life</th>
+                            <th>Disability</th>
+                            <th>Premium</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var policy in lifePolicies)
+                        {
+                            <tr>
+                                <td>@Display(policy.Administrator)</td>
+                                <td>@Display(policy.Product)</td>
+                                <td>@Display(policy.PolicyNumber)</td>
+                                <td>@Money(policy.LifeCover)</td>
+                                <td>@Money(policy.DisabilityCover)</td>
+                                <td>@Money(policy.MonthlyPremium)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    <section class="detail-panel">
+        <div class="section-heading-row">
+            <div>
+                <h2>Current KYC policies</h2>
+                <p class="section-subtitle">@client.KycPolicies.Count policy record@(client.KycPolicies.Count == 1 ? "" : "s") imported</p>
+            </div>
+        </div>
+        @if (client.KycPolicies.Count == 0)
+        {
+            <p class="text-muted">No KYC policy records imported for this client.</p>
+        }
+        else
+        {
+            var currentPolicies = CurrentKycPolicies;
+            <div class="financial-grid">
+                <dl>
+                    <dt>Asset allocation value</dt>
+                    <dd>@Money(Sum(currentPolicies.Where(policy => !IsLifeAndDisabilityPolicy(policy)), policy => policy.Value))</dd>
+                    <dt>Debt</dt>
+                    <dd>@Money(Sum(currentPolicies, policy => policy.Debt))</dd>
+                    <dt>Monthly income</dt>
+                    <dd>@Money(Sum(currentPolicies, policy => policy.MonthlyIncome))</dd>
+                </dl>
+                <dl>
+                    <dt>Monthly premiums</dt>
+                    <dd>@Money(Sum(currentPolicies, policy => policy.MonthlyPremium))</dd>
+                    <dt>Once-off premiums</dt>
+                    <dd>@Money(Sum(currentPolicies, policy => policy.OnceOffPremium))</dd>
+                    <dt>Included records</dt>
+                    <dd>@currentPolicies.Count(policy => policy.IncludeInCalculations)</dd>
+                </dl>
+            </div>
+
+            <div class="table-responsive note-table-wrap kyc-table-wrap">
+                <table class="table align-middle kyc-table">
+                    <thead>
+                        <tr>
+                            <th>Main class</th>
+                            <th>Sub class</th>
+                            <th>Administrator</th>
+                            <th>Product</th>
+                            <th>Policy no</th>
+                            <th>Value</th>
+                            <th>Premium</th>
+                            <th>Flags</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var policy in currentPolicies)
+                        {
+                            <tr>
+                                <td>@Display(policy.MainClassName)</td>
+                                <td>@Display(policy.SubClassName)</td>
+                                <td>@Display(policy.Administrator)</td>
+                                <td>@Display(policy.Product)</td>
+                                <td>@Display(policy.PolicyNumber)</td>
+                                <td>@Money(policy.Value)</td>
+                                <td>@Money(policy.MonthlyPremium)</td>
+                                <td>
+                                    <div class="note-badges">
+                                        @if (policy.IncludeInCalculations)
+                                        {
+                                            <span>Included</span>
+                                        }
+                                        @if (policy.IsQuote)
+                                        {
+                                            <span>Quote</span>
+                                        }
+                                        @if (policy.IsRetirementAnnuity)
+                                        {
+                                            <span>RA</span>
+                                        }
+                                        @if (policy.IsPreservationFund)
+                                        {
+                                            <span>PF</span>
+                                        }
+                                        @if (policy.IsRetrenchmentPackage)
+                                        {
+                                            <span>RP</span>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
     </section>
 
     <section class="detail-panel">
         <div class="section-heading-row">
             <div>
                 <h2>Notes</h2>
-                <p class="section-subtitle">@client.Notes.Count note@(client.Notes.Count == 1 ? "" : "s") imported</p>
+                <p class="section-subtitle">@ActiveNotes.Count note@(ActiveNotes.Count == 1 ? "" : "s") available</p>
             </div>
+            <AuthorizeView Policy="@KcasPermissions.NotesManage">
+                <Authorized>
+                    <a class="btn btn-outline-secondary btn-sm" href="@($"/clients/{Id}/notes/new")">Add note</a>
+                </Authorized>
+            </AuthorizeView>
         </div>
-        @if (client.Notes.Count == 0)
+        @if (ActiveNotes.Count == 0)
         {
-            <p class="text-muted">No notes imported for this client.</p>
+            <p class="text-muted">No active notes captured for this client.</p>
         }
         else
         {
@@ -255,6 +419,11 @@ else
                                 <th>Title and details</th>
                                 <th>Opened by</th>
                                 <th>Status</th>
+                                <AuthorizeView Policy="@KcasPermissions.NotesManage">
+                                    <Authorized>
+                                        <th></th>
+                                    </Authorized>
+                                </AuthorizeView>
                             </tr>
                         </thead>
                         <tbody>
@@ -266,7 +435,7 @@ else
                                         <details class="note-details">
                                             <summary>@Display(note.Title)</summary>
                                             <p class="preserve-lines">@Display(note.Details)</p>
-                                            <p class="note-meta">Legacy note ID @note.LegacyClientNoteId@(string.IsNullOrWhiteSpace(note.UpdatedBy) ? "" : $" | Updated by {note.UpdatedBy}")</p>
+                                            <p class="note-meta">@NoteSource(note)@(string.IsNullOrWhiteSpace(note.UpdatedBy) ? "" : $" | Updated by {note.UpdatedBy}")</p>
                                         </details>
                                     </td>
                                     <td>@Display(note.OpenedBy)</td>
@@ -286,6 +455,20 @@ else
                                             }
                                         </div>
                                     </td>
+                                    <AuthorizeView Policy="@KcasPermissions.NotesManage">
+                                        <Authorized>
+                                            <td class="text-end">
+                                                <div class="row-actions">
+                                                    @if (!note.IsFinal)
+                                                    {
+                                                        <a class="btn btn-outline-secondary btn-sm" href="@($"/clients/{Id}/notes/{note.Id}/edit")">Edit</a>
+                                                        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="() => FinalizeNoteAsync(note.Id)">Finalize</button>
+                                                    }
+                                                    <button class="btn btn-outline-danger btn-sm" type="button" @onclick="() => DeleteNoteAsync(note.Id)">Delete</button>
+                                                </div>
+                                            </td>
+                                        </Authorized>
+                                    </AuthorizeView>
                                 </tr>
                             }
                         </tbody>
@@ -318,12 +501,18 @@ else
     private const int NotePageSize = 10;
     private Client? client;
     private string? noteFilter;
+    private string? statusMessage;
     private int notePage = 1;
 
     protected override async Task OnParametersSetAsync()
     {
         noteFilter = null;
         notePage = 1;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
         client = await Db.Clients
             .AsNoTracking()
             .Include(client => client.PersonalProfile)
@@ -333,8 +522,25 @@ else
             .Include(client => client.Relationships)
             .Include(client => client.LegacySnapshots)
             .Include(client => client.Notes)
+            .Include(client => client.KycPolicies)
             .SingleOrDefaultAsync(client => client.Id == Id);
     }
+
+    private List<ClientNote> ActiveNotes => client?.Notes
+        .Where(note => !note.IsDeleted)
+        .ToList() ?? [];
+
+    private List<ClientKycPolicy> CurrentKycPolicies => client?.KycPolicies
+        .OrderBy(policy => policy.LegacyMainClassId)
+        .ThenBy(policy => policy.LegacySubClassId)
+        .ThenBy(policy => policy.Administrator)
+        .ThenBy(policy => policy.Product)
+        .ThenBy(policy => policy.PolicyNumber)
+        .ToList() ?? [];
+
+    private List<ClientKycPolicy> LifeAndDisabilityPolicies => CurrentKycPolicies
+        .Where(IsLifeAndDisabilityPolicy)
+        .ToList();
 
     private List<ClientNote> FilteredNotes
     {
@@ -345,7 +551,7 @@ else
                 return [];
             }
 
-            var notes = client.Notes
+            var notes = ActiveNotes
                 .OrderByDescending(note => note.NoteDate)
                 .ThenByDescending(note => note.LegacyClientNoteId)
                 .AsEnumerable();
@@ -418,4 +624,33 @@ else
     private static string Percent(decimal? value) => value is null ? "Not captured" : $"{value:0.####}%";
 
     private static string YesNo(bool? value) => value is null ? "Not captured" : value.Value ? "Yes" : "No";
+
+    private static string NoteSource(ClientNote note) =>
+        note.LegacyClientNoteId is null ? "KCAS note" : $"Legacy note ID {note.LegacyClientNoteId}";
+
+    private async Task FinalizeNoteAsync(int noteId)
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        await ClientOperations.FinalizeNoteAsync(Id, noteId, authState.User.Identity?.Name);
+        statusMessage = "Note finalized.";
+        await LoadAsync();
+    }
+
+    private async Task DeleteNoteAsync(int noteId)
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        await ClientOperations.DeleteNoteAsync(Id, noteId, authState.User.Identity?.Name);
+        statusMessage = "Note deleted.";
+        await LoadAsync();
+    }
+
+    private static bool IsLifeAndDisabilityPolicy(ClientKycPolicy policy) =>
+        policy.LegacySubClassId == 29 ||
+        string.Equals(policy.SubClassName, "Life and Disability Cover", StringComparison.OrdinalIgnoreCase);
+
+    private static decimal? Sum(IEnumerable<ClientKycPolicy> policies, Func<ClientKycPolicy, decimal?> selector)
+    {
+        var values = policies.Select(selector).Where(value => value.HasValue).Select(value => value!.Value).ToList();
+        return values.Count == 0 ? null : values.Sum();
+    }
 }

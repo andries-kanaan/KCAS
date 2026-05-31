@@ -8,11 +8,11 @@ Rewrite the legacy Yii1 `kanaanclients` application into the modern Blazor proje
 
 ## Current State and Next Step
 
-- Local `main` is clean and synced with `origin/main`.
 - PR #3, `Add normalized client import and notes display`, has been merged into `main`.
-- The next recommended feature branch is `feature/kyc-policy-import`.
-- The next functional goal is to import legacy KYC/policy data so the client detail page can populate life/disability cover and related planning sections.
-- Before any new feature work, create a branch from clean `main` and keep changes scoped to one domain slice.
+- The current supporting-data branch is `feature/kyc-policy-import`.
+- The next product-development phase is `Client Operations v1`.
+- The next functional goal is to make KCAS usable for day-to-day client administration: create/edit normalized client records and manage client notes.
+- Legacy imports remain important for hydration and reconciliation, but they should not block operational KCAS development unless the feature being built depends on imported data.
 
 ## Local Development Setup
 
@@ -45,6 +45,18 @@ Rewrite the legacy Yii1 `kanaanclients` application into the modern Blazor proje
 
 - Path: `C:\wamp64\www\yii\demos\kanaanclients`
 - Legacy database: MySQL `kanaanclients`
+- Legacy Yii database config:
+  - `C:\wamp64\www\yii\demos\kanaanclients\protected\config\main.php`
+  - Do not copy legacy database passwords into committed docs or PR descriptions.
+- Legacy client workflow source:
+  - Controllers: `C:\wamp64\www\yii\demos\kanaanclients\protected\controllers`
+  - Models: `C:\wamp64\www\yii\demos\kanaanclients\protected\models`
+  - Client screens: `C:\wamp64\www\yii\demos\kanaanclients\protected\views\client`
+  - Note screens: `C:\wamp64\www\yii\demos\kanaanclients\protected\views\clientnote`
+- Legacy SQL dumps available in the app root:
+  - `kanaanclients.sql`
+  - `kanaanclientsmonthly.sql`
+  - `kanaanclientsweekly.sql`
 - Legacy tables identified:
   - `tbl_client`
   - `tbl_clientnote`
@@ -228,31 +240,37 @@ Still to verify manually in browser:
    - Manually verify first-user promotion, approval workflow, and Windows login behavior in the browser.
    - Keep automated security seed and smoke tests in place.
 
-2. Legacy domain analysis.
+2. Client Operations v1.
+   - Create and edit normalized client records in KCAS.
+   - Manage client contact points and addresses from the operational UI.
+   - Add, edit, finalize, and soft-delete KCAS client notes.
+   - Keep imported legacy snapshots read-only for audit and reconciliation.
+   - Enforce `Clients.Manage` and `Notes.Manage` for operational changes.
+
+3. Legacy domain analysis.
    - Document current Yii models, controllers, workflows, and screen behavior.
    - Identify actual business concepts behind legacy table/field names.
    - Decide which legacy screens should be rebuilt first.
 
-3. New schema design.
+4. New schema design.
    - Design normalized EF Core entities for clients, contacts, notes, products, investments, KYC, documents, and reporting.
    - Break up over-wide legacy structures where needed.
    - Add explicit relationships, constraints, indexes, audit fields, and import traceability.
 
-4. Continue the client workflow.
+5. Continue the client workflow.
    - Review imported client detail fields against the old Yii screens.
    - Review imported notes display against the old Yii notes grid.
-   - Add basic client edit screens only after confirming the normalized imported view is correct.
-   - Add note create/edit/finalize/delete after the read-only note import is accepted.
+   - Expand edit coverage for spouse/dependent relationships after the core client operations UI is accepted.
    - Import KYC/policy data to populate life and disability cover and related calculated planning sections.
 
-5. Expand functional modules.
+6. Expand functional modules.
    - Investments/accounts/history.
    - KYC and recommendations.
    - Funds/products/reference data.
    - Reports.
    - Administration/security.
 
-6. Production readiness.
+7. Production readiness.
    - Decide final hosting target.
    - Add CI/CD using GitHub once the remote is created.
    - Use `dotnet publish` in the deployment pipeline.

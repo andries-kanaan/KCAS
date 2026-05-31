@@ -1,0 +1,91 @@
+using KCAS.Admin.Data;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace KCAS.Admin.Tests;
+
+[Collection(KcasTestCollection.Name)]
+public sealed class ClientOperationsServiceTests(KcasWebApplicationFactory factory)
+{
+    [Fact]
+    public async Task SaveClientAsync_creates_and_updates_normalized_client_details()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientOperationsService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        var clientId = await service.SaveClientAsync(new ClientEditModel
+        {
+            KanaanId = "OPS-1",
+            FullName = "Operational",
+            SurnameOrEntityName = "Client",
+            DisplayName = "Operational Client",
+            SouthAfricanIdNumber = "8001015009087",
+            Employer = "Kanaan",
+            ContactPoints =
+            [
+                new() { ContactType = "Email", Value = "ops@example.com" },
+                new() { ContactType = "Mobile", Value = "0820000000" }
+            ],
+            Addresses =
+            [
+                new() { AddressType = "Physical", LinesRaw = "1 Main Road" }
+            ]
+        });
+
+        var editModel = await service.LoadClientAsync(clientId);
+        editModel.DisplayName = "Updated Operational Client";
+        editModel.ContactPoints[0].Value = "updated@example.com";
+        await service.SaveClientAsync(editModel);
+
+        var saved = await db.Clients
+            .AsNoTracking()
+            .Include(client => client.PersonalProfile)
+            .Include(client => client.FinancialProfile)
+            .Include(client => client.ContactPoints)
+            .Include(client => client.Addresses)
+            .SingleAsync(client => client.Id == clientId);
+
+        Assert.Equal("Updated Operational Client", saved.DisplayName);
+        Assert.Equal("8001015009087", saved.PersonalProfile?.SouthAfricanIdNumber);
+        Assert.Equal("Kanaan", saved.FinancialProfile?.Employer);
+        Assert.Contains(saved.ContactPoints, contact => contact.Value == "updated@example.com" && contact.IsPrimary);
+        Assert.Contains(saved.Addresses, address => address.AddressType == "Physical");
+    }
+
+    [Fact]
+    public async Task Notes_can_be_created_edited_finalized_and_soft_deleted_without_legacy_id()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientOperationsService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        var clientId = await service.SaveClientAsync(new ClientEditModel
+        {
+            KanaanId = "OPS-2",
+            SurnameOrEntityName = "Notes",
+            DisplayName = "Notes Client"
+        });
+
+        var noteId = await service.SaveNoteAsync(new ClientNoteEditModel
+        {
+            ClientId = clientId,
+            NoteDate = new DateOnly(2026, 5, 31),
+            Title = "Draft note",
+            Details = "Initial details"
+        }, "tester");
+
+        var noteModel = await service.LoadNoteAsync(clientId, noteId);
+        noteModel.Details = "Updated details";
+        await service.SaveNoteAsync(noteModel, "tester");
+        await service.FinalizeNoteAsync(clientId, noteId, "tester");
+        await service.DeleteNoteAsync(clientId, noteId, "tester");
+
+        var saved = await db.ClientNotes.AsNoTracking().SingleAsync(note => note.Id == noteId);
+        Assert.Null(saved.LegacyClientNoteId);
+        Assert.Equal("Updated details", saved.Details);
+        Assert.True(saved.IsFinal);
+        Assert.True(saved.IsDeleted);
+        Assert.Equal("tester", saved.UpdatedBy);
+    }
+}

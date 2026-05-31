@@ -111,4 +111,45 @@ public sealed class ClientSearchServiceTests(KcasWebApplicationFactory factory)
 
         Assert.Contains(loaded.Notes, note => note.LegacyClientNoteId == 9001);
     }
+
+    [Fact]
+    public async Task Client_can_load_imported_kyc_policies()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        var client = new Client
+        {
+            LegacyClientId = 504,
+            KanaanId = "504",
+            SurnameOrEntityName = "Kyc",
+            DisplayName = "Kyc Client"
+        };
+        client.KycPolicies.Add(new ClientKycPolicy
+        {
+            LegacyKycId = 9101,
+            LegacyClientId = 504,
+            LegacyMainClassId = 6,
+            MainClassName = "Other",
+            LegacySubClassId = 29,
+            SubClassName = "Life and Disability Cover",
+            Administrator = "Discovery",
+            Product = "Life & Disability",
+            PolicyNumber = "POL-1",
+            Value = 100000m,
+            LifeCover = 100000m,
+            DisabilityCover = 50000m,
+            IncludeInCalculations = true,
+            PayloadJson = "{}"
+        });
+        db.Clients.Add(client);
+        await db.SaveChangesAsync();
+        var clientId = client.Id;
+
+        var loaded = await db.Clients
+            .Include(client => client.KycPolicies)
+            .SingleAsync(client => client.Id == clientId);
+
+        Assert.Contains(loaded.KycPolicies, policy => policy.LegacyKycId == 9101 && policy.SubClassName == "Life and Disability Cover");
+    }
 }
