@@ -15,6 +15,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<ClientRelationship> ClientRelationships => Set<ClientRelationship>();
     public DbSet<ClientLegacySnapshot> ClientLegacySnapshots => Set<ClientLegacySnapshot>();
     public DbSet<ClientNote> ClientNotes => Set<ClientNote>();
+    public DbSet<ClientKycPolicy> ClientKycPolicies => Set<ClientKycPolicy>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -172,6 +173,31 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.HasIndex(note => note.LegacyClientNoteId).IsUnique();
             entity.HasIndex(note => new { note.ClientId, note.NoteDate });
             entity.HasIndex(note => note.Title);
+        });
+
+        builder.Entity<ClientKycPolicy>(entity =>
+        {
+            entity.HasOne(policy => policy.Client)
+                .WithMany(client => client.KycPolicies)
+                .HasForeignKey(policy => policy.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(policy => policy.Value).HasPrecision(18, 2);
+            entity.Property(policy => policy.LifeCover).HasPrecision(18, 2);
+            entity.Property(policy => policy.DisabilityCover).HasPrecision(18, 2);
+            entity.Property(policy => policy.DreadDiseaseCover).HasPrecision(18, 2);
+            entity.Property(policy => policy.CompulsoryContributionValue).HasPrecision(18, 2);
+            entity.Property(policy => policy.VoluntaryContributionValue).HasPrecision(18, 2);
+            entity.Property(policy => policy.Debt).HasPrecision(18, 2);
+            entity.Property(policy => policy.MonthlyPremium).HasPrecision(18, 2);
+            entity.Property(policy => policy.OnceOffPremium).HasPrecision(18, 2);
+            entity.Property(policy => policy.MonthlyIncome).HasPrecision(18, 2);
+            entity.Property(policy => policy.CapitalAdequacyRatioPercent).HasPrecision(9, 4);
+            entity.Property(policy => policy.TaxPercent).HasPrecision(9, 4);
+            entity.HasIndex(policy => policy.LegacyKycId).IsUnique();
+            entity.HasIndex(policy => policy.ClientId);
+            entity.HasIndex(policy => policy.PolicyNumber);
+            entity.HasIndex(policy => new { policy.LegacyMainClassId, policy.LegacySubClassId });
+            entity.HasIndex(policy => new { policy.IncludeInCalculations, policy.IsQuote });
         });
     }
 }

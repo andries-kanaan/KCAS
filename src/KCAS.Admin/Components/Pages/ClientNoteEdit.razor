@@ -1,0 +1,71 @@
+@page "/clients/{ClientId:int}/notes/new"
+@page "/clients/{ClientId:int}/notes/{NoteId:int}/edit"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.NotesManage)]
+@using System.ComponentModel.DataAnnotations
+@using KCAS.Admin.Data
+@inject ClientOperationsService ClientOperations
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>@(NoteId is null ? "New note" : "Edit note")</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Client notes</p>
+        <h1>@(NoteId is null ? "New note" : "Edit note")</h1>
+    </div>
+    <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}")">Cancel</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(statusMessage))
+{
+    <div class="alert alert-warning">@statusMessage</div>
+}
+
+<EditForm Model="model" OnValidSubmit="SaveAsync" FormName="client-note-edit">
+    <section class="detail-panel form-panel">
+        <label>Date <InputDate class="form-control" @bind-Value="model.NoteDate" /></label>
+        <label>Title <InputText class="form-control" @bind-Value="model.Title" /></label>
+        <label>Details <InputTextArea class="form-control tall-textarea" @bind-Value="model.Details" /></label>
+    </section>
+
+    <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Save note</button>
+        <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}")">Cancel</a>
+    </div>
+</EditForm>
+
+@code {
+    [Parameter]
+    public int ClientId { get; set; }
+
+    [Parameter]
+    public int? NoteId { get; set; }
+
+    private ClientNoteEditModel model = new();
+    private string? statusMessage;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        model = await ClientOperations.LoadNoteAsync(ClientId, NoteId);
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            await ClientOperations.SaveNoteAsync(model, authState.User.Identity?.Name);
+            Navigation.NavigateTo($"/clients/{ClientId}");
+        }
+        catch (ValidationException ex)
+        {
+            statusMessage = ex.Message;
+        }
+        catch (InvalidOperationException ex)
+        {
+            statusMessage = ex.Message;
+        }
+    }
+}

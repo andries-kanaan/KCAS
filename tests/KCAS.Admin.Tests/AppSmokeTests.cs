@@ -19,6 +19,9 @@ public sealed class AppSmokeTests(KcasWebApplicationFactory factory)
 
     [Theory]
     [InlineData("/clients")]
+    [InlineData("/clients/new")]
+    [InlineData("/clients/1/edit")]
+    [InlineData("/clients/1/notes/new")]
     [InlineData("/security")]
     public async Task Protected_pages_redirect_anonymous_users_to_login(string url)
     {

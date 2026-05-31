@@ -10,7 +10,7 @@ public class ClientNote
 
     public Client Client { get; set; } = null!;
 
-    public int LegacyClientNoteId { get; set; }
+    public int? LegacyClientNoteId { get; set; }
 
     public DateOnly? NoteDate { get; set; }
 

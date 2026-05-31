@@ -97,7 +97,8 @@ var clientsByLegacyId = await db.Clients
     .ToDictionaryAsync(client => client.LegacyClientId!.Value, client => client.Id);
 
 var notesByLegacyId = await db.ClientNotes
-    .ToDictionaryAsync(note => note.LegacyClientNoteId);
+    .Where(note => note.LegacyClientNoteId != null)
+    .ToDictionaryAsync(note => note.LegacyClientNoteId!.Value);
 
 await foreach (var row in ReadLegacyRowsAsync(legacyConnection, "tbl_clientnote"))
 {
@@ -136,10 +137,10 @@ await foreach (var row in ReadLegacyRowsAsync(legacyConnection, "tbl_clientnote"
 
     try
     {
-        if (!notesByLegacyId.TryGetValue(mapped.LegacyClientNoteId, out var existing))
+        if (!notesByLegacyId.TryGetValue(mapped.LegacyClientNoteId!.Value, out var existing))
         {
             db.ClientNotes.Add(mapped);
-            notesByLegacyId[mapped.LegacyClientNoteId] = mapped;
+            notesByLegacyId[mapped.LegacyClientNoteId.Value] = mapped;
             noteImported++;
         }
         else
@@ -168,9 +169,91 @@ if (!options.DryRun && pendingNoteChanges > 0)
     await db.SaveChangesAsync();
 }
 
+var kycImported = 0;
+var kycUpdated = 0;
+var kycSkipped = 0;
+var kycFailed = 0;
+var pendingKycChanges = 0;
+const int kycSaveBatchSize = 250;
+
+var mainClassNamesById = await ReadLookupAsync(legacyConnection, "tbl_mainclass");
+var subClassNamesById = await ReadLookupAsync(legacyConnection, "tbl_subclass");
+var kycPoliciesByLegacyId = await db.ClientKycPolicies
+    .ToDictionaryAsync(policy => policy.LegacyKycId);
+
+await foreach (var row in ReadLegacyRowsAsync(legacyConnection, "tbl_kyc"))
+{
+    var legacyClientId = ReadInt(row, "client_id");
+    if (legacyClientId is null)
+    {
+        kycSkipped++;
+        Console.Error.WriteLine($"Skipped legacy KYC id '{ValueOrUnknown(row, "id")}' because it has no client_id.");
+        continue;
+    }
+
+    if (!clientsByLegacyId.TryGetValue(legacyClientId.Value, out var clientId))
+    {
+        kycSkipped++;
+        Console.Error.WriteLine($"Skipped legacy KYC id '{ValueOrUnknown(row, "id")}' because legacy client '{legacyClientId}' was not imported.");
+        continue;
+    }
+
+    ClientKycPolicy mapped;
+    try
+    {
+        mapped = LegacyKycImportMapper.Map(row, clientId, mainClassNamesById, subClassNamesById, startedAtUtc);
+    }
+    catch (Exception ex)
+    {
+        kycFailed++;
+        Console.Error.WriteLine($"Failed to map legacy KYC id '{ValueOrUnknown(row, "id")}': {ex.Message}");
+        continue;
+    }
+
+    if (options.DryRun)
+    {
+        kycImported++;
+        continue;
+    }
+
+    try
+    {
+        if (!kycPoliciesByLegacyId.TryGetValue(mapped.LegacyKycId, out var existing))
+        {
+            db.ClientKycPolicies.Add(mapped);
+            kycPoliciesByLegacyId[mapped.LegacyKycId] = mapped;
+            kycImported++;
+        }
+        else
+        {
+            LegacyKycImportMapper.ApplyUpdatedValues(existing, mapped);
+            kycUpdated++;
+        }
+
+        pendingKycChanges++;
+        if (pendingKycChanges >= kycSaveBatchSize)
+        {
+            await db.SaveChangesAsync();
+            pendingKycChanges = 0;
+        }
+    }
+    catch (Exception ex)
+    {
+        kycFailed++;
+        db.ChangeTracker.Clear();
+        Console.Error.WriteLine($"Failed to import legacy KYC id '{mapped.LegacyKycId}': {ex.Message}");
+    }
+}
+
+if (!options.DryRun && pendingKycChanges > 0)
+{
+    await db.SaveChangesAsync();
+}
+
 Console.WriteLine($"Legacy client import complete. Imported: {clientImported}; Updated: {clientUpdated}; Skipped: {clientSkipped}; Failed: {clientFailed}; Dry run: {options.DryRun}");
 Console.WriteLine($"Legacy client note import complete. Imported: {noteImported}; Updated: {noteUpdated}; Skipped: {noteSkipped}; Failed: {noteFailed}; Dry run: {options.DryRun}");
-return clientFailed == 0 && noteFailed == 0 ? 0 : 1;
+Console.WriteLine($"Legacy KYC import complete. Imported: {kycImported}; Updated: {kycUpdated}; Skipped: {kycSkipped}; Failed: {kycFailed}; Dry run: {options.DryRun}");
+return clientFailed == 0 && noteFailed == 0 && kycFailed == 0 ? 0 : 1;
 
 static async IAsyncEnumerable<IReadOnlyDictionary<string, string?>> ReadLegacyRowsAsync(MySqlConnection connection, string tableName)
 {
@@ -190,6 +273,23 @@ static async IAsyncEnumerable<IReadOnlyDictionary<string, string?>> ReadLegacyRo
 
         yield return row;
     }
+}
+
+static async Task<Dictionary<int, string>> ReadLookupAsync(MySqlConnection connection, string tableName)
+{
+    var values = new Dictionary<int, string>();
+
+    await foreach (var row in ReadLegacyRowsAsync(connection, tableName))
+    {
+        var id = ReadInt(row, "id");
+        var name = row.TryGetValue("name", out var value) ? value : null;
+        if (id is not null && !string.IsNullOrWhiteSpace(name))
+        {
+            values[id.Value] = name.Trim();
+        }
+    }
+
+    return values;
 }
 
 static string ValueOrUnknown(IReadOnlyDictionary<string, string?> row, string key)

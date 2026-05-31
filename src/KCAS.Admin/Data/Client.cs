@@ -51,4 +51,6 @@ public class Client
     public ICollection<ClientLegacySnapshot> LegacySnapshots { get; } = [];
 
     public ICollection<ClientNote> Notes { get; } = [];
+
+    public ICollection<ClientKycPolicy> KycPolicies { get; } = [];
 }
