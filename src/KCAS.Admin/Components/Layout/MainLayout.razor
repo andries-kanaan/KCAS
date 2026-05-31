@@ -1,13 +1,23 @@
 ﻿@inherits LayoutComponentBase
 
 <div class="app-shell">
+    <input id="sidebar-toggle" class="sidebar-toggle" type="checkbox" />
+
     <div class="sidebar">
         <NavMenu />
     </div>
 
     <main class="main-panel">
         <div class="top-row">
-            <div>
+            <label class="sidebar-toggle-button" for="sidebar-toggle" title="Collapse navigation" aria-label="Collapse navigation">
+                <span></span>
+                <span></span>
+                <span></span>
+            </label>
+            <div class="top-brand">
+                <img src="images/kanaan-header.jpg" alt="Kanaan Asset Managers" />
+            </div>
+            <div class="top-title">
                 <p class="top-kicker">Kanaan Client Administration System</p>
                 <h1>Administration workspace</h1>
             </div>
