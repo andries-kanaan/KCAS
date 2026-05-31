@@ -1,0 +1,162 @@
+@page "/security"
+@attribute [Authorize(Policy = KcasPermissions.SecurityManage)]
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using KCAS.Admin.Data
+@inject UserManager<ApplicationUser> UserManager
+@inject RoleManager<IdentityRole> RoleManager
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Security</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Administration</p>
+        <h1>Security</h1>
+        <p class="lede">Approve users and assign roles. Permissions are granted to roles and enforced by authorization policies.</p>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(statusMessage))
+{
+    <div class="alert alert-info">@statusMessage</div>
+}
+
+<section class="work-area">
+    <h2>Users</h2>
+    <div class="table-responsive">
+        <table class="table align-middle">
+            <thead>
+                <tr>
+                    <th>User</th>
+                    <th>Windows account</th>
+                    <th>Status</th>
+                    <th>Roles</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var user in users)
+                {
+                    <tr>
+                        <td>
+                            <strong>@(user.DisplayName ?? user.Email ?? user.UserName)</strong>
+                            <div class="muted">@user.Email</div>
+                        </td>
+                        <td>@(user.WindowsAccountName ?? "-")</td>
+                        <td>@(user.IsApproved ? "Approved" : "Pending")</td>
+                        <td>
+                            <div class="role-list">
+                                @foreach (var role in roles)
+                                {
+                                    var hasRole = user.RoleNames.Contains(role.Name);
+                                    <label class="role-choice">
+                                        <input type="checkbox" checked="@hasRole" @onchange="() => ToggleRoleAsync(user, role, !hasRole)" />
+                                        <span>@role.Name</span>
+                                    </label>
+                                }
+                            </div>
+                        </td>
+                        <td class="text-end">
+                            @if (!user.IsApproved)
+                            {
+                                <button type="button" class="btn btn-sm btn-primary" @onclick="() => ApproveUserAsync(user)">Approve</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="work-area">
+    <h2>Role permissions</h2>
+    <div class="workspace-grid">
+        @foreach (var role in roles)
+        {
+            <div>
+                <h3>@role.Name</h3>
+                <ul class="permission-list">
+                    @foreach (var permission in role.Permissions)
+                    {
+                        <li>@permission</li>
+                    }
+                </ul>
+            </div>
+        }
+    </div>
+</section>
+
+@code {
+    private List<UserRow> users = [];
+    private List<RoleRow> roles = [];
+    private string? currentUserId;
+    private string? statusMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        currentUserId = UserManager.GetUserId(authState.User);
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        roles = [];
+        foreach (var role in await RoleManager.Roles.OrderBy(role => role.Name).ToListAsync())
+        {
+            var claims = await RoleManager.GetClaimsAsync(role);
+            roles.Add(new RoleRow(
+                role.Id,
+                role.Name ?? "",
+                claims
+                    .Where(claim => claim.Type == KcasClaimTypes.Permission)
+                    .Select(claim => claim.Value)
+                    .OrderBy(permission => permission)
+                    .ToList()));
+        }
+
+        users = [];
+        foreach (var user in await UserManager.Users.OrderBy(user => user.Email).ToListAsync())
+        {
+            var userRoles = await UserManager.GetRolesAsync(user);
+            users.Add(new UserRow(user, userRoles.ToHashSet(StringComparer.OrdinalIgnoreCase)));
+        }
+    }
+
+    private async Task ApproveUserAsync(UserRow row)
+    {
+        row.User.IsApproved = true;
+        row.User.ApprovedAtUtc = DateTime.UtcNow;
+        row.User.ApprovedByUserId = currentUserId;
+        var result = await UserManager.UpdateAsync(row.User);
+        statusMessage = result.Succeeded
+            ? $"Approved {row.User.Email ?? row.User.UserName}."
+            : string.Join("; ", result.Errors.Select(error => error.Description));
+        await LoadAsync();
+    }
+
+    private async Task ToggleRoleAsync(UserRow row, RoleRow role, bool shouldHaveRole)
+    {
+        var result = shouldHaveRole
+            ? await UserManager.AddToRoleAsync(row.User, role.Name)
+            : await UserManager.RemoveFromRoleAsync(row.User, role.Name);
+
+        statusMessage = result.Succeeded
+            ? $"Updated roles for {row.User.Email ?? row.User.UserName}."
+            : string.Join("; ", result.Errors.Select(error => error.Description));
+        await LoadAsync();
+    }
+
+    private sealed record UserRow(ApplicationUser User, HashSet<string> RoleNames)
+    {
+        public string? DisplayName => User.DisplayName;
+        public string? Email => User.Email;
+        public string? UserName => User.UserName;
+        public string? WindowsAccountName => User.WindowsAccountName;
+        public bool IsApproved => User.IsApproved;
+    }
+
+    private sealed record RoleRow(string Id, string Name, IReadOnlyList<string> Permissions);
+}

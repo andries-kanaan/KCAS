@@ -13,14 +13,19 @@
 
 <PageTitle>Log in</PageTitle>
 
-<h1>Log in</h1>
-<div class="row">
-    <div class="col-lg-6">
+<div class="auth-shell">
+    <section class="auth-brand-panel">
+        <img src="images/kanaan-header.jpg" alt="Kanaan Asset Managers" />
+        <p class="eyebrow">Kanaan Client Administration System</p>
+        <h1>Client administration</h1>
+    </section>
+
+    <div class="auth-form-panel">
         <section>
             <StatusMessage Message="@errorMessage" />
             <EditForm EditContext="editContext" method="post" OnSubmit="LoginUser" FormName="login">
                 <DataAnnotationsValidator />
-                <h2>Use a local account to log in.</h2>
+                <h2>Log in</h2>
                 <hr />
                 <ValidationSummary class="text-danger" role="alert" />
                 <div class="form-floating mb-3">
@@ -42,6 +47,9 @@
                 <div>
                     <button type="submit" class="w-100 btn btn-lg btn-primary">Log in</button>
                 </div>
+                <div class="mt-3">
+                    <a class="w-100 btn btn-lg btn-outline-secondary" href="@WindowsLoginUrl">Log in with Windows</a>
+                </div>
                 <hr />
                 <div class="d-flex flex-column">
                     <span class="text-secondary mx-auto mt-2">OR</span>
@@ -62,18 +70,14 @@
             </EditForm>
         </section>
     </div>
-    <div class="col-lg-4 col-lg-offset-2">
-        <section>
-            <h3>Use another service to log in.</h3>
-            <hr />
-            <ExternalLoginPicker />
-        </section>
-    </div>
 </div>
 
 @code {
     private string? errorMessage;
     private EditContext editContext = default!;
+    private string WindowsLoginUrl => NavigationManager.GetUriWithQueryParameters(
+        "Account/WindowsLogin",
+        new Dictionary<string, object?> { ["returnUrl"] = ReturnUrl });
 
     [CascadingParameter]
     private HttpContext HttpContext { get; set; } = default!;
@@ -127,7 +131,8 @@
         if (result.Succeeded)
         {
             Logger.LogInformation("User logged in.");
-            RedirectManager.RedirectTo(ReturnUrl);
+            var user = await UserManager.FindByNameAsync(Input.Email);
+            RedirectManager.RedirectTo(user?.IsApproved == true ? ReturnUrl : "Account/PendingApproval");
         }
         else if (result.RequiresTwoFactor)
         {

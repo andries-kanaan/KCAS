@@ -6,8 +6,10 @@
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.WebUtilities
 @using KCAS.Admin.Data
+@using KCAS.Admin.Security
 
 @inject UserManager<ApplicationUser> UserManager
+@inject RoleManager<IdentityRole> RoleManager
 @inject IUserStore<ApplicationUser> UserStore
 @inject SignInManager<ApplicationUser> SignInManager
 @inject IEmailSender<ApplicationUser> EmailSender
@@ -17,14 +19,18 @@
 
 <PageTitle>Register</PageTitle>
 
-<h1>Register</h1>
+<div class="auth-shell">
+    <section class="auth-brand-panel">
+        <img src="images/kanaan-header.jpg" alt="Kanaan Asset Managers" />
+        <p class="eyebrow">Kanaan Client Administration System</p>
+        <h1>Secure access</h1>
+    </section>
 
-<div class="row">
-    <div class="col-lg-6">
+    <div class="auth-form-panel">
         <StatusMessage Message="@Message" />
         <EditForm Model="Input" method="post" OnValidSubmit="RegisterUser" FormName="register">
             <DataAnnotationsValidator />
-            <h2>Create a new account.</h2>
+            <h2>Register</h2>
             <hr />
             <ValidationSummary class="text-danger" role="alert" />
             <div class="form-floating mb-3">
@@ -44,13 +50,6 @@
             </div>
             <button type="submit" class="w-100 btn btn-lg btn-primary">Register</button>
         </EditForm>
-    </div>
-    <div class="col-lg-4 col-lg-offset-2">
-        <section>
-            <h3>Use another service to register.</h3>
-            <hr />
-            <ExternalLoginPicker />
-        </section>
     </div>
 </div>
 
@@ -85,6 +84,8 @@
             return;
         }
 
+        await KcasSecuritySeeder.PromoteFirstUserIfNeededAsync(UserManager, RoleManager, user);
+
         Logger.LogInformation("User created a new account with password.");
 
         var userId = await UserManager.GetUserIdAsync(user);
@@ -105,7 +106,7 @@
         else
         {
             await SignInManager.SignInAsync(user, isPersistent: false);
-            RedirectManager.RedirectTo(ReturnUrl);
+            RedirectManager.RedirectTo(user.IsApproved ? ReturnUrl : "Account/PendingApproval");
         }
     }
 
@@ -113,7 +114,11 @@
     {
         try
         {
-            return Activator.CreateInstance<ApplicationUser>();
+            return new ApplicationUser
+            {
+                IsApproved = false,
+                CreatedAtUtc = DateTime.UtcNow
+            };
         }
         catch
         {
