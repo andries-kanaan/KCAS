@@ -320,7 +320,6 @@ a, .btn-link {
     color: #fff;
     background:
         linear-gradient(120deg, rgba(17, 20, 27, .94), rgba(29, 24, 19, .68)),
-        url("images/kanaan-header.jpg") no-repeat right 1.25rem top 1.25rem / min(36rem, 72%),
         linear-gradient(135deg, #001a70, #614522 55%, #d5c07a);
     border-radius: 8px;
     box-shadow: 0 18px 48px rgba(23, 37, 43, .15);
@@ -362,15 +361,6 @@ a, .btn-link {
     flex-wrap: wrap;
     gap: .65rem;
     margin-top: 1.25rem;
-}
-
-.hero-brand {
-    width: min(23rem, 82vw);
-    height: auto;
-    margin-bottom: 1.25rem;
-    background: #fff;
-    border-radius: 6px;
-    box-shadow: 0 14px 34px rgba(0, 0, 0, .18);
 }
 
 .button-primary,
