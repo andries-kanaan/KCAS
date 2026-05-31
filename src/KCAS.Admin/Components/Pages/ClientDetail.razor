@@ -25,6 +25,7 @@ else
             <p class="text-muted mb-0">Kanaan ID: @(client.KanaanId ?? "Not captured")</p>
         </div>
         <div class="header-actions">
+            <a class="btn btn-outline-secondary" href="#investments">Investments</a>
             <AuthorizeView Policy="@KcasPermissions.ClientsManage">
                 <Authorized>
                     <a class="btn btn-primary" href="@($"/clients/{Id}/edit")">Edit client</a>
@@ -380,7 +381,7 @@ else
         }
     </section>
 
-    <section class="detail-panel">
+    <section id="investments" class="detail-panel">
         <div class="section-heading-row">
             <div>
                 <h2>Investments</h2>
@@ -631,6 +632,7 @@ else
     {
         client = await Db.Clients
             .AsNoTracking()
+            .AsSplitQuery()
             .Include(client => client.PersonalProfile)
             .Include(client => client.FinancialProfile)
             .Include(client => client.ContactPoints)
