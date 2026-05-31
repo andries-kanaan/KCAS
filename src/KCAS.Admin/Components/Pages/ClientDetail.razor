@@ -383,6 +383,119 @@ else
     <section class="detail-panel">
         <div class="section-heading-row">
             <div>
+                <h2>Investments</h2>
+                <p class="section-subtitle">@InvestmentAccounts.Count account@(InvestmentAccounts.Count == 1 ? "" : "s") available</p>
+            </div>
+        </div>
+        @if (InvestmentAccounts.Count == 0)
+        {
+            <p class="text-muted">No investment account records available for this client.</p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead>
+                        <tr>
+                            <th>Account</th>
+                            <th>Administrator</th>
+                            <th>Product</th>
+                            <th>Fund</th>
+                            <th>Dates</th>
+                            <th>Latest balance</th>
+                            <th>Transactions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var account in InvestmentAccounts)
+                        {
+                            var activeTransactions = account.Transactions.Where(transaction => !transaction.IsDeleted).ToList();
+                            var latestTransaction = LatestTransaction(account);
+                            <tr>
+                                <td>
+                                    <strong>@Display(account.AccountNumber)</strong>
+                                    <div class="text-muted small">Legacy account ID @account.LegacyInvestmentAccountId</div>
+                                </td>
+                                <td>@Display(account.Administrator)</td>
+                                <td>
+                                    @Display(account.ProductName)
+                                    <div class="text-muted small">@Display(account.ProductType)</div>
+                                </td>
+                                <td>@Display(account.FundName)</td>
+                                <td>
+                                    <div>Started: @Date(account.InvestmentDate)</div>
+                                    <div>Surrender: @Date(account.SurrenderDate)</div>
+                                </td>
+                                <td>
+                                    <div>@Money(latestTransaction?.BalanceZar)</div>
+                                    <div class="text-muted small">@Money(latestTransaction?.BalanceForeign)</div>
+                                </td>
+                                <td>
+                                    @activeTransactions.Count
+                                    @if (latestTransaction is not null)
+                                    {
+                                        <div class="text-muted small">Latest: @Date(latestTransaction.TransactionDate)</div>
+                                    }
+                                </td>
+                            </tr>
+                            @if (activeTransactions.Count > 0)
+                            {
+                                <tr>
+                                    <td colspan="7">
+                                        <details>
+                                            <summary>Show history</summary>
+                                            <div class="table-responsive mt-2">
+                                                <table class="table table-sm align-middle">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>Date</th>
+                                                            <th>Description</th>
+                                                            <th>Frequency</th>
+                                                            <th>Investment</th>
+                                                            <th>Withdrawal</th>
+                                                            <th>Balance</th>
+                                                            <th>Status</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        @foreach (var transaction in activeTransactions.OrderByDescending(transaction => transaction.TransactionDate).ThenByDescending(transaction => transaction.LegacyInvestmentHistoryId).Take(10))
+                                                        {
+                                                            <tr>
+                                                                <td>@Date(transaction.TransactionDate)</td>
+                                                                <td>@Display(transaction.Description)</td>
+                                                                <td>@Display(transaction.InvestmentFrequency)</td>
+                                                                <td>
+                                                                    <div>@Money(transaction.InvestmentAmountZar)</div>
+                                                                    <div class="text-muted small">@Money(transaction.InvestmentAmountForeign)</div>
+                                                                </td>
+                                                                <td>
+                                                                    <div>@Money(transaction.WithdrawalAmountZar)</div>
+                                                                    <div class="text-muted small">@Money(transaction.WithdrawalAmountForeign)</div>
+                                                                </td>
+                                                                <td>
+                                                                    <div>@Money(transaction.BalanceZar)</div>
+                                                                    <div class="text-muted small">@Money(transaction.BalanceForeign)</div>
+                                                                </td>
+                                                                <td>@(transaction.IsFinal ? "Final" : "Preliminary")</td>
+                                                            </tr>
+                                                        }
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </details>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    <section class="detail-panel">
+        <div class="section-heading-row">
+            <div>
                 <h2>Notes</h2>
                 <p class="section-subtitle">@ActiveNotes.Count note@(ActiveNotes.Count == 1 ? "" : "s") available</p>
             </div>
@@ -526,6 +639,8 @@ else
             .Include(client => client.LegacySnapshots)
             .Include(client => client.Notes)
             .Include(client => client.KycPolicies)
+            .Include(client => client.InvestmentAccounts)
+                .ThenInclude(account => account.Transactions)
             .SingleOrDefaultAsync(client => client.Id == Id);
     }
 
@@ -544,6 +659,12 @@ else
     private List<ClientKycPolicy> LifeAndDisabilityPolicies => CurrentKycPolicies
         .Where(IsLifeAndDisabilityPolicy)
         .ToList();
+
+    private List<ClientInvestmentAccount> InvestmentAccounts => client?.InvestmentAccounts
+        .OrderByDescending(account => account.InvestmentDate)
+        .ThenBy(account => account.Administrator)
+        .ThenBy(account => account.AccountNumber)
+        .ToList() ?? [];
 
     private List<ClientNote> FilteredNotes
     {
@@ -626,6 +747,8 @@ else
 
     private static string Percent(decimal? value) => value is null ? "Not captured" : $"{value:0.####}%";
 
+    private static string Date(DateOnly? value) => value is null ? "Not captured" : value.Value.ToString("yyyy-MM-dd");
+
     private static string YesNo(bool? value) => value is null ? "Not captured" : value.Value ? "Yes" : "No";
 
     private static string NoteSource(ClientNote note) =>
@@ -650,6 +773,13 @@ else
     private static bool IsLifeAndDisabilityPolicy(ClientKycPolicy policy) =>
         policy.LegacySubClassId == 29 ||
         string.Equals(policy.SubClassName, "Life and Disability Cover", StringComparison.OrdinalIgnoreCase);
+
+    private static ClientInvestmentTransaction? LatestTransaction(ClientInvestmentAccount account) =>
+        account.Transactions
+            .Where(transaction => !transaction.IsDeleted)
+            .OrderByDescending(transaction => transaction.TransactionDate)
+            .ThenByDescending(transaction => transaction.LegacyInvestmentHistoryId)
+            .FirstOrDefault();
 
     private static decimal? Sum(IEnumerable<ClientKycPolicy> policies, Func<ClientKycPolicy, decimal?> selector)
     {

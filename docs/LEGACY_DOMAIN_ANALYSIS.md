@@ -99,7 +99,10 @@ Important behavior:
 
 Current KCAS coverage:
 
-- No normalized investment account/history/fund module exists yet.
+- Normalized investment account and investment transaction entities exist.
+- `tbl_investmentaccount` and `tbl_investmenthistory` are imported as seed data.
+- Client detail pages show read-only investment account summaries and recent transaction history.
+- Investment editing, fund summaries, and report calculations are not rebuilt yet.
 
 ### Reference Data
 
@@ -141,26 +144,23 @@ They are not the final production dataset. Once KCAS is ready for deployment and
 
 ## Recommended Next Slice
 
-Build the investment read model and seed import next.
+Review the imported investment display, then choose the next operational investment or KYC slice.
 
-Scope:
+Candidate investment follow-up scope:
 
-- Add normalized entities for investment accounts and investment history.
-- Preserve enough legacy traceability for import reconciliation.
-- Import `tbl_investmentaccount` and `tbl_investmenthistory` into KCAS seed data.
-- Add a read-only investment section to the client detail page.
-- Add mapper/import tests using realistic legacy rows.
+- Add investment account editing.
+- Add investment transaction editing.
+- Add fuller fund/current-value summaries from `tbl_fund`.
+- Rebuild selected fund summary/report views only after the imported account/history display is accepted.
 
 Reasoning:
 
 - Client, notes, relationships, and KYC summaries already provide the client-centered foundation.
-- Investment accounts and history are the next largest operational data set and are needed before meaningful planning/report rebuilds.
-- A read-only import/view slice reduces risk before adding edit screens or report calculations.
+- Investment accounts and history are now available for review in KCAS.
+- The next step should be driven by what is most useful operationally after reviewing that data: editing workflows, fund summaries, or deeper KYC management.
 
 Deferred until after this slice:
 
-- Investment account editing.
-- Investment history editing.
 - Fund summary reports.
 - KYC transfer/copy workflow.
 - Planning and Excel-style reports.

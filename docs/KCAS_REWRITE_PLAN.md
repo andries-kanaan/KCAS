@@ -9,8 +9,8 @@ Rewrite the legacy Yii1 `kanaanclients` application into the modern Blazor proje
 ## Current State and Next Step
 
 - PR #6, `Add client relationship editing`, has been merged into `main`.
-- The current product-development phase is `Legacy Domain Analysis`.
-- The next functional goal is to start the investments read model and seed import slice.
+- The current product-development phase is `Investments Read Model`.
+- The next functional goal is to review the imported investment display and then decide whether to add investment editing, fund summaries, or KYC workflow next.
 - Current legacy imports are development seed data. They help design and test KCAS against realistic records, but they are disposable.
 - The final production import will happen later, from the latest `kanaanclients` data, once KCAS is ready for switch-over. At that point current seed/imported data can be cleared and replaced.
 
@@ -82,7 +82,7 @@ Rewrite the legacy Yii1 `kanaanclients` application into the modern Blazor proje
   - notes: 11670
   - funds: 710
   - investment accounts: 1524
-  - investment history: 6156
+  - investment history: 6150
   - KYC records: 1089
   - users: 9
 
@@ -222,6 +222,12 @@ Build status:
   - Reviewed the Yii client, notes, KYC, investment, fund, reference data, and report workflows.
   - Documented the observed business modules in `docs\LEGACY_DOMAIN_ANALYSIS.md`.
   - Recommended investment account/history read import as the next implementation slice.
+- Added the investments read model and seed import slice:
+  - Added normalized investment account and investment transaction entities.
+  - Added EF migration `20260531194916_AddClientInvestments`.
+  - Imported `tbl_investmentaccount` and `tbl_investmenthistory` as disposable development seed data.
+  - Added read-only investment account summaries and collapsible recent transaction history to client detail pages.
+  - Verified local import of 1,524 investment accounts and 6,150 investment history rows with 0 skipped and 0 failed.
 
 ## Current Verification Status
 
@@ -288,6 +294,7 @@ Still to verify manually in browser:
    - Add read-only investment account/history display to client detail pages.
    - Preserve legacy traceability for reconciliation without making legacy row IDs KCAS identifiers.
    - Add mapper/import tests using realistic legacy rows.
+   - Status: implemented; remaining work here is review of the display and follow-up refinement.
 
 5. New schema design.
    - Design normalized EF Core entities for clients, contacts, notes, products, investments, KYC, documents, and reporting.
