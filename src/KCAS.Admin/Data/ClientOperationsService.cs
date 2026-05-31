@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace KCAS.Admin.Data;
 
-public sealed class ClientOperationsService(ApplicationDbContext db)
+public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeGenerator clientCodeGenerator)
 {
     public async Task<ClientEditModel> LoadClientAsync(int? clientId)
     {
@@ -20,6 +20,7 @@ public sealed class ClientOperationsService(ApplicationDbContext db)
     {
         var surname = Normalize(model.SurnameOrEntityName);
         var displayName = Normalize(model.DisplayName);
+        var kanaanId = Normalize(model.KanaanId);
 
         if (string.IsNullOrWhiteSpace(surname))
         {
@@ -43,7 +44,7 @@ public sealed class ClientOperationsService(ApplicationDbContext db)
             client.UpdatedAtUtc = DateTime.UtcNow;
         }
 
-        client.KanaanId = Normalize(model.KanaanId);
+        client.KanaanId = kanaanId ?? await clientCodeGenerator.GenerateAsync();
         client.Title = Normalize(model.Title);
         client.Initials = Normalize(model.Initials);
         client.FullName = Normalize(model.FullName);
@@ -240,7 +241,7 @@ public sealed class ClientOperationsService(ApplicationDbContext db)
 
         var sortOrder = 0;
         foreach (var address in addresses)
-            {
+        {
             var lines = Normalize(address.LinesRaw);
             if (string.IsNullOrWhiteSpace(lines))
             {

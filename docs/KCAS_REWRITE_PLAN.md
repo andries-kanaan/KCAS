@@ -8,11 +8,11 @@ Rewrite the legacy Yii1 `kanaanclients` application into the modern Blazor proje
 
 ## Current State and Next Step
 
-- PR #3, `Add normalized client import and notes display`, has been merged into `main`.
-- The current supporting-data branch is `feature/kyc-policy-import`.
-- The next product-development phase is `Client Operations v1`.
-- The next functional goal is to make KCAS usable for day-to-day client administration: create/edit normalized client records and manage client notes.
-- Legacy imports remain important for hydration and reconciliation, but they should not block operational KCAS development unless the feature being built depends on imported data.
+- PR #4, `Add KYC policy import workflow`, has been merged into `main`.
+- The current product-development phase is `Standalone Client Operations`.
+- The next functional goal is to make KCAS usable for day-to-day client administration as its own system: create/edit KCAS-owned client records, assign Kanaan IDs where needed, and manage KCAS notes without runtime dependence on `kanaanclients`.
+- Current legacy imports are development seed data. They help design and test KCAS against realistic records, but they are disposable.
+- The final production import will happen later, from the latest `kanaanclients` data, once KCAS is ready for switch-over. At that point current seed/imported data can be cleared and replaced.
 
 ## Local Development Setup
 
@@ -92,8 +92,11 @@ Current decision:
 
 - Continue using MySQL locally because it fits the existing WAMP setup and the current data already lives in MySQL.
 - Design modern EF Core entities and migrations for the new app.
-- Migrate/import legacy data into the corrected schema through an explicit importer later.
-- Preserve traceability to legacy IDs during migration with legacy reference columns or import mapping tables where useful.
+- Use current legacy imports as development seed data only.
+- Migrate/import legacy data into the corrected schema through an explicit importer for testing now and for the final switch-over later.
+- Preserve only enough traceability to validate mapping and reconciliation. Do not design KCAS around preserving today's seed rows permanently.
+- KCAS-owned records must use KCAS-owned identifiers. Legacy row IDs must not become KCAS primary keys or KCAS business identifiers.
+- Kanaan ID is a current internal administration identifier used to track family units. Multiple clients can intentionally share the same Kanaan ID when they belong to the same family unit.
 
 ## Security/RBAC Plan
 
@@ -198,6 +201,12 @@ Build status:
     - Imported 11,856 local legacy notes with 0 skipped and 0 failed.
     - Added a paged, searchable Notes section to client detail pages so large note histories do not render as one long list.
     - Deferred note create/edit/finalize/delete workflow until after read/import is reviewed.
+- Added the KYC/policy seed import slice and merged it through PR #4:
+  - Added `ClientKycPolicies`.
+  - Imported KYC policy data from `tbl_kyc` for development review.
+  - Surfaced life/disability cover and current KYC policy summaries on client detail pages.
+  - Added note create/edit/finalize/delete workflow and client edit pages.
+  - Added operational tests for client notes and KYC import mapping.
 
 ## Current Verification Status
 
@@ -208,6 +217,7 @@ Correct local startup requirements:
 - Working directory must be `src\KCAS.Admin`.
 - `ASPNETCORE_ENVIRONMENT` must be `Development` for the ignored local database password to load.
 - `Start-KCAS.ps1` already follows this pattern.
+- `Restart-KCAS.ps1` stops only the KCAS Kestrel process, rebuilds, restarts it with the correct Development environment, and verifies both Kestrel and the WAMP HTTPS proxy.
 
 Manual command from repo root:
 
@@ -242,9 +252,11 @@ Still to verify manually in browser:
 
 2. Client Operations v1.
    - Create and edit normalized client records in KCAS.
+   - Generate Kanaan IDs for new records when one is not entered manually.
    - Manage client contact points and addresses from the operational UI.
    - Add, edit, finalize, and soft-delete KCAS client notes.
-   - Keep imported legacy snapshots read-only for audit and reconciliation.
+   - Treat current imported rows as disposable development seed data, not as permanent production data.
+   - Keep import traceability only for mapping checks and final-import reconciliation.
    - Enforce `Clients.Manage` and `Notes.Manage` for operational changes.
 
 3. Legacy domain analysis.
@@ -282,11 +294,13 @@ Still to verify manually in browser:
 - Do not revert unrelated working tree changes unless the user explicitly asks.
 - Before continuing feature work, inspect `git status --short --branch`.
 - Start new work from clean `main` and create a feature branch first.
-- Use `feature/kyc-policy-import` for the next recommended domain slice unless the user chooses a different priority.
+- Use `feature/standalone-client-operations` for the next recommended domain slice unless the user chooses a different priority.
 - Do not commit local secrets, logs, build output, or generated `artifacts/`.
 - Before committing feature work, run:
   - `.\.dotnet\dotnet.exe build KCAS.slnx`
   - `.\.dotnet\dotnet.exe test tests\KCAS.Admin.Tests\KCAS.Admin.Tests.csproj`
   - `.\.dotnet\dotnet.exe ef migrations has-pending-model-changes --project src\KCAS.Admin\KCAS.Admin.csproj`
+- If Kestrel was stopped to release locked build outputs, run `.\Restart-KCAS.ps1` before handing the app back to the user.
+- Before final handoff after local app work, verify `https://kcas.test:8443/clients` returns the app/login page instead of Apache `503`.
 - If the app fails at startup, capture logs before changing more code.
 - Avoid exposing database passwords in committed files or final responses.

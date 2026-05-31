@@ -13,7 +13,7 @@
     <div>
         <p class="eyebrow">Client operations</p>
         <h1>@(Id is null ? "New client" : "Edit client")</h1>
-        <p class="lede">Maintain the normalized KCAS client record. Imported legacy snapshots remain unchanged for audit.</p>
+        <p class="lede">Maintain the KCAS client record. A Kanaan ID is generated if it is left blank.</p>
     </div>
     <a class="btn btn-outline-secondary" href="@(Id is null ? "/clients" : $"/clients/{Id}")">Cancel</a>
 </div>
