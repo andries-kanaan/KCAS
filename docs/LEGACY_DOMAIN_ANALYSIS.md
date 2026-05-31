@@ -101,8 +101,9 @@ Current KCAS coverage:
 
 - Normalized investment account and investment transaction entities exist.
 - `tbl_investmentaccount` and `tbl_investmenthistory` are imported as seed data.
-- Client detail pages show read-only investment account summaries and recent transaction history.
-- Investment editing, fund summaries, and report calculations are not rebuilt yet.
+- `tbl_fund` is imported as current fund valuation seed data.
+- Client detail pages show read-only investment account summaries, current values matched from fund valuations where available, and recent transaction history.
+- Investment editing, fuller fund summaries, fee calculations, and report exports are not rebuilt yet.
 
 ### Reference Data
 
@@ -150,7 +151,7 @@ Candidate investment follow-up scope:
 
 - Add investment account editing.
 - Add investment transaction editing.
-- Add fuller fund/current-value summaries from `tbl_fund`.
+- Add fuller fund summaries, fee calculations, and report exports from `tbl_fund`.
 - Rebuild selected fund summary/report views only after the imported account/history display is accepted.
 
 Reasoning:

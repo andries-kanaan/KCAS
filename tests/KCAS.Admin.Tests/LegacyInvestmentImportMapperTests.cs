@@ -56,6 +56,28 @@ public sealed class LegacyInvestmentImportMapperTests
     }
 
     [Fact]
+    public void Fund_valuation_mapper_preserves_current_values_account_keys_audit_and_snapshot()
+    {
+        var valuation = LegacyFundValuationImportMapper.Map(FundRow(), clientId: 10, new DateTime(2026, 5, 31, 10, 0, 0, DateTimeKind.Utc));
+
+        Assert.Equal(501, valuation.LegacyFundId);
+        Assert.Equal(10, valuation.ClientId);
+        Assert.Equal(99, valuation.LegacyClientId);
+        Assert.Equal("123", valuation.KanaanId);
+        Assert.Equal("Stable SA", valuation.FundName);
+        Assert.Equal(2500m, valuation.AmountForeign);
+        Assert.Equal(47250m, valuation.AmountZar);
+        Assert.Equal("ACC-123", valuation.InvestmentUniqueNumber);
+        Assert.Equal("Glacier", valuation.Administrator);
+        Assert.Equal("Retirement Annuity", valuation.ProductName);
+        Assert.Equal("Compulsory", valuation.ProductType);
+        Assert.Equal(new DateOnly(2026, 3, 31), valuation.ValuationDate);
+
+        using var document = JsonDocument.Parse(valuation.PayloadJson);
+        Assert.Equal("Stable SA", document.RootElement.GetProperty("name").GetString());
+    }
+
+    [Fact]
     public void Investment_transaction_mapper_treats_invalid_numbers_as_null_but_keeps_payload()
     {
         var row = TransactionRow();
@@ -93,6 +115,17 @@ public sealed class LegacyInvestmentImportMapperTests
 
         Assert.Equal("Updated transaction", targetTransaction.Description);
         Assert.True(targetTransaction.IsDeleted);
+
+        var targetValuation = LegacyFundValuationImportMapper.Map(FundRow(), clientId: 10, DateTime.UtcNow);
+        var fundRow = FundRow();
+        fundRow["r_amount"] = "50000";
+        fundRow["update_time"] = "2026-04-30";
+        var sourceValuation = LegacyFundValuationImportMapper.Map(fundRow, clientId: 10, DateTime.UtcNow);
+
+        LegacyFundValuationImportMapper.ApplyUpdatedValues(targetValuation, sourceValuation);
+
+        Assert.Equal(50000m, targetValuation.AmountZar);
+        Assert.Equal(new DateOnly(2026, 4, 30), targetValuation.ValuationDate);
     }
 
     private static Dictionary<string, string?> AccountRow()
@@ -149,6 +182,33 @@ public sealed class LegacyInvestmentImportMapperTests
             ["updated_by_id"] = "8",
             ["date_opened"] = "2024-03-01 09:00:00",
             ["date_updated"] = "2026-05-31 10:00:00"
+        };
+    }
+
+    private static Dictionary<string, string?> FundRow()
+    {
+        return new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["id"] = "501",
+            ["name"] = "Stable SA",
+            ["amount"] = "2500",
+            ["r_amount"] = "47250",
+            ["fund_description"] = "Current value imported from fund summary",
+            ["client_id"] = "99",
+            ["kid"] = "123",
+            ["company_client_number"] = "COMP-99",
+            ["company_name"] = "Glacier",
+            ["company_product"] = "Retirement Annuity",
+            ["company_product_type"] = "Compulsory",
+            ["company_description"] = "Glacier RA",
+            ["investment_unique_number"] = "ACC-123",
+            ["opened_by"] = "legacy user",
+            ["updated_by"] = "legacy updater",
+            ["opened_by_id"] = "7",
+            ["updated_by_id"] = "8",
+            ["date_opened"] = "2026-03-01 09:00:00",
+            ["date_updated"] = "2026-03-31 10:00:00",
+            ["update_time"] = "2026-03-31"
         };
     }
 }

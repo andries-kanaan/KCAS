@@ -10,7 +10,7 @@ Rewrite the legacy Yii1 `kanaanclients` application into the modern Blazor proje
 
 - PR #6, `Add client relationship editing`, has been merged into `main`.
 - The current product-development phase is `Investments Read Model`.
-- The next functional goal is to review the imported investment display and then decide whether to add investment editing, fund summaries, or KYC workflow next.
+- The next functional goal is to review the imported investment/current-value display and then decide whether to add investment editing, fuller fund summaries/reports, or KYC workflow next.
 - Current legacy imports are development seed data. They help design and test KCAS against realistic records, but they are disposable.
 - The final production import will happen later, from the latest `kanaanclients` data, once KCAS is ready for switch-over. At that point current seed/imported data can be cleared and replaced.
 
@@ -228,6 +228,12 @@ Build status:
   - Imported `tbl_investmentaccount` and `tbl_investmenthistory` as disposable development seed data.
   - Added read-only investment account summaries and collapsible recent transaction history to client detail pages.
   - Verified local import of 1,524 investment accounts and 6,150 investment history rows with 0 skipped and 0 failed.
+- Added the fund current-value seed import refinement:
+  - Added `ClientFundValuations` for current values from legacy `tbl_fund`.
+  - Added EF migration `20260531204111_AddClientFundValuations`.
+  - Imported 710 local legacy fund valuation rows with 0 skipped and 0 failed.
+  - Updated the client Investments section to prefer matched fund current values by account number, falling back to the latest captured investment-history balance where no fund value is available.
+  - Kept full fund summary reports, fee calculations, and report exports deferred; this slice only brings current values into the client investment review surface.
 
 ## Current Verification Status
 
@@ -291,7 +297,8 @@ Still to verify manually in browser:
 4. Investments read model and seed import.
    - Design normalized EF Core entities for investment accounts and investment history.
    - Import `tbl_investmentaccount` and `tbl_investmenthistory` as disposable development seed data.
-   - Add read-only investment account/history display to client detail pages.
+   - Import `tbl_fund` current values as disposable development seed data.
+   - Add read-only investment account/history/current-value display to client detail pages.
    - Preserve legacy traceability for reconciliation without making legacy row IDs KCAS identifiers.
    - Add mapper/import tests using realistic legacy rows.
    - Status: implemented; remaining work here is review of the display and follow-up refinement.

@@ -18,6 +18,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<ClientKycPolicy> ClientKycPolicies => Set<ClientKycPolicy>();
     public DbSet<ClientInvestmentAccount> ClientInvestmentAccounts => Set<ClientInvestmentAccount>();
     public DbSet<ClientInvestmentTransaction> ClientInvestmentTransactions => Set<ClientInvestmentTransaction>();
+    public DbSet<ClientFundValuation> ClientFundValuations => Set<ClientFundValuation>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -248,6 +249,27 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.HasIndex(transaction => transaction.ClientInvestmentAccountId);
             entity.HasIndex(transaction => transaction.LegacyInvestmentAccountId);
             entity.HasIndex(transaction => transaction.TransactionDate);
+        });
+
+        builder.Entity<ClientFundValuation>(entity =>
+        {
+            entity.HasOne(valuation => valuation.Client)
+                .WithMany(client => client.FundValuations)
+                .HasForeignKey(valuation => valuation.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(valuation => valuation.ValuationDate)
+                .HasColumnType("date")
+                .HasConversion(new ValueConverter<DateOnly?, DateTime?>(
+                    value => value.HasValue ? value.Value.ToDateTime(TimeOnly.MinValue) : null,
+                    value => value.HasValue ? DateOnly.FromDateTime(value.Value) : null));
+            entity.Property(valuation => valuation.AmountForeign).HasPrecision(18, 2);
+            entity.Property(valuation => valuation.AmountZar).HasPrecision(18, 2);
+            entity.HasIndex(valuation => valuation.LegacyFundId).IsUnique();
+            entity.HasIndex(valuation => valuation.ClientId);
+            entity.HasIndex(valuation => valuation.LegacyClientId);
+            entity.HasIndex(valuation => valuation.KanaanId);
+            entity.HasIndex(valuation => valuation.InvestmentUniqueNumber);
+            entity.HasIndex(valuation => valuation.ValuationDate);
         });
     }
 }

@@ -25,7 +25,7 @@ else
             <p class="text-muted mb-0">Kanaan ID: @(client.KanaanId ?? "Not captured")</p>
         </div>
         <div class="header-actions">
-            <a class="btn btn-outline-secondary" href="#investments">Investments</a>
+            <a class="btn btn-outline-secondary" href="@($"/clients/{Id}#investments")">Investments</a>
             <AuthorizeView Policy="@KcasPermissions.ClientsManage">
                 <Authorized>
                     <a class="btn btn-primary" href="@($"/clients/{Id}/edit")">Edit client</a>
@@ -385,7 +385,7 @@ else
         <div class="section-heading-row">
             <div>
                 <h2>Investments</h2>
-                <p class="section-subtitle">@InvestmentAccounts.Count account@(InvestmentAccounts.Count == 1 ? "" : "s") available</p>
+                <p class="section-subtitle">@InvestmentAccounts.Count account@(InvestmentAccounts.Count == 1 ? "" : "s") and @FundValuations.Count current fund value@(FundValuations.Count == 1 ? "" : "s") available</p>
             </div>
         </div>
         @if (InvestmentAccounts.Count == 0)
@@ -403,7 +403,7 @@ else
                             <th>Product</th>
                             <th>Fund</th>
                             <th>Dates</th>
-                            <th>Latest balance</th>
+                            <th>Current value</th>
                             <th>Transactions</th>
                         </tr>
                     </thead>
@@ -412,6 +412,15 @@ else
                         {
                             var activeTransactions = account.Transactions.Where(transaction => !transaction.IsDeleted).ToList();
                             var latestTransaction = LatestTransaction(account);
+                            var currentValuations = CurrentValuations(account).ToList();
+                            var latestBalanceTransaction = LatestBalanceTransaction(account);
+                            var currentValueZar = currentValuations.Count > 0 ? SumValues(currentValuations, valuation => valuation.AmountZar) : latestBalanceTransaction?.BalanceZar;
+                            var currentValueForeign = currentValuations.Count > 0 ? SumValues(currentValuations, valuation => valuation.AmountForeign) : latestBalanceTransaction?.BalanceForeign;
+                            var currentValueDate = currentValuations
+                                .Where(valuation => valuation.ValuationDate.HasValue)
+                                .OrderByDescending(valuation => valuation.ValuationDate)
+                                .Select(valuation => valuation.ValuationDate)
+                                .FirstOrDefault() ?? latestBalanceTransaction?.TransactionDate;
                             <tr>
                                 <td>
                                     <strong>@Display(account.AccountNumber)</strong>
@@ -428,8 +437,18 @@ else
                                     <div>Surrender: @Date(account.SurrenderDate)</div>
                                 </td>
                                 <td>
-                                    <div>@Money(latestTransaction?.BalanceZar)</div>
-                                    <div class="text-muted small">@Money(latestTransaction?.BalanceForeign)</div>
+                                    <div>@Money(currentValueZar)</div>
+                                    <div class="text-muted small">@Money(currentValueForeign)</div>
+                                    @if (currentValueDate.HasValue)
+                                    {
+                                        <div class="text-muted small">
+                                            @(currentValuations.Count > 0 ? "Valuation" : "History balance"): @Date(currentValueDate)
+                                        </div>
+                                    }
+                                    @if (currentValuations.Count > 1)
+                                    {
+                                        <div class="text-muted small">@currentValuations.Count fund lines</div>
+                                    }
                                 </td>
                                 <td>
                                     @activeTransactions.Count
@@ -641,6 +660,7 @@ else
             .Include(client => client.LegacySnapshots)
             .Include(client => client.Notes)
             .Include(client => client.KycPolicies)
+            .Include(client => client.FundValuations)
             .Include(client => client.InvestmentAccounts)
                 .ThenInclude(account => account.Transactions)
             .SingleOrDefaultAsync(client => client.Id == Id);
@@ -666,6 +686,11 @@ else
         .OrderByDescending(account => account.InvestmentDate)
         .ThenBy(account => account.Administrator)
         .ThenBy(account => account.AccountNumber)
+        .ToList() ?? [];
+
+    private List<ClientFundValuation> FundValuations => client?.FundValuations
+        .OrderBy(valuation => valuation.InvestmentUniqueNumber)
+        .ThenBy(valuation => valuation.FundName)
         .ToList() ?? [];
 
     private List<ClientNote> FilteredNotes
@@ -782,6 +807,61 @@ else
             .OrderByDescending(transaction => transaction.TransactionDate)
             .ThenByDescending(transaction => transaction.LegacyInvestmentHistoryId)
             .FirstOrDefault();
+
+    private static ClientInvestmentTransaction? LatestBalanceTransaction(ClientInvestmentAccount account) =>
+        account.Transactions
+            .Where(transaction =>
+                !transaction.IsDeleted &&
+                ((transaction.BalanceZar.HasValue && transaction.BalanceZar.Value != 0) ||
+                 (transaction.BalanceForeign.HasValue && transaction.BalanceForeign.Value != 0)))
+            .OrderByDescending(transaction => transaction.TransactionDate)
+            .ThenByDescending(transaction => transaction.LegacyInvestmentHistoryId)
+            .FirstOrDefault();
+
+    private IEnumerable<ClientFundValuation> CurrentValuations(ClientInvestmentAccount account)
+    {
+        var accountNumber = NormalizeAccountNumber(account.AccountNumber);
+        if (accountNumber is null)
+        {
+            return [];
+        }
+
+        var matches = FundValuations
+            .Where(valuation => string.Equals(NormalizeAccountNumber(valuation.InvestmentUniqueNumber), accountNumber, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var administrator = NormalizeLookup(account.Administrator);
+        if (administrator is null)
+        {
+            return matches;
+        }
+
+        var administratorMatches = matches
+            .Where(valuation => AdministratorsMatch(administrator, NormalizeLookup(valuation.Administrator)))
+            .ToList();
+
+        return administratorMatches.Count > 0 ? administratorMatches : matches;
+    }
+
+    private static bool AdministratorsMatch(string accountAdministrator, string? valuationAdministrator) =>
+        valuationAdministrator is not null &&
+        (string.Equals(accountAdministrator, valuationAdministrator, StringComparison.OrdinalIgnoreCase) ||
+         accountAdministrator.Contains(valuationAdministrator, StringComparison.OrdinalIgnoreCase) ||
+         valuationAdministrator.Contains(accountAdministrator, StringComparison.OrdinalIgnoreCase));
+
+    private static string? NormalizeAccountNumber(string? value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? null
+            : new string(value.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
+
+    private static string? NormalizeLookup(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static decimal? SumValues<T>(IEnumerable<T> items, Func<T, decimal?> selector)
+    {
+        var values = items.Select(selector).Where(value => value.HasValue).Select(value => value!.Value).ToList();
+        return values.Count == 0 ? null : values.Sum();
+    }
 
     private static decimal? Sum(IEnumerable<ClientKycPolicy> policies, Func<ClientKycPolicy, decimal?> selector)
     {

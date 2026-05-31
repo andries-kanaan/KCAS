@@ -411,12 +411,92 @@ if (!options.DryRun && pendingInvestmentTransactionChanges > 0)
     await db.SaveChangesAsync();
 }
 
+var fundValuationImported = 0;
+var fundValuationUpdated = 0;
+var fundValuationSkipped = 0;
+var fundValuationFailed = 0;
+var pendingFundValuationChanges = 0;
+const int fundValuationSaveBatchSize = 250;
+
+var fundValuationsByLegacyId = await db.ClientFundValuations
+    .ToDictionaryAsync(valuation => valuation.LegacyFundId);
+
+await foreach (var row in ReadLegacyRowsAsync(legacyConnection, "tbl_fund"))
+{
+    var legacyClientId = ReadInt(row, "client_id");
+    if (legacyClientId is null)
+    {
+        fundValuationSkipped++;
+        Console.Error.WriteLine($"Skipped legacy fund id '{ValueOrUnknown(row, "id")}' because it has no client_id.");
+        continue;
+    }
+
+    if (!clientsByLegacyId.TryGetValue(legacyClientId.Value, out var clientId))
+    {
+        fundValuationSkipped++;
+        Console.Error.WriteLine($"Skipped legacy fund id '{ValueOrUnknown(row, "id")}' because legacy client '{legacyClientId}' was not imported.");
+        continue;
+    }
+
+    ClientFundValuation mapped;
+    try
+    {
+        mapped = LegacyFundValuationImportMapper.Map(row, clientId, startedAtUtc);
+    }
+    catch (Exception ex)
+    {
+        fundValuationFailed++;
+        Console.Error.WriteLine($"Failed to map legacy fund id '{ValueOrUnknown(row, "id")}': {ex.Message}");
+        continue;
+    }
+
+    if (options.DryRun)
+    {
+        fundValuationImported++;
+        continue;
+    }
+
+    try
+    {
+        if (!fundValuationsByLegacyId.TryGetValue(mapped.LegacyFundId, out var existing))
+        {
+            db.ClientFundValuations.Add(mapped);
+            fundValuationsByLegacyId[mapped.LegacyFundId] = mapped;
+            fundValuationImported++;
+        }
+        else
+        {
+            LegacyFundValuationImportMapper.ApplyUpdatedValues(existing, mapped);
+            fundValuationUpdated++;
+        }
+
+        pendingFundValuationChanges++;
+        if (pendingFundValuationChanges >= fundValuationSaveBatchSize)
+        {
+            await db.SaveChangesAsync();
+            pendingFundValuationChanges = 0;
+        }
+    }
+    catch (Exception ex)
+    {
+        fundValuationFailed++;
+        db.ChangeTracker.Clear();
+        Console.Error.WriteLine($"Failed to import legacy fund id '{mapped.LegacyFundId}': {ex.Message}");
+    }
+}
+
+if (!options.DryRun && pendingFundValuationChanges > 0)
+{
+    await db.SaveChangesAsync();
+}
+
 Console.WriteLine($"Legacy client import complete. Imported: {clientImported}; Updated: {clientUpdated}; Skipped: {clientSkipped}; Failed: {clientFailed}; Dry run: {options.DryRun}");
 Console.WriteLine($"Legacy client note import complete. Imported: {noteImported}; Updated: {noteUpdated}; Skipped: {noteSkipped}; Failed: {noteFailed}; Dry run: {options.DryRun}");
 Console.WriteLine($"Legacy KYC import complete. Imported: {kycImported}; Updated: {kycUpdated}; Skipped: {kycSkipped}; Failed: {kycFailed}; Dry run: {options.DryRun}");
 Console.WriteLine($"Legacy investment account import complete. Imported: {investmentAccountImported}; Updated: {investmentAccountUpdated}; Skipped: {investmentAccountSkipped}; Failed: {investmentAccountFailed}; Dry run: {options.DryRun}");
 Console.WriteLine($"Legacy investment history import complete. Imported: {investmentTransactionImported}; Updated: {investmentTransactionUpdated}; Skipped: {investmentTransactionSkipped}; Failed: {investmentTransactionFailed}; Dry run: {options.DryRun}");
-return clientFailed == 0 && noteFailed == 0 && kycFailed == 0 && investmentAccountFailed == 0 && investmentTransactionFailed == 0 ? 0 : 1;
+Console.WriteLine($"Legacy fund valuation import complete. Imported: {fundValuationImported}; Updated: {fundValuationUpdated}; Skipped: {fundValuationSkipped}; Failed: {fundValuationFailed}; Dry run: {options.DryRun}");
+return clientFailed == 0 && noteFailed == 0 && kycFailed == 0 && investmentAccountFailed == 0 && investmentTransactionFailed == 0 && fundValuationFailed == 0 ? 0 : 1;
 
 static async IAsyncEnumerable<IReadOnlyDictionary<string, string?>> ReadLegacyRowsAsync(MySqlConnection connection, string tableName)
 {
