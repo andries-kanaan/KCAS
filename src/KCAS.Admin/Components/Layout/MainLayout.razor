@@ -1,0 +1,27 @@
+﻿@inherits LayoutComponentBase
+
+<div class="app-shell">
+    <div class="sidebar">
+        <NavMenu />
+    </div>
+
+    <main class="main-panel">
+        <div class="top-row">
+            <div>
+                <p class="top-kicker">Kanaan Client Administration System</p>
+                <h1>Administration workspace</h1>
+            </div>
+            <a class="account-link" href="Account/Manage">Account</a>
+        </div>
+
+        <article class="content-shell">
+            @Body
+        </article>
+    </main>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>
