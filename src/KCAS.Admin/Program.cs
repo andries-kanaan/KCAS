@@ -1,4 +1,7 @@
 using System.Net;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Negotiate;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -7,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using KCAS.Admin.Components;
 using KCAS.Admin.Components.Account;
 using KCAS.Admin.Data;
+using KCAS.Admin.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -40,6 +44,17 @@ builder.Services.AddAuthentication(options =>
         options.DefaultSignInScheme = IdentityConstants.ExternalScheme;
     })
     .AddIdentityCookies();
+builder.Services.AddAuthentication()
+    .AddNegotiate();
+
+builder.Services.AddAuthorization(options =>
+{
+    foreach (var permission in KcasPermissions.All)
+    {
+        options.AddPolicy(permission, policy =>
+            policy.RequireClaim(KcasClaimTypes.Permission, permission));
+    }
+});
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
@@ -51,7 +66,9 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
         options.SignIn.RequireConfirmedAccount = false;
         options.Stores.SchemaVersion = IdentitySchemaVersions.Version2;
         options.Stores.MaxLengthForKeys = 64;
+        options.User.AllowedUserNameCharacters += "\\";
     })
+    .AddRoles<IdentityRole>()
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddSignInManager()
     .AddDefaultTokenProviders();
@@ -60,6 +77,8 @@ builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSe
 
 var app = builder.Build();
 var webRoot = app.Environment.WebRootPath;
+
+await KcasSecuritySeeder.SeedAsync(app.Services);
 
 if (app.Configuration.GetValue("Database:MigrateOnStartup", false))
 {
@@ -84,6 +103,8 @@ app.UseForwardedHeaders();
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseAntiforgery();
 
 app.MapGet("/kcas.css", () =>
@@ -98,5 +119,47 @@ app.MapRazorComponents<App>()
 
 // Add additional endpoints required by the Identity /Account Razor components.
 app.MapAdditionalIdentityEndpoints();
+
+app.MapGet("/Account/WindowsLogin", async (
+    HttpContext context,
+    UserManager<ApplicationUser> userManager,
+    SignInManager<ApplicationUser> signInManager,
+    string? returnUrl) =>
+{
+    if (context.User.Identity?.IsAuthenticated != true || string.IsNullOrWhiteSpace(context.User.Identity.Name))
+    {
+        return Results.Challenge(
+            new AuthenticationProperties { RedirectUri = context.Request.PathBase + context.Request.Path + context.Request.QueryString },
+            [NegotiateDefaults.AuthenticationScheme]);
+    }
+
+    var windowsAccountName = context.User.Identity.Name;
+    var user = await userManager.Users.SingleOrDefaultAsync(user => user.WindowsAccountName == windowsAccountName);
+    if (user is null)
+    {
+        user = new ApplicationUser
+        {
+            UserName = windowsAccountName,
+            WindowsAccountName = windowsAccountName,
+            DisplayName = windowsAccountName,
+            IsApproved = false,
+            CreatedAtUtc = DateTime.UtcNow
+        };
+
+        var createResult = await userManager.CreateAsync(user);
+        if (!createResult.Succeeded)
+        {
+            return Results.BadRequest(string.Join("; ", createResult.Errors.Select(error => error.Description)));
+        }
+    }
+
+    await signInManager.SignInAsync(user, isPersistent: false);
+    var safeReturnUrl = string.IsNullOrWhiteSpace(returnUrl) || !Uri.IsWellFormedUriString(returnUrl, UriKind.Relative)
+        ? "/"
+        : returnUrl;
+
+    return Results.LocalRedirect(user.IsApproved ? safeReturnUrl : "/Account/PendingApproval");
+})
+.RequireAuthorization(new AuthorizeAttribute { AuthenticationSchemes = NegotiateDefaults.AuthenticationScheme });
 
 app.Run();

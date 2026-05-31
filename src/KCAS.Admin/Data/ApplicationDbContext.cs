@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace KCAS.Admin.Data;
 
-public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : IdentityDbContext<ApplicationUser>(options)
+public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : IdentityDbContext<ApplicationUser, IdentityRole, string>(options)
 {
     public DbSet<Client> Clients => Set<Client>();
 
@@ -19,6 +19,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.Property(user => user.NormalizedUserName).HasMaxLength(191);
             entity.Property(user => user.Email).HasMaxLength(191);
             entity.Property(user => user.NormalizedEmail).HasMaxLength(191);
+            entity.Property(user => user.DisplayName).HasMaxLength(191);
+            entity.Property(user => user.WindowsAccountName).HasMaxLength(191);
+            entity.Property(user => user.ApprovedByUserId).HasMaxLength(64);
+            entity.Property(user => user.CreatedAtUtc).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+            entity.HasIndex(user => user.WindowsAccountName);
         });
 
         builder.Entity<IdentityRole>(entity =>

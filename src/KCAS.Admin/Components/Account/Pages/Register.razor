@@ -6,8 +6,10 @@
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.WebUtilities
 @using KCAS.Admin.Data
+@using KCAS.Admin.Security
 
 @inject UserManager<ApplicationUser> UserManager
+@inject RoleManager<IdentityRole> RoleManager
 @inject IUserStore<ApplicationUser> UserStore
 @inject SignInManager<ApplicationUser> SignInManager
 @inject IEmailSender<ApplicationUser> EmailSender
@@ -85,6 +87,8 @@
             return;
         }
 
+        await KcasSecuritySeeder.PromoteFirstUserIfNeededAsync(UserManager, RoleManager, user);
+
         Logger.LogInformation("User created a new account with password.");
 
         var userId = await UserManager.GetUserIdAsync(user);
@@ -105,7 +109,7 @@
         else
         {
             await SignInManager.SignInAsync(user, isPersistent: false);
-            RedirectManager.RedirectTo(ReturnUrl);
+            RedirectManager.RedirectTo(user.IsApproved ? ReturnUrl : "Account/PendingApproval");
         }
     }
 
@@ -113,7 +117,11 @@
     {
         try
         {
-            return Activator.CreateInstance<ApplicationUser>();
+            return new ApplicationUser
+            {
+                IsApproved = false,
+                CreatedAtUtc = DateTime.UtcNow
+            };
         }
         catch
         {

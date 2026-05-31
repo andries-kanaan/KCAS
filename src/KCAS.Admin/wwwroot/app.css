@@ -523,3 +523,27 @@ h1:focus {
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
     text-align: start;
 }
+
+.muted {
+    color: #6c757d;
+    font-size: .85rem;
+}
+
+.role-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem .75rem;
+}
+
+.role-choice {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    min-height: 1.75rem;
+    font-weight: 650;
+}
+
+.permission-list {
+    margin: .5rem 0 0;
+    padding-left: 1.1rem;
+}
