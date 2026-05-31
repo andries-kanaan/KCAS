@@ -11,7 +11,7 @@ Modern Blazor rewrite workspace for Kanaan Client Administration System.
 - Database name: `kcas_blazor`
 - EF provider: `MySql.EntityFrameworkCore`
 
-The schema contains ASP.NET Core Identity tables plus the normalized first-pass client import model.
+The schema contains ASP.NET Core Identity tables plus the normalized client operations model.
 
 ## Run The App
 
@@ -22,6 +22,12 @@ The schema contains ASP.NET Core Identity tables plus the normalized first-pass 
 Open `http://localhost:5143` directly, or use the WAMP reverse proxy at `https://kcas.test:8443/`.
 
 The script builds the app and launches `KCAS.Admin.dll` through the local SDK. This avoids a local Windows/OneDrive permission issue where `dotnet run` cannot start the generated `KCAS.Admin.exe`.
+
+After stopping Kestrel for builds or verification, restart and verify the local proxy with:
+
+```powershell
+.\Restart-KCAS.ps1
+```
 
 ## Database
 
@@ -52,7 +58,7 @@ $env:ASPNETCORE_ENVIRONMENT='Development'
 
 ## Legacy Client Import
 
-The Yii1 client import is a console tool so imports can run deliberately outside the web UI.
+The Yii1 client import is a console tool so imports can run deliberately outside the web UI. During development, imported rows are seed data for building and validating KCAS against realistic records. They are disposable and can be cleared before the future final import from the latest `kanaanclients` data.
 
 ```powershell
 $env:KCAS_LEGACY_CONNECTION = '<legacy MySQL connection string>'

@@ -87,7 +87,7 @@ else
         <h2>Contact</h2>
         @if (client.ContactPoints.Count == 0)
         {
-            <p class="text-muted">No contact details imported.</p>
+            <p class="text-muted">No contact details captured.</p>
         }
         else
         {
@@ -127,7 +127,7 @@ else
             }
             @if (client.Addresses.Count == 0)
             {
-                <p class="text-muted">No addresses imported.</p>
+                <p class="text-muted">No addresses captured.</p>
             }
         </article>
 
@@ -166,7 +166,7 @@ else
             }
             @if (client.Relationships.Count == 0 && string.IsNullOrWhiteSpace(client.PersonalProfile?.FamilyDetailRaw))
             {
-                <p class="text-muted">No relationships imported.</p>
+                <p class="text-muted">No relationships captured.</p>
             }
         </article>
     </section>
@@ -237,7 +237,7 @@ else
         }
         @if (lifePolicies.Count == 0)
         {
-            <p class="text-muted">No life or disability cover records imported for this client.</p>
+            <p class="text-muted">No life or disability cover records available for this client.</p>
         }
         else
         {
@@ -294,12 +294,12 @@ else
         <div class="section-heading-row">
             <div>
                 <h2>Current KYC policies</h2>
-                <p class="section-subtitle">@client.KycPolicies.Count policy record@(client.KycPolicies.Count == 1 ? "" : "s") imported</p>
+                <p class="section-subtitle">@client.KycPolicies.Count policy record@(client.KycPolicies.Count == 1 ? "" : "s") available</p>
             </div>
         </div>
         @if (client.KycPolicies.Count == 0)
         {
-            <p class="text-muted">No KYC policy records imported for this client.</p>
+            <p class="text-muted">No KYC policy records available for this client.</p>
         }
         else
         {
@@ -488,9 +488,12 @@ else
     </section>
 
     <section class="detail-panel">
-        <h2>Legacy snapshot</h2>
-        <p class="text-muted">Original imported `tbl_client` row retained for audit and later field reconciliation.</p>
-        <pre class="legacy-json">@client.LegacySnapshots.OrderByDescending(snapshot => snapshot.ImportedAtUtc).FirstOrDefault()?.PayloadJson</pre>
+        <h2>Seed source data</h2>
+        <p class="text-muted">Development seed/import payload, shown only for mapping checks before the future final import.</p>
+        <details>
+            <summary>Show source payload</summary>
+            <pre class="legacy-json">@client.LegacySnapshots.OrderByDescending(snapshot => snapshot.ImportedAtUtc).FirstOrDefault()?.PayloadJson</pre>
+        </details>
     </section>
 }
 

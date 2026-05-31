@@ -47,10 +47,76 @@ public sealed class ClientOperationsServiceTests(KcasWebApplicationFactory facto
             .SingleAsync(client => client.Id == clientId);
 
         Assert.Equal("Updated Operational Client", saved.DisplayName);
+        Assert.Equal("OPS-1", saved.KanaanId);
+        Assert.Null(saved.LegacyClientId);
         Assert.Equal("8001015009087", saved.PersonalProfile?.SouthAfricanIdNumber);
         Assert.Equal("Kanaan", saved.FinancialProfile?.Employer);
         Assert.Contains(saved.ContactPoints, contact => contact.Value == "updated@example.com" && contact.IsPrimary);
         Assert.Contains(saved.Addresses, address => address.AddressType == "Physical");
+    }
+
+    [Fact]
+    public async Task SaveClientAsync_generates_kanaan_id_for_native_clients()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientOperationsService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        var firstClientId = await service.SaveClientAsync(new ClientEditModel
+        {
+            SurnameOrEntityName = "Generated",
+            DisplayName = "Generated Client"
+        });
+
+        var secondClientId = await service.SaveClientAsync(new ClientEditModel
+        {
+            SurnameOrEntityName = "Generated Two",
+            DisplayName = "Generated Client Two"
+        });
+
+        var saved = await db.Clients
+            .AsNoTracking()
+            .Where(client => client.Id == firstClientId || client.Id == secondClientId)
+            .OrderBy(client => client.Id)
+            .ToListAsync();
+
+        Assert.Equal(2, saved.Count);
+        Assert.All(saved, client =>
+        {
+            Assert.StartsWith("KCAS-", client.KanaanId);
+            Assert.Null(client.LegacyClientId);
+        });
+        Assert.NotEqual(saved[0].KanaanId, saved[1].KanaanId);
+    }
+
+    [Fact]
+    public async Task SaveClientAsync_allows_shared_kanaan_id_for_family_units()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientOperationsService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        var firstClientId = await service.SaveClientAsync(new ClientEditModel
+        {
+            KanaanId = "FAMILY-001",
+            SurnameOrEntityName = "Original",
+            DisplayName = "Original Client"
+        });
+
+        var secondClientId = await service.SaveClientAsync(new ClientEditModel
+        {
+            KanaanId = "FAMILY-001",
+            SurnameOrEntityName = "Spouse",
+            DisplayName = "Spouse Client"
+        });
+
+        var saved = await db.Clients
+            .AsNoTracking()
+            .Where(client => client.Id == firstClientId || client.Id == secondClientId)
+            .ToListAsync();
+
+        Assert.Equal(2, saved.Count);
+        Assert.All(saved, client => Assert.Equal("FAMILY-001", client.KanaanId));
     }
 
     [Fact]
