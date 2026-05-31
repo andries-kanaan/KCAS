@@ -28,7 +28,10 @@ Rewrite the legacy Yii1 `kanaanclients` application into the modern Blazor proje
 - Use Git/GitHub for source control and collaboration.
 - Use `dotnet publish` for actual deployable build output.
 - GitHub is not a replacement for `dotnet publish`; GitHub can store source and can later run CI/CD that performs `dotnet publish`.
-- No GitHub remote publishing has been done yet because the user wants to provide the repository destination later.
+- GitHub remote is `https://github.com/andries-kanaan/KCAS.git`.
+- Pull requests to `main` should pass the GitHub Actions PR checks before merge.
+- The PR check workflow builds the solution and runs the test suite against an isolated MySQL service database.
+- Local integration tests use `kcas_blazor_test` and recreate it for deterministic test runs.
 
 ## Legacy Yii1 App
 
@@ -155,6 +158,8 @@ Database migration status:
 Build status:
 
 - A build succeeded after the registration and Identity role changes.
+- A test project exists under `tests\KCAS.Admin.Tests`.
+- Baseline tests cover app smoke routes, static branding assets, security role seeding, stale permission cleanup, and first-user admin promotion.
 
 ## Current Verification Status
 

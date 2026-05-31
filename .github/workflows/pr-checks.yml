@@ -1,0 +1,50 @@
+name: PR checks
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:9.1
+        env:
+          MYSQL_ROOT_PASSWORD: kcas_test_root
+          MYSQL_DATABASE: kcas_blazor_test
+          MYSQL_USER: kcas_blazor
+          MYSQL_PASSWORD: kcas_test_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pkcas_test_root"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      KCAS_TEST_CONNECTION_STRING: server=127.0.0.1;port=3306;database=kcas_blazor_test;user=root;password=kcas_test_root;TreatTinyAsBoolean=true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore KCAS.slnx
+
+      - name: Build
+        run: dotnet build KCAS.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test KCAS.slnx --configuration Release --no-build --verbosity normal

@@ -2,4 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/KCAS.Admin/KCAS.Admin.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/KCAS.Admin.Tests/KCAS.Admin.Tests.csproj" />
+  </Folder>
 </Solution>
