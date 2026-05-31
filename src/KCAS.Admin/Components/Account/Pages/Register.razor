@@ -19,14 +19,18 @@
 
 <PageTitle>Register</PageTitle>
 
-<h1>Register</h1>
+<div class="auth-shell">
+    <section class="auth-brand-panel">
+        <img src="images/kanaan-header.jpg" alt="Kanaan Asset Managers" />
+        <p class="eyebrow">Kanaan Client Administration System</p>
+        <h1>Secure access</h1>
+    </section>
 
-<div class="row">
-    <div class="col-lg-6">
+    <div class="auth-form-panel">
         <StatusMessage Message="@Message" />
         <EditForm Model="Input" method="post" OnValidSubmit="RegisterUser" FormName="register">
             <DataAnnotationsValidator />
-            <h2>Create a new account.</h2>
+            <h2>Register</h2>
             <hr />
             <ValidationSummary class="text-danger" role="alert" />
             <div class="form-floating mb-3">
@@ -46,13 +50,6 @@
             </div>
             <button type="submit" class="w-100 btn btn-lg btn-primary">Register</button>
         </EditForm>
-    </div>
-    <div class="col-lg-4 col-lg-offset-2">
-        <section>
-            <h3>Use another service to register.</h3>
-            <hr />
-            <ExternalLoginPicker />
-        </section>
     </div>
 </div>
 
