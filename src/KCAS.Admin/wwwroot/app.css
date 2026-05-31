@@ -602,6 +602,28 @@ a, .btn-link {
     grid-template-columns: minmax(8rem, 1fr) minmax(16rem, 3fr) auto;
 }
 
+.relationship-edit-row {
+    display: grid;
+    gap: .75rem;
+    padding: .8rem 0;
+    border-top: 1px solid rgba(0, 0, 0, .08);
+}
+
+.relationship-edit-row-header,
+.relationship-edit-row-body {
+    display: grid;
+    gap: .75rem;
+    align-items: end;
+}
+
+.relationship-edit-row-header {
+    grid-template-columns: minmax(8rem, 1fr) minmax(12rem, 2fr) minmax(6rem, 1fr) minmax(6rem, 1fr) minmax(9rem, 1fr) auto;
+}
+
+.relationship-edit-row-body {
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+}
+
 .tall-textarea {
     min-height: 14rem;
 }
@@ -877,6 +899,12 @@ a, .btn-link {
     }
 
     .search-row {
+        grid-template-columns: 1fr;
+    }
+
+    .edit-row,
+    .address-edit-row,
+    .relationship-edit-row-header {
         grid-template-columns: 1fr;
     }
 }

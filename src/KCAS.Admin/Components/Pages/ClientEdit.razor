@@ -92,6 +92,55 @@
         }
     </section>
 
+    <section class="detail-panel form-panel">
+        <div class="section-heading-row">
+            <div>
+                <h2>Relationships</h2>
+                <p class="section-subtitle">Use one row for each spouse, child, dependent, or family contact.</p>
+            </div>
+            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="AddRelationship">Add relationship</button>
+        </div>
+        @for (var index = 0; index < model.Relationships.Count; index++)
+        {
+            var rowIndex = index;
+            <div class="relationship-edit-row" @key="model.Relationships[rowIndex]">
+                <div class="relationship-edit-row-header">
+                    <label>
+                        Type
+                        <InputSelect class="form-control" @bind-Value="model.Relationships[rowIndex].RelationshipType">
+                            @foreach (var relationshipType in RelationshipTypes)
+                            {
+                                <option value="@relationshipType">@relationshipType</option>
+                            }
+                        </InputSelect>
+                    </label>
+                    <label>Name <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].Name" /></label>
+                    <label>Initials <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].Initials" /></label>
+                    <label>Gender <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].Gender" /></label>
+                    <label>Birth date <InputDate class="form-control" @bind-Value="model.Relationships[rowIndex].BirthDate" /></label>
+                    <button class="btn btn-outline-danger btn-sm" type="button" @onclick="() => RemoveRelationship(rowIndex)">Remove</button>
+                </div>
+                <div class="relationship-edit-row-body">
+                    <label>ID number <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].SouthAfricanIdNumber" /></label>
+                    <label>Email <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].Email" /></label>
+                    <label>Home phone <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].HomePhone" /></label>
+                    <label>Work phone <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].WorkPhone" /></label>
+                    <label>Mobile <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].MobilePhone" /></label>
+                    <label>Employer <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].Employer" /></label>
+                    <label>Occupation <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].Occupation" /></label>
+                    <label>Qualification <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].HighestQualification" /></label>
+                    <label>Gross monthly salary <InputNumber class="form-control" @bind-Value="model.Relationships[rowIndex].GrossMonthlySalary" /></label>
+                    <label>Gross annual salary <InputNumber class="form-control" @bind-Value="model.Relationships[rowIndex].GrossAnnualSalary" /></label>
+                    <label>Yearly bonus <InputNumber class="form-control" @bind-Value="model.Relationships[rowIndex].YearlyBonus" /></label>
+                    <label>Other income <InputNumber class="form-control" @bind-Value="model.Relationships[rowIndex].OtherIncome" /></label>
+                    <label>Pension fund <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].PensionFundName" /></label>
+                    <label>Employer pension amount <InputNumber class="form-control" @bind-Value="model.Relationships[rowIndex].EmployerPensionContributionAmount" /></label>
+                    <label>Employer pension % <InputNumber class="form-control" @bind-Value="model.Relationships[rowIndex].EmployerPensionContributionPercent" /></label>
+                </div>
+            </div>
+        }
+    </section>
+
     <section class="detail-grid">
         <article class="detail-panel form-panel">
             <h2>Financial</h2>
@@ -125,6 +174,7 @@
 
     private ClientEditModel model = new();
     private string? statusMessage;
+    private static readonly IReadOnlyList<string> RelationshipTypes = ["Spouse", "Child", "Dependent", "FamilyContact", "Other"];
 
     protected override async Task OnParametersSetAsync()
     {
@@ -171,6 +221,16 @@
         }
 
         EnsureEditableRows();
+    }
+
+    private void AddRelationship() => model.Relationships.Add(new ClientRelationshipEditModel());
+
+    private void RemoveRelationship(int index)
+    {
+        if (index >= 0 && index < model.Relationships.Count)
+        {
+            model.Relationships.RemoveAt(index);
+        }
     }
 
     private void EnsureEditableRows()

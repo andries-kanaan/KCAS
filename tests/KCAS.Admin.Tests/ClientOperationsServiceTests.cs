@@ -30,12 +30,50 @@ public sealed class ClientOperationsServiceTests(KcasWebApplicationFactory facto
             Addresses =
             [
                 new() { AddressType = "Physical", LinesRaw = "1 Main Road" }
+            ],
+            Relationships =
+            [
+                new()
+                {
+                    RelationshipType = "Spouse",
+                    Name = "Spouse Client",
+                    LegacyRelatedClientId = 43,
+                    Email = "spouse@example.com",
+                    GrossMonthlySalary = 20000m
+                },
+                new()
+                {
+                    RelationshipType = "FamilyContact",
+                    Name = "Emergency Contact",
+                    MobilePhone = "0830000000"
+                },
+                new()
+                {
+                    RelationshipType = "",
+                    Name = " "
+                }
             ]
         });
 
         var editModel = await service.LoadClientAsync(clientId);
         editModel.DisplayName = "Updated Operational Client";
         editModel.ContactPoints[0].Value = "updated@example.com";
+        Assert.Contains(editModel.Relationships, relationship =>
+            relationship.RelationshipType == "Spouse" &&
+            relationship.LegacyRelatedClientId == 43 &&
+            relationship.Name == "Spouse Client");
+
+        var spouse = editModel.Relationships.Single(relationship => relationship.RelationshipType == "Spouse");
+        spouse.Name = "Updated Spouse";
+        spouse.Email = "updated-spouse@example.com";
+        editModel.Relationships.RemoveAll(relationship => relationship.RelationshipType == "FamilyContact");
+        editModel.Relationships.Add(new ClientRelationshipEditModel
+        {
+            RelationshipType = "Child",
+            Name = "Child Client",
+            BirthDate = new DateTime(2010, 1, 2),
+            SouthAfricanIdNumber = "1001020000000"
+        });
         await service.SaveClientAsync(editModel);
 
         var saved = await db.Clients
@@ -44,6 +82,7 @@ public sealed class ClientOperationsServiceTests(KcasWebApplicationFactory facto
             .Include(client => client.FinancialProfile)
             .Include(client => client.ContactPoints)
             .Include(client => client.Addresses)
+            .Include(client => client.Relationships)
             .SingleAsync(client => client.Id == clientId);
 
         Assert.Equal("Updated Operational Client", saved.DisplayName);
@@ -53,6 +92,17 @@ public sealed class ClientOperationsServiceTests(KcasWebApplicationFactory facto
         Assert.Equal("Kanaan", saved.FinancialProfile?.Employer);
         Assert.Contains(saved.ContactPoints, contact => contact.Value == "updated@example.com" && contact.IsPrimary);
         Assert.Contains(saved.Addresses, address => address.AddressType == "Physical");
+        Assert.Contains(saved.Relationships, relationship =>
+            relationship.RelationshipType == "Spouse" &&
+            relationship.LegacyRelatedClientId == 43 &&
+            relationship.Name == "Updated Spouse" &&
+            relationship.Email == "updated-spouse@example.com");
+        Assert.Contains(saved.Relationships, relationship =>
+            relationship.RelationshipType == "Child" &&
+            relationship.BirthDate == new DateTime(2010, 1, 2) &&
+            relationship.SouthAfricanIdNumber == "1001020000000");
+        Assert.DoesNotContain(saved.Relationships, relationship => relationship.RelationshipType == "FamilyContact");
+        Assert.Equal(2, saved.Relationships.Count);
     }
 
     [Fact]
