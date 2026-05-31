@@ -1,8 +1,8 @@
 @page "/clients"
+@rendermode InteractiveServer
 @attribute [Authorize(Policy = KcasPermissions.ClientsView)]
-@using Microsoft.EntityFrameworkCore
 @using KCAS.Admin.Data
-@inject ApplicationDbContext Db
+@inject ClientSearchService ClientSearch
 
 <PageTitle>Clients</PageTitle>
 
@@ -16,48 +16,142 @@
 @if (clients.Count == 0)
 {
     <section class="empty-state">
-        <h2>No clients yet</h2>
-        <p>The MySQL table is ready. Client import and redesigned capture screens can be added once the Yii1 workflows are reviewed.</p>
+        <h2>No clients found</h2>
+        <p>Adjust the column filters or import legacy clients with the console importer.</p>
     </section>
 }
-else
-{
-    <div class="table-responsive">
-        <table class="table align-middle">
-            <thead>
+
+<div class="table-responsive">
+    <table class="table align-middle filter-table">
+        <thead>
+            <tr>
+                <th>
+                    <button class="sort-header" type="button" @onclick="@(() => SortByAsync("kanaanId"))">
+                        Kanaan ID @SortIndicator("kanaanId")
+                    </button>
+                </th>
+                <th>
+                    <button class="sort-header" type="button" @onclick="@(() => SortByAsync("name"))">
+                        Name @SortIndicator("name")
+                    </button>
+                </th>
+                <th>
+                    <button class="sort-header" type="button" @onclick="@(() => SortByAsync("surname"))">
+                        Surname @SortIndicator("surname")
+                    </button>
+                </th>
+                <th>
+                    <button class="sort-header" type="button" @onclick="@(() => SortByAsync("email"))">
+                        Primary email @SortIndicator("email")
+                    </button>
+                </th>
+                <th>
+                    <button class="sort-header" type="button" @onclick="@(() => SortByAsync("phone"))">
+                        Primary phone @SortIndicator("phone")
+                    </button>
+                </th>
+                <th>
+                    <button class="sort-header" type="button" @onclick="@(() => SortByAsync("status"))">
+                        Status @SortIndicator("status")
+                    </button>
+                </th>
+            </tr>
+            <tr class="filter-row">
+                <th>
+                    <input class="form-control form-control-sm" value="@kanaanIdFilter" @oninput="@(args => FilterChangedAsync(args, value => kanaanIdFilter = value))" aria-label="Filter by Kanaan ID" />
+                </th>
+                <th>
+                    <input class="form-control form-control-sm" value="@nameFilter" @oninput="@(args => FilterChangedAsync(args, value => nameFilter = value))" aria-label="Filter by name" />
+                </th>
+                <th>
+                    <input class="form-control form-control-sm" value="@surnameFilter" @oninput="@(args => FilterChangedAsync(args, value => surnameFilter = value))" aria-label="Filter by surname" />
+                </th>
+                <th>
+                    <input class="form-control form-control-sm" value="@emailFilter" @oninput="@(args => FilterChangedAsync(args, value => emailFilter = value))" aria-label="Filter by email" />
+                </th>
+                <th>
+                    <input class="form-control form-control-sm" value="@phoneFilter" @oninput="@(args => FilterChangedAsync(args, value => phoneFilter = value))" aria-label="Filter by phone" />
+                </th>
+                <th>
+                    <input class="form-control form-control-sm" value="@statusFilter" @oninput="@(args => FilterChangedAsync(args, value => statusFilter = value))" aria-label="Filter by status" placeholder="Active" />
+                </th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var client in clients)
+            {
                 <tr>
-                    <th>Code</th>
-                    <th>Name</th>
-                    <th>Email</th>
-                    <th>Mobile</th>
-                    <th>Status</th>
+                    <td>@client.KanaanId</td>
+                    <td>
+                        <a href="@($"/clients/{client.Id}")">@client.Name</a>
+                    </td>
+                    <td>@client.Surname</td>
+                    <td>@client.PrimaryEmail</td>
+                    <td>@client.PrimaryPhone</td>
+                    <td>@(client.IsActive ? "Active" : "Inactive")</td>
                 </tr>
-            </thead>
-            <tbody>
-                @foreach (var client in clients)
-                {
-                    <tr>
-                        <td>@client.ClientCode</td>
-                        <td>@client.FirstName @client.LastName</td>
-                        <td>@client.Email</td>
-                        <td>@client.MobileNumber</td>
-                        <td>@(client.IsActive ? "Active" : "Inactive")</td>
-                    </tr>
-                }
-            </tbody>
-        </table>
-    </div>
-}
+            }
+        </tbody>
+    </table>
+</div>
 
 @code {
-    private List<Client> clients = [];
+    private string? kanaanIdFilter;
+    private string? nameFilter;
+    private string? surnameFilter;
+    private string? emailFilter;
+    private string? phoneFilter;
+    private string? statusFilter;
+    private string sortColumn = "name";
+    private bool sortDescending;
+    private List<ClientSearchResult> clients = [];
 
     protected override async Task OnInitializedAsync()
     {
-        clients = await Db.Clients
-            .OrderBy(client => client.LastName)
-            .ThenBy(client => client.FirstName)
-            .Take(100)
-            .ToListAsync();
+        await LoadClientsAsync();
+    }
+
+    private async Task FilterChangedAsync(ChangeEventArgs args, Action<string?> setValue)
+    {
+        setValue(args.Value?.ToString());
+        await LoadClientsAsync();
+    }
+
+    private async Task SortByAsync(string column)
+    {
+        if (sortColumn == column)
+        {
+            sortDescending = !sortDescending;
+        }
+        else
+        {
+            sortColumn = column;
+            sortDescending = false;
+        }
+
+        await LoadClientsAsync();
+    }
+
+    private async Task LoadClientsAsync()
+    {
+        clients = await ClientSearch.SearchAsync(new ClientSearchRequest(
+            KanaanId: kanaanIdFilter,
+            Name: nameFilter,
+            Surname: surnameFilter,
+            Email: emailFilter,
+            Phone: phoneFilter,
+            Status: statusFilter,
+            SortColumn: sortColumn,
+            SortDescending: sortDescending));
+    }
+
+    private string SortIndicator(string column)
+    {
+        if (sortColumn != column)
+        {
+            return string.Empty;
+        }
+
+        return sortDescending ? "down" : "up";
     }
 }

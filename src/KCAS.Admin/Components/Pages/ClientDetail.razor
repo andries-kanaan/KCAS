@@ -1,0 +1,421 @@
+@page "/clients/{Id:int}"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ClientsView)]
+@using Microsoft.EntityFrameworkCore
+@using KCAS.Admin.Data
+@inject ApplicationDbContext Db
+
+<PageTitle>@(client?.DisplayName ?? "Client")</PageTitle>
+
+@if (client is null)
+{
+    <section class="empty-state">
+        <h2>Client not found</h2>
+        <p>The requested client could not be found in the KCAS database.</p>
+    </section>
+}
+else
+{
+    <div class="page-header">
+        <div>
+            <p class="eyebrow">Client detail</p>
+            <h1>@client.DisplayName</h1>
+            <p class="text-muted mb-0">Kanaan ID: @(client.KanaanId ?? "Not captured")</p>
+        </div>
+        <a class="btn btn-outline-secondary" href="/clients">Back to clients</a>
+    </div>
+
+    <section class="detail-grid">
+        <article class="detail-panel">
+            <h2>Overview</h2>
+            <dl>
+                <dt>Title</dt>
+                <dd>@Display(client.Title)</dd>
+                <dt>Initials</dt>
+                <dd>@Display(client.Initials)</dd>
+                <dt>Full name</dt>
+                <dd>@Display(client.FullName)</dd>
+                <dt>Surname/entity</dt>
+                <dd>@Display(client.SurnameOrEntityName)</dd>
+                <dt>Language</dt>
+                <dd>@Display(client.Language)</dd>
+                <dt>Client folder</dt>
+                <dd>@Display(client.ClientFolder)</dd>
+            </dl>
+        </article>
+
+        <article class="detail-panel">
+            <h2>Personal</h2>
+            <dl>
+                <dt>ID number</dt>
+                <dd>@Display(client.PersonalProfile?.SouthAfricanIdNumber)</dd>
+                <dt>Gender</dt>
+                <dd>@Display(client.PersonalProfile?.Gender)</dd>
+                <dt>Marital status</dt>
+                <dd>@Display(client.PersonalProfile?.MaritalStatus)</dd>
+                <dt>Tax number</dt>
+                <dd>@Display(client.PersonalProfile?.TaxNumber)</dd>
+                <dt>Tax office</dt>
+                <dd>@Display(client.PersonalProfile?.TaxOffice)</dd>
+                <dt>Dependents</dt>
+                <dd>@Display(client.PersonalProfile?.NumberOfDependents?.ToString())</dd>
+                <dt>Qualification</dt>
+                <dd>@Display(client.PersonalProfile?.HighestQualification)</dd>
+                <dt>Smoker</dt>
+                <dd>@YesNo(client.PersonalProfile?.Smoker)</dd>
+                <dt>Workday travelling %</dt>
+                <dd>@Percent(client.PersonalProfile?.WorkdayTravelPercent)</dd>
+            </dl>
+        </article>
+    </section>
+
+    <section class="detail-panel">
+        <h2>Contact</h2>
+        @if (client.ContactPoints.Count == 0)
+        {
+            <p class="text-muted">No contact details imported.</p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead>
+                        <tr>
+                            <th>Type</th>
+                            <th>Label</th>
+                            <th>Value</th>
+                            <th>Primary</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var contact in client.ContactPoints.OrderBy(contact => contact.SortOrder))
+                        {
+                            <tr>
+                                <td>@contact.ContactType</td>
+                                <td>@contact.Label</td>
+                                <td>@contact.Value</td>
+                                <td>@(contact.IsPrimary ? "Yes" : "")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    <section class="detail-grid">
+        <article class="detail-panel">
+            <h2>Addresses</h2>
+            @foreach (var address in client.Addresses.OrderBy(address => address.SortOrder))
+            {
+                <h3>@address.AddressType</h3>
+                <p class="preserve-lines">@address.LinesRaw</p>
+            }
+            @if (client.Addresses.Count == 0)
+            {
+                <p class="text-muted">No addresses imported.</p>
+            }
+        </article>
+
+        <article class="detail-panel">
+            <h2>Family and relationships</h2>
+            @if (!string.IsNullOrWhiteSpace(client.PersonalProfile?.FamilyDetailRaw))
+            {
+                <h3>Family detail</h3>
+                <p class="preserve-lines">@client.PersonalProfile.FamilyDetailRaw</p>
+            }
+            @foreach (var relationship in client.Relationships.OrderBy(relationship => relationship.RelationshipType))
+            {
+                <h3>@relationship.RelationshipType</h3>
+                <dl>
+                    <dt>Name</dt>
+                    <dd>@Display(relationship.Name)</dd>
+                    <dt>Email</dt>
+                    <dd>@Display(relationship.Email)</dd>
+                    <dt>Mobile</dt>
+                    <dd>@Display(relationship.MobilePhone)</dd>
+                    <dt>Employer</dt>
+                    <dd>@Display(relationship.Employer)</dd>
+                    <dt>Occupation</dt>
+                    <dd>@Display(relationship.Occupation)</dd>
+                    <dt>Qualification</dt>
+                    <dd>@Display(relationship.HighestQualification)</dd>
+                    <dt>Gross monthly salary</dt>
+                    <dd>@Money(relationship.GrossMonthlySalary)</dd>
+                    <dt>Gross annual salary</dt>
+                    <dd>@Money(relationship.GrossAnnualSalary)</dd>
+                    <dt>Yearly bonus</dt>
+                    <dd>@Money(relationship.YearlyBonus)</dd>
+                    <dt>Pension fund</dt>
+                    <dd>@Display(relationship.PensionFundName)</dd>
+                </dl>
+            }
+            @if (client.Relationships.Count == 0 && string.IsNullOrWhiteSpace(client.PersonalProfile?.FamilyDetailRaw))
+            {
+                <p class="text-muted">No relationships imported.</p>
+            }
+        </article>
+    </section>
+
+    <section class="detail-panel">
+        <h2>Financial</h2>
+        <div class="financial-grid">
+            <dl>
+                <dt>Employer</dt>
+                <dd>@Display(client.FinancialProfile?.Employer)</dd>
+                <dt>Occupation</dt>
+                <dd>@Display(client.FinancialProfile?.Occupation)</dd>
+                <dt>Gross monthly salary</dt>
+                <dd>@Money(client.FinancialProfile?.GrossMonthlySalary)</dd>
+                <dt>Monthly expenses</dt>
+                <dd>@Money(client.FinancialProfile?.MonthlyExpenses)</dd>
+                <dt>Retirement age</dt>
+                <dd>@Display(client.FinancialProfile?.RetirementAge?.ToString())</dd>
+                <dt>Pension fund</dt>
+                <dd>@Display(client.FinancialProfile?.PensionFundName)</dd>
+                <dt>Employer pension amount</dt>
+                <dd>@Money(client.FinancialProfile?.EmployerPensionContributionAmount)</dd>
+                <dt>Employer pension %</dt>
+                <dd>@Percent(client.FinancialProfile?.EmployerPensionContributionPercent)</dd>
+                <dt>Minimum retirement income %</dt>
+                <dd>@Percent(client.FinancialProfile?.MinimumRetirementIncomePercent)</dd>
+                <dt>Expected retirement income %</dt>
+                <dd>@Percent(client.FinancialProfile?.ExpectedRetirementIncomePercent)</dd>
+            </dl>
+
+            <dl>
+                <dt>Capital requirement %</dt>
+                <dd>@Percent(client.FinancialProfile?.CapitalRequirementPercent)</dd>
+                <dt>Preservation fund lump sum %</dt>
+                <dd>@Percent(client.FinancialProfile?.PreservationFundLumpSumPercent)</dd>
+                <dt>Equities %</dt>
+                <dd>@Percent(client.FinancialProfile?.RepresentativeEquitiesPercent)</dd>
+                <dt>Alternative investments %</dt>
+                <dd>@Percent(client.FinancialProfile?.RepresentativeAlternativeInvestmentsPercent)</dd>
+                <dt>Fixed property %</dt>
+                <dd>@Percent(client.FinancialProfile?.RepresentativeFixedPropertyPercent)</dd>
+                <dt>Offshore %</dt>
+                <dd>@Percent(client.FinancialProfile?.RepresentativeOffshorePercent)</dd>
+                <dt>Goals</dt>
+                <dd class="preserve-lines">@Display(client.FinancialProfile?.OtherGoalsRaw)</dd>
+                <dt>Bank details</dt>
+                <dd class="preserve-lines">@Display(client.FinancialProfile?.BankDetailRaw)</dd>
+                <dt>Will details</dt>
+                <dd class="preserve-lines">@Display(client.FinancialProfile?.WillDetailRaw)</dd>
+                <dt>Important notes</dt>
+                <dd class="preserve-lines">@Display(client.FinancialProfile?.OtherDetailsRaw)</dd>
+            </dl>
+        </div>
+    </section>
+
+    <section class="detail-panel">
+        <h2>Representative details</h2>
+        <dl class="wide-dl">
+            <dt>Name of broker</dt>
+            <dd>@Display(client.FinancialProfile?.RepresentativeName)</dd>
+        </dl>
+    </section>
+
+    <section class="detail-panel">
+        <h2>Life and disability cover</h2>
+        <p class="text-muted">This is policy/KYC-derived data in the legacy app, so it will be imported with the KYC and investment modules rather than from the client master record.</p>
+    </section>
+
+    <section class="detail-panel">
+        <div class="section-heading-row">
+            <div>
+                <h2>Notes</h2>
+                <p class="section-subtitle">@client.Notes.Count note@(client.Notes.Count == 1 ? "" : "s") imported</p>
+            </div>
+        </div>
+        @if (client.Notes.Count == 0)
+        {
+            <p class="text-muted">No notes imported for this client.</p>
+        }
+        else
+        {
+            var filteredNotes = FilteredNotes;
+            var pagedNotes = PagedNotes(filteredNotes);
+            <div class="notes-toolbar">
+                <input class="form-control" value="@noteFilter" @oninput="FilterNotesAsync" aria-label="Filter notes" placeholder="Search notes" />
+                <div class="note-count">Showing @ShowingStart(filteredNotes.Count)-@ShowingEnd(filteredNotes.Count) of @filteredNotes.Count</div>
+            </div>
+
+            @if (filteredNotes.Count == 0)
+            {
+                <p class="text-muted">No notes match the current filter.</p>
+            }
+            else
+            {
+                <div class="table-responsive note-table-wrap">
+                    <table class="table align-middle note-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Title and details</th>
+                                <th>Opened by</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var note in pagedNotes)
+                            {
+                                <tr class="@(note.IsDeleted ? "is-deleted" : "")">
+                                    <td class="note-date">@Display(note.NoteDate?.ToString("yyyy-MM-dd"))</td>
+                                    <td>
+                                        <details class="note-details">
+                                            <summary>@Display(note.Title)</summary>
+                                            <p class="preserve-lines">@Display(note.Details)</p>
+                                            <p class="note-meta">Legacy note ID @note.LegacyClientNoteId@(string.IsNullOrWhiteSpace(note.UpdatedBy) ? "" : $" | Updated by {note.UpdatedBy}")</p>
+                                        </details>
+                                    </td>
+                                    <td>@Display(note.OpenedBy)</td>
+                                    <td>
+                                        <div class="note-badges">
+                                            @if (note.IsFinal)
+                                            {
+                                                <span>Final</span>
+                                            }
+                                            else
+                                            {
+                                                <span>Preliminary</span>
+                                            }
+                                            @if (note.IsDeleted)
+                                            {
+                                                <span>Deleted</span>
+                                            }
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                @if (NotePageCount(filteredNotes.Count) > 1)
+                {
+                    <div class="notes-pager" aria-label="Notes pages">
+                        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="PreviousNotesPage" disabled="@(notePage <= 1)">Previous</button>
+                        <span>Page @notePage of @NotePageCount(filteredNotes.Count)</span>
+                        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="@(() => NextNotesPage(filteredNotes.Count))" disabled="@(notePage >= NotePageCount(filteredNotes.Count))">Next</button>
+                    </div>
+                }
+            }
+        }
+    </section>
+
+    <section class="detail-panel">
+        <h2>Legacy snapshot</h2>
+        <p class="text-muted">Original imported `tbl_client` row retained for audit and later field reconciliation.</p>
+        <pre class="legacy-json">@client.LegacySnapshots.OrderByDescending(snapshot => snapshot.ImportedAtUtc).FirstOrDefault()?.PayloadJson</pre>
+    </section>
+}
+
+@code {
+    [Parameter]
+    public int Id { get; set; }
+
+    private const int NotePageSize = 10;
+    private Client? client;
+    private string? noteFilter;
+    private int notePage = 1;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        noteFilter = null;
+        notePage = 1;
+        client = await Db.Clients
+            .AsNoTracking()
+            .Include(client => client.PersonalProfile)
+            .Include(client => client.FinancialProfile)
+            .Include(client => client.ContactPoints)
+            .Include(client => client.Addresses)
+            .Include(client => client.Relationships)
+            .Include(client => client.LegacySnapshots)
+            .Include(client => client.Notes)
+            .SingleOrDefaultAsync(client => client.Id == Id);
+    }
+
+    private List<ClientNote> FilteredNotes
+    {
+        get
+        {
+            if (client is null)
+            {
+                return [];
+            }
+
+            var notes = client.Notes
+                .OrderByDescending(note => note.NoteDate)
+                .ThenByDescending(note => note.LegacyClientNoteId)
+                .AsEnumerable();
+
+            var filter = noteFilter?.Trim();
+            if (!string.IsNullOrWhiteSpace(filter))
+            {
+                notes = notes.Where(note =>
+                    Contains(note.Title, filter) ||
+                    Contains(note.Details, filter) ||
+                    Contains(note.OpenedBy, filter) ||
+                    Contains(note.UpdatedBy, filter) ||
+                    Contains(note.NoteDate?.ToString("yyyy-MM-dd"), filter));
+            }
+
+            return notes.ToList();
+        }
+    }
+
+    private List<ClientNote> PagedNotes(IReadOnlyCollection<ClientNote> notes)
+    {
+        var pageCount = NotePageCount(notes.Count);
+        if (notePage > pageCount)
+        {
+            notePage = pageCount;
+        }
+
+        return notes
+            .Skip((notePage - 1) * NotePageSize)
+            .Take(NotePageSize)
+            .ToList();
+    }
+
+    private Task FilterNotesAsync(ChangeEventArgs args)
+    {
+        noteFilter = args.Value?.ToString();
+        notePage = 1;
+        return Task.CompletedTask;
+    }
+
+    private void PreviousNotesPage()
+    {
+        if (notePage > 1)
+        {
+            notePage--;
+        }
+    }
+
+    private void NextNotesPage(int noteCount)
+    {
+        if (notePage < NotePageCount(noteCount))
+        {
+            notePage++;
+        }
+    }
+
+    private static int NotePageCount(int noteCount) => Math.Max(1, (int)Math.Ceiling(noteCount / (double)NotePageSize));
+
+    private int ShowingStart(int noteCount) => noteCount == 0 ? 0 : ((notePage - 1) * NotePageSize) + 1;
+
+    private int ShowingEnd(int noteCount) => Math.Min(noteCount, notePage * NotePageSize);
+
+    private static bool Contains(string? value, string filter) =>
+        value?.Contains(filter, StringComparison.OrdinalIgnoreCase) == true;
+
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "Not captured" : value;
+
+    private static string Money(decimal? value) => value is null ? "Not captured" : value.Value.ToString("C");
+
+    private static string Percent(decimal? value) => value is null ? "Not captured" : $"{value:0.####}%";
+
+    private static string YesNo(bool? value) => value is null ? "Not captured" : value.Value ? "Yes" : "No";
+}

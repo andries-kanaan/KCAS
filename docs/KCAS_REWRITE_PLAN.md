@@ -160,6 +160,23 @@ Build status:
 - A build succeeded after the registration and Identity role changes.
 - A test project exists under `tests\KCAS.Admin.Tests`.
 - Baseline tests cover app smoke routes, static branding assets, security role seeding, stale permission cleanup, and first-user admin promotion.
+- Added the first client rewrite slice:
+  - Replaced the placeholder `Clients` columns with a normalized client aggregate.
+  - Added `ClientPersonalProfiles`, `ClientContactPoints`, `ClientAddresses`, `ClientRelationships`, `ClientFinancialProfiles`, and `ClientLegacySnapshots`.
+  - Added a searchable client register and read-only client detail page.
+  - Added a console importer under `tools\KCAS.LegacyImport`.
+  - Imported the local legacy `tbl_client` data into the new schema.
+  - Preserved raw legacy client rows as JSON snapshots.
+  - Added mapper and client-search tests.
+  - Added per-column client register filters and clickable sort headers.
+  - Surfaced more legacy client-section fields on the detail page, including physical/postal addresses, family detail, qualifications, spouse employer/income, goals, will/bank details, and representative fields.
+  - Left life and disability cover for the KYC/policy import because it is derived from the legacy `tbl_kyc` classification data, not just `tbl_client`.
+  - Added read-only client notes import and display:
+    - Added `ClientNotes` with legacy note IDs, final/deleted status, audit fields, and raw snapshots.
+    - Extended the console importer to import `tbl_clientnote` after clients.
+    - Imported 11,856 local legacy notes with 0 skipped and 0 failed.
+    - Added a Notes section to client detail pages.
+    - Deferred note create/edit/finalize/delete workflow until after read/import is reviewed.
 
 ## Current Verification Status
 
@@ -212,24 +229,21 @@ Still to verify manually in browser:
    - Break up over-wide legacy structures where needed.
    - Add explicit relationships, constraints, indexes, audit fields, and import traceability.
 
-4. Build the first useful Blazor workflow.
-   - Start with client search/list/detail because most other features hang off clients.
-   - Add notes and basic client profile editing after the read view is stable.
+4. Continue the client workflow.
+   - Review imported client detail fields against the old Yii screens.
+   - Review imported notes display against the old Yii notes grid.
+   - Add basic client edit screens only after confirming the normalized imported view is correct.
+   - Add note create/edit/finalize/delete after the read-only note import is accepted.
+   - Import KYC/policy data to populate life and disability cover and related calculated planning sections.
 
-5. Build importer.
-   - Read legacy MySQL data.
-   - Transform into the new schema.
-   - Preserve legacy IDs for reconciliation.
-   - Produce import reports for skipped, merged, or questionable rows.
-
-6. Expand functional modules.
+5. Expand functional modules.
    - Investments/accounts/history.
    - KYC and recommendations.
    - Funds/products/reference data.
    - Reports.
    - Administration/security.
 
-7. Production readiness.
+6. Production readiness.
    - Decide final hosting target.
    - Add CI/CD using GitHub once the remote is created.
    - Use `dotnet publish` in the deployment pipeline.

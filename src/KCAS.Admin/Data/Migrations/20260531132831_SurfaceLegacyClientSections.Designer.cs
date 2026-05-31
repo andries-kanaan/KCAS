@@ -3,6 +3,7 @@ using System;
 using KCAS.Admin.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace KCAS.Admin.Data.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260531132831_SurfaceLegacyClientSections")]
+    partial class SurfaceLegacyClientSections
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -401,73 +404,6 @@ namespace KCAS.Admin.Data.Migrations
                     b.ToTable("ClientLegacySnapshots");
                 });
 
-            modelBuilder.Entity("KCAS.Admin.Data.ClientNote", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    b.Property<int>("ClientId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Details")
-                        .HasColumnType("longtext");
-
-                    b.Property<DateTime>("ImportedAtUtc")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<bool>("IsFinal")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<int>("LegacyClientNoteId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime?>("LegacyOpenedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<int?>("LegacyOpenedByUserId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime?>("LegacyUpdatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<int?>("LegacyUpdatedByUserId")
-                        .HasColumnType("int");
-
-                    b.Property<DateOnly?>("NoteDate")
-                        .HasColumnType("date");
-
-                    b.Property<string>("OpenedBy")
-                        .HasMaxLength(256)
-                        .HasColumnType("varchar(256)");
-
-                    b.Property<string>("PayloadJson")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("Title")
-                        .HasMaxLength(256)
-                        .HasColumnType("varchar(256)");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasMaxLength(256)
-                        .HasColumnType("varchar(256)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("LegacyClientNoteId")
-                        .IsUnique();
-
-                    b.HasIndex("Title");
-
-                    b.HasIndex("ClientId", "NoteDate");
-
-                    b.ToTable("ClientNotes");
-                });
-
             modelBuilder.Entity("KCAS.Admin.Data.ClientPersonalProfile", b =>
                 {
                     b.Property<int>("ClientId")
@@ -803,17 +739,6 @@ namespace KCAS.Admin.Data.Migrations
                     b.Navigation("Client");
                 });
 
-            modelBuilder.Entity("KCAS.Admin.Data.ClientNote", b =>
-                {
-                    b.HasOne("KCAS.Admin.Data.Client", "Client")
-                        .WithMany("Notes")
-                        .HasForeignKey("ClientId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Client");
-                });
-
             modelBuilder.Entity("KCAS.Admin.Data.ClientPersonalProfile", b =>
                 {
                     b.HasOne("KCAS.Admin.Data.Client", "Client")
@@ -896,8 +821,6 @@ namespace KCAS.Admin.Data.Migrations
                     b.Navigation("FinancialProfile");
 
                     b.Navigation("LegacySnapshots");
-
-                    b.Navigation("Notes");
 
                     b.Navigation("PersonalProfile");
 

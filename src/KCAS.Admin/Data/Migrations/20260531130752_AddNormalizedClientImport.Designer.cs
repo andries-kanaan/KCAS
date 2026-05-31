@@ -3,6 +3,7 @@ using System;
 using KCAS.Admin.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace KCAS.Admin.Data.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260531130752_AddNormalizedClientImport")]
+    partial class AddNormalizedClientImport
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -316,44 +319,8 @@ namespace KCAS.Admin.Data.Migrations
                         .HasMaxLength(150)
                         .HasColumnType("varchar(150)");
 
-                    b.Property<decimal?>("PensionFundTax")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<decimal?>("PreservationFundLumpSumPercent")
-                        .HasPrecision(9, 4)
-                        .HasColumnType("decimal(9,4)");
-
-                    b.Property<decimal?>("RepresentativeAlternativeInvestmentsPercent")
-                        .HasPrecision(9, 4)
-                        .HasColumnType("decimal(9,4)");
-
-                    b.Property<decimal?>("RepresentativeEquitiesPercent")
-                        .HasPrecision(9, 4)
-                        .HasColumnType("decimal(9,4)");
-
-                    b.Property<decimal?>("RepresentativeFixedPropertyPercent")
-                        .HasPrecision(9, 4)
-                        .HasColumnType("decimal(9,4)");
-
-                    b.Property<string>("RepresentativeName")
-                        .HasMaxLength(150)
-                        .HasColumnType("varchar(150)");
-
-                    b.Property<decimal?>("RepresentativeOffshorePercent")
-                        .HasPrecision(9, 4)
-                        .HasColumnType("decimal(9,4)");
-
                     b.Property<int?>("RetirementAge")
                         .HasColumnType("int");
-
-                    b.Property<decimal?>("RetirementAnnuityTax")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<decimal?>("RetirementProvisionTax")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
 
                     b.Property<string>("WillDetailRaw")
                         .HasMaxLength(1000)
@@ -401,81 +368,10 @@ namespace KCAS.Admin.Data.Migrations
                     b.ToTable("ClientLegacySnapshots");
                 });
 
-            modelBuilder.Entity("KCAS.Admin.Data.ClientNote", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    b.Property<int>("ClientId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Details")
-                        .HasColumnType("longtext");
-
-                    b.Property<DateTime>("ImportedAtUtc")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<bool>("IsFinal")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<int>("LegacyClientNoteId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime?>("LegacyOpenedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<int?>("LegacyOpenedByUserId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime?>("LegacyUpdatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<int?>("LegacyUpdatedByUserId")
-                        .HasColumnType("int");
-
-                    b.Property<DateOnly?>("NoteDate")
-                        .HasColumnType("date");
-
-                    b.Property<string>("OpenedBy")
-                        .HasMaxLength(256)
-                        .HasColumnType("varchar(256)");
-
-                    b.Property<string>("PayloadJson")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("Title")
-                        .HasMaxLength(256)
-                        .HasColumnType("varchar(256)");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasMaxLength(256)
-                        .HasColumnType("varchar(256)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("LegacyClientNoteId")
-                        .IsUnique();
-
-                    b.HasIndex("Title");
-
-                    b.HasIndex("ClientId", "NoteDate");
-
-                    b.ToTable("ClientNotes");
-                });
-
             modelBuilder.Entity("KCAS.Admin.Data.ClientPersonalProfile", b =>
                 {
                     b.Property<int>("ClientId")
                         .HasColumnType("int");
-
-                    b.Property<string>("FamilyDetailRaw")
-                        .HasMaxLength(1000)
-                        .HasColumnType("varchar(1000)");
 
                     b.Property<string>("Gender")
                         .HasMaxLength(20)
@@ -510,10 +406,6 @@ namespace KCAS.Admin.Data.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)");
 
-                    b.Property<decimal?>("WorkdayTravelPercent")
-                        .HasPrecision(9, 4)
-                        .HasColumnType("decimal(9,4)");
-
                     b.HasKey("ClientId");
 
                     b.HasIndex("SouthAfricanIdNumber");
@@ -541,25 +433,9 @@ namespace KCAS.Admin.Data.Migrations
                         .HasMaxLength(150)
                         .HasColumnType("varchar(150)");
 
-                    b.Property<decimal?>("EmployerPensionContributionAmount")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<decimal?>("EmployerPensionContributionPercent")
-                        .HasPrecision(9, 4)
-                        .HasColumnType("decimal(9,4)");
-
                     b.Property<string>("Gender")
                         .HasMaxLength(20)
                         .HasColumnType("varchar(20)");
-
-                    b.Property<decimal?>("GrossAnnualSalary")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<decimal?>("GrossMonthlySalary")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
 
                     b.Property<string>("HighestQualification")
                         .HasMaxLength(150)
@@ -588,14 +464,6 @@ namespace KCAS.Admin.Data.Migrations
                         .HasMaxLength(150)
                         .HasColumnType("varchar(150)");
 
-                    b.Property<decimal?>("OtherIncome")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<string>("PensionFundName")
-                        .HasMaxLength(150)
-                        .HasColumnType("varchar(150)");
-
                     b.Property<string>("RelationshipType")
                         .IsRequired()
                         .HasMaxLength(40)
@@ -608,10 +476,6 @@ namespace KCAS.Admin.Data.Migrations
                     b.Property<string>("WorkPhone")
                         .HasMaxLength(30)
                         .HasColumnType("varchar(30)");
-
-                    b.Property<decimal?>("YearlyBonus")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
 
                     b.HasKey("Id");
 
@@ -803,17 +667,6 @@ namespace KCAS.Admin.Data.Migrations
                     b.Navigation("Client");
                 });
 
-            modelBuilder.Entity("KCAS.Admin.Data.ClientNote", b =>
-                {
-                    b.HasOne("KCAS.Admin.Data.Client", "Client")
-                        .WithMany("Notes")
-                        .HasForeignKey("ClientId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Client");
-                });
-
             modelBuilder.Entity("KCAS.Admin.Data.ClientPersonalProfile", b =>
                 {
                     b.HasOne("KCAS.Admin.Data.Client", "Client")
@@ -896,8 +749,6 @@ namespace KCAS.Admin.Data.Migrations
                     b.Navigation("FinancialProfile");
 
                     b.Navigation("LegacySnapshots");
-
-                    b.Navigation("Notes");
 
                     b.Navigation("PersonalProfile");
 
