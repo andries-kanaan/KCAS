@@ -13,13 +13,7 @@
 
 <PageTitle>Log in</PageTitle>
 
-<div class="auth-shell">
-    <section class="auth-brand-panel">
-        <img src="images/kanaan-header.jpg" alt="Kanaan Asset Managers" />
-        <p class="eyebrow">Kanaan Client Administration System</p>
-        <h1>Client administration</h1>
-    </section>
-
+<div class="auth-shell login-shell">
     <div class="auth-form-panel">
         <section>
             <StatusMessage Message="@errorMessage" />
@@ -75,9 +69,10 @@
 @code {
     private string? errorMessage;
     private EditContext editContext = default!;
+    private const string DefaultPostLoginPath = "clients";
     private string WindowsLoginUrl => NavigationManager.GetUriWithQueryParameters(
         "Account/WindowsLogin",
-        new Dictionary<string, object?> { ["returnUrl"] = ReturnUrl });
+        new Dictionary<string, object?> { ["returnUrl"] = PostLoginPath });
 
     [CascadingParameter]
     private HttpContext HttpContext { get; set; } = default!;
@@ -132,7 +127,7 @@
         {
             Logger.LogInformation("User logged in.");
             var user = await UserManager.FindByNameAsync(Input.Email);
-            RedirectManager.RedirectTo(user?.IsApproved == true ? ReturnUrl : "Account/PendingApproval");
+            RedirectManager.RedirectTo(user?.IsApproved == true ? PostLoginPath : "Account/PendingApproval");
         }
         else if (result.RequiresTwoFactor)
         {
@@ -166,4 +161,6 @@
 
         public PasskeyInputModel? Passkey { get; set; }
     }
+
+    private string PostLoginPath => string.IsNullOrWhiteSpace(ReturnUrl) ? DefaultPostLoginPath : ReturnUrl;
 }

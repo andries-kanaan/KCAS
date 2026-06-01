@@ -164,7 +164,7 @@ if (!app.Environment.IsEnvironment("Testing"))
 
         await signInManager.SignInAsync(user, isPersistent: false);
         var safeReturnUrl = string.IsNullOrWhiteSpace(returnUrl) || !Uri.IsWellFormedUriString(returnUrl, UriKind.Relative)
-            ? "/"
+            ? "/clients"
             : returnUrl;
 
         return Results.LocalRedirect(user.IsApproved ? safeReturnUrl : "/Account/PendingApproval");

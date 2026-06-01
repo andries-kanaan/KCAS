@@ -23,14 +23,40 @@ Start-Process `
     -WorkingDirectory $appDir `
     -WindowStyle Hidden
 
-Start-Sleep -Seconds 2
+function Wait-ForHttpStatus {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $Url,
+        [switch] $Insecure,
+        [int] $TimeoutSeconds = 60
+    )
 
-$kestrelStatus = & curl.exe -s -o NUL -w "%{http_code}" http://127.0.0.1:5143/clients
-$proxyStatus = & curl.exe -k -L -s -o NUL -w "%{http_code}" https://kcas.test:8443/clients
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $status = '000'
 
-Write-Host "Kestrel /clients status: $kestrelStatus"
-Write-Host "Proxy /clients status: $proxyStatus"
+    do {
+        $arguments = @('-L', '-s', '-o', 'NUL', '-w', '%{http_code}')
+        if ($Insecure) {
+            $arguments = @('-k') + $arguments
+        }
 
-if ($kestrelStatus -notin @('200', '302') -or $proxyStatus -ne '200') {
+        $status = & curl.exe @arguments $Url
+        if ($status -in @('200', '302')) {
+            return $status
+        }
+
+        Start-Sleep -Seconds 2
+    } while ((Get-Date) -lt $deadline)
+
+    return $status
+}
+
+$kestrelStatus = Wait-ForHttpStatus -Url 'http://127.0.0.1:5143/Account/Login'
+$proxyStatus = Wait-ForHttpStatus -Url 'https://kcas.test:8443/Account/Login' -Insecure
+
+Write-Host "Kestrel /Account/Login status: $kestrelStatus"
+Write-Host "Proxy /Account/Login status: $proxyStatus"
+
+if ($kestrelStatus -notin @('200', '302') -or $proxyStatus -notin @('200', '302')) {
     throw "KCAS restart verification failed."
 }
