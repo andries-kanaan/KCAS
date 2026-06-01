@@ -179,7 +179,8 @@ const int kycSaveBatchSize = 250;
 var mainClassNamesById = await ReadLookupAsync(legacyConnection, "tbl_mainclass");
 var subClassNamesById = await ReadLookupAsync(legacyConnection, "tbl_subclass");
 var kycPoliciesByLegacyId = await db.ClientKycPolicies
-    .ToDictionaryAsync(policy => policy.LegacyKycId);
+    .Where(policy => policy.LegacyKycId.HasValue)
+    .ToDictionaryAsync(policy => policy.LegacyKycId!.Value);
 
 await foreach (var row in ReadLegacyRowsAsync(legacyConnection, "tbl_kyc"))
 {
@@ -218,10 +219,10 @@ await foreach (var row in ReadLegacyRowsAsync(legacyConnection, "tbl_kyc"))
 
     try
     {
-        if (!kycPoliciesByLegacyId.TryGetValue(mapped.LegacyKycId, out var existing))
+        if (!kycPoliciesByLegacyId.TryGetValue(mapped.LegacyKycId!.Value, out var existing))
         {
             db.ClientKycPolicies.Add(mapped);
-            kycPoliciesByLegacyId[mapped.LegacyKycId] = mapped;
+            kycPoliciesByLegacyId[mapped.LegacyKycId.Value] = mapped;
             kycImported++;
         }
         else

@@ -1,0 +1,125 @@
+@page "/clients/{ClientId:int}/kyc/new"
+@page "/clients/{ClientId:int}/kyc/{PolicyId:int}/edit"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.KycManage)]
+@using System.ComponentModel.DataAnnotations
+@using KCAS.Admin.Data
+@inject ClientOperationsService ClientOperations
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>@(PolicyId is null ? "New KYC policy" : "Edit KYC policy")</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">KYC workflow</p>
+        <h1>@(PolicyId is null ? "New KYC policy" : "Edit KYC policy")</h1>
+    </div>
+    <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}#kyc")">Cancel</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(statusMessage))
+{
+    <div class="alert alert-warning">@statusMessage</div>
+}
+
+<EditForm Model="model" OnValidSubmit="SaveAsync" FormName="client-kyc-policy-edit">
+    <section class="detail-grid">
+        <article class="detail-panel form-panel">
+            <h2>Classification</h2>
+            <label>Main class <InputText class="form-control" @bind-Value="model.MainClassName" /></label>
+            <label>Sub class <InputText class="form-control" @bind-Value="model.SubClassName" /></label>
+            <label>Sub class detail <InputText class="form-control" @bind-Value="model.SubClassExtra" /></label>
+            <label>Description <InputTextArea class="form-control" @bind-Value="model.Description" /></label>
+        </article>
+
+        <article class="detail-panel form-panel">
+            <h2>Policy</h2>
+            <label>Administrator <InputText class="form-control" @bind-Value="model.Administrator" /></label>
+            <label>Product <InputText class="form-control" @bind-Value="model.Product" /></label>
+            <label>Policy number <InputText class="form-control" @bind-Value="model.PolicyNumber" /></label>
+            <label>Fund <InputText class="form-control" @bind-Value="model.Fund" /></label>
+            <label>Valuation date <InputDate class="form-control" @bind-Value="model.ValuationDate" /></label>
+        </article>
+    </section>
+
+    <section class="detail-panel form-panel">
+        <h2>Values</h2>
+        <div class="edit-row kyc-value-row">
+            <label>Value <InputNumber class="form-control" @bind-Value="model.Value" /></label>
+            <label>Debt <InputNumber class="form-control" @bind-Value="model.Debt" /></label>
+            <label>Monthly premium <InputNumber class="form-control" @bind-Value="model.MonthlyPremium" /></label>
+            <label>Once-off premium <InputNumber class="form-control" @bind-Value="model.OnceOffPremium" /></label>
+        </div>
+        <div class="edit-row kyc-value-row">
+            <label>Monthly income <InputNumber class="form-control" @bind-Value="model.MonthlyIncome" /></label>
+            <label>Compulsory contribution <InputNumber class="form-control" @bind-Value="model.CompulsoryContributionValue" /></label>
+            <label>Voluntary contribution <InputNumber class="form-control" @bind-Value="model.VoluntaryContributionValue" /></label>
+            <label>Tax % <InputNumber class="form-control" @bind-Value="model.TaxPercent" /></label>
+        </div>
+        <div class="edit-row kyc-value-row">
+            <label>Life cover <InputNumber class="form-control" @bind-Value="model.LifeCover" /></label>
+            <label>Disability cover <InputNumber class="form-control" @bind-Value="model.DisabilityCover" /></label>
+            <label>Dread disease cover <InputNumber class="form-control" @bind-Value="model.DreadDiseaseCover" /></label>
+            <label>Capital adequacy % <InputNumber class="form-control" @bind-Value="model.CapitalAdequacyRatioPercent" /></label>
+        </div>
+    </section>
+
+    <section class="detail-panel form-panel">
+        <h2>Flags</h2>
+        <div class="check-grid">
+            <label class="check-row"><InputCheckbox @bind-Value="model.IncludeInCalculations" /> Include in calculations</label>
+            <label class="check-row"><InputCheckbox @bind-Value="model.SurrenderOrLiquidate" /> Surrender or liquidate</label>
+            <label class="check-row"><InputCheckbox @bind-Value="model.IsRetirementAnnuity" /> Retirement annuity</label>
+            <label class="check-row"><InputCheckbox @bind-Value="model.IsPreservationFund" /> Preservation fund</label>
+            <label class="check-row"><InputCheckbox @bind-Value="model.IsRetrenchmentPackage" /> Retrenchment package</label>
+            <label class="check-row"><InputCheckbox @bind-Value="model.IsQuote" /> Quote</label>
+        </div>
+    </section>
+
+    <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Save KYC policy</button>
+        <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}#kyc")">Cancel</a>
+    </div>
+</EditForm>
+
+@code {
+    [Parameter]
+    public int ClientId { get; set; }
+
+    [Parameter]
+    public int? PolicyId { get; set; }
+
+    private ClientKycPolicyEditModel model = new();
+    private string? statusMessage;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            model = await ClientOperations.LoadKycPolicyAsync(ClientId, PolicyId);
+        }
+        catch (InvalidOperationException ex)
+        {
+            statusMessage = ex.Message;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            await ClientOperations.SaveKycPolicyAsync(model, authState.User.Identity?.Name);
+            Navigation.NavigateTo($"/clients/{ClientId}#kyc");
+        }
+        catch (ValidationException ex)
+        {
+            statusMessage = ex.Message;
+        }
+        catch (InvalidOperationException ex)
+        {
+            statusMessage = ex.Message;
+        }
+    }
+}

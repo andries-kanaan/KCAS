@@ -10,7 +10,7 @@ public class ClientKycPolicy
 
     public Client Client { get; set; } = null!;
 
-    public int LegacyKycId { get; set; }
+    public int? LegacyKycId { get; set; }
 
     public int? LegacyClientId { get; set; }
 
