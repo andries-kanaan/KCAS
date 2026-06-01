@@ -669,6 +669,32 @@ a, .btn-link {
     overflow-wrap: anywhere;
 }
 
+.investment-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+    gap: .75rem;
+    margin: .35rem 0 1rem;
+    padding: .85rem 0;
+    border-top: 1px solid rgba(19, 25, 35, .1);
+    border-bottom: 1px solid rgba(19, 25, 35, .1);
+}
+
+.investment-summary span {
+    display: block;
+    color: #5d6370;
+    font-size: .78rem;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.investment-summary strong {
+    display: block;
+    margin-top: .2rem;
+    color: #131923;
+    font-size: 1rem;
+    overflow-wrap: anywhere;
+}
+
 .preserve-lines {
     white-space: pre-wrap;
 }

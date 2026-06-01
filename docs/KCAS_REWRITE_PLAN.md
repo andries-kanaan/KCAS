@@ -10,7 +10,7 @@ Rewrite the legacy Yii1 `kanaanclients` application into the modern Blazor proje
 
 - PR #6, `Add client relationship editing`, has been merged into `main`.
 - The current product-development phase is `Investments Read Model`.
-- The next functional goal is to review the imported investment/current-value display and then decide whether to add investment editing, fuller fund summaries/reports, or KYC workflow next.
+- The next functional goal is to review the refined imported investment/current-value display in the browser and then decide whether to add investment editing, fuller fund summaries/reports, or KYC workflow next.
 - Current legacy imports are development seed data. They help design and test KCAS against realistic records, but they are disposable.
 - The final production import will happen later, from the latest `kanaanclients` data, once KCAS is ready for switch-over. At that point current seed/imported data can be cleared and replaced.
 
@@ -234,6 +234,9 @@ Build status:
   - Imported 710 local legacy fund valuation rows with 0 skipped and 0 failed.
   - Updated the client Investments section to prefer matched fund current values by account number, falling back to the latest captured investment-history balance where no fund value is available.
   - Kept full fund summary reports, fee calculations, and report exports deferred; this slice only brings current values into the client investment review surface.
+- Added the investment display review refinement:
+  - Added a client investment summary strip with total current value, valuation-matched account count, history-fallback account count, unmatched fund valuation count, and latest fund valuation date.
+  - Kept the refinement read-only; no schema or import behavior changed.
 
 ## Current Verification Status
 
@@ -301,7 +304,7 @@ Still to verify manually in browser:
    - Add read-only investment account/history/current-value display to client detail pages.
    - Preserve legacy traceability for reconciliation without making legacy row IDs KCAS identifiers.
    - Add mapper/import tests using realistic legacy rows.
-   - Status: implemented; remaining work here is review of the display and follow-up refinement.
+   - Status: implemented; first display refinement added; remaining work here is browser/acceptance review and selection of the next investment, reporting, or KYC slice.
 
 5. New schema design.
    - Design normalized EF Core entities for clients, contacts, notes, products, investments, KYC, documents, and reporting.

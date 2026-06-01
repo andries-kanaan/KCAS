@@ -388,6 +388,28 @@ else
                 <p class="section-subtitle">@InvestmentAccounts.Count account@(InvestmentAccounts.Count == 1 ? "" : "s") and @FundValuations.Count current fund value@(FundValuations.Count == 1 ? "" : "s") available</p>
             </div>
         </div>
+        <div class="investment-summary">
+            <div>
+                <span>Total current value</span>
+                <strong>@Money(TotalInvestmentCurrentValueZar)</strong>
+            </div>
+            <div>
+                <span>Valuation matched accounts</span>
+                <strong>@ValuationMatchedAccountCount</strong>
+            </div>
+            <div>
+                <span>History fallback accounts</span>
+                <strong>@HistoryFallbackAccountCount</strong>
+            </div>
+            <div>
+                <span>Unmatched fund values</span>
+                <strong>@UnmatchedFundValuationCount</strong>
+            </div>
+            <div>
+                <span>Latest fund valuation</span>
+                <strong>@Date(LatestFundValuationDate)</strong>
+            </div>
+        </div>
         @if (InvestmentAccounts.Count == 0)
         {
             <p class="text-muted">No investment account records available for this client.</p>
@@ -693,6 +715,38 @@ else
         .ThenBy(valuation => valuation.FundName)
         .ToList() ?? [];
 
+    private decimal? TotalInvestmentCurrentValueZar =>
+        SumValues(InvestmentAccounts, CurrentValueZar);
+
+    private int ValuationMatchedAccountCount =>
+        InvestmentAccounts.Count(account => CurrentValuations(account).Any());
+
+    private int HistoryFallbackAccountCount =>
+        InvestmentAccounts.Count(account => !CurrentValuations(account).Any() && LatestBalanceTransaction(account) is not null);
+
+    private int UnmatchedFundValuationCount
+    {
+        get
+        {
+            var accountNumbers = InvestmentAccounts
+                .Select(account => NormalizeAccountNumber(account.AccountNumber))
+                .Where(accountNumber => accountNumber is not null)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            return FundValuations.Count(valuation =>
+            {
+                var valuationAccountNumber = NormalizeAccountNumber(valuation.InvestmentUniqueNumber);
+                return valuationAccountNumber is null || !accountNumbers.Contains(valuationAccountNumber);
+            });
+        }
+    }
+
+    private DateOnly? LatestFundValuationDate => FundValuations
+        .Where(valuation => valuation.ValuationDate.HasValue)
+        .OrderByDescending(valuation => valuation.ValuationDate)
+        .Select(valuation => valuation.ValuationDate)
+        .FirstOrDefault();
+
     private List<ClientNote> FilteredNotes
     {
         get
@@ -817,6 +871,17 @@ else
             .OrderByDescending(transaction => transaction.TransactionDate)
             .ThenByDescending(transaction => transaction.LegacyInvestmentHistoryId)
             .FirstOrDefault();
+
+    private decimal? CurrentValueZar(ClientInvestmentAccount account)
+    {
+        var currentValuations = CurrentValuations(account).ToList();
+        if (currentValuations.Count > 0)
+        {
+            return SumValues(currentValuations, valuation => valuation.AmountZar);
+        }
+
+        return LatestBalanceTransaction(account)?.BalanceZar;
+    }
 
     private IEnumerable<ClientFundValuation> CurrentValuations(ClientInvestmentAccount account)
     {
