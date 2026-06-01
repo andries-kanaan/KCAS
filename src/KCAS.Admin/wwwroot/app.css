@@ -828,6 +828,13 @@ a, .btn-link {
     align-items: stretch;
 }
 
+.login-shell {
+    max-width: 44rem;
+    min-height: 0;
+    margin: 0 auto;
+    display: block;
+}
+
 .auth-brand-panel,
 .auth-form-panel {
     border: 1px solid rgba(28, 49, 58, .1);
@@ -938,6 +945,10 @@ a, .btn-link {
     .auth-shell {
         grid-template-columns: minmax(18rem, .9fr) minmax(22rem, .72fr);
         gap: 1.25rem;
+    }
+
+    .login-shell {
+        display: block;
     }
 
     .navbar-toggler {
