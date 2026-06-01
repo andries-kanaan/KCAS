@@ -204,4 +204,95 @@ public sealed class ClientOperationsServiceTests(KcasWebApplicationFactory facto
         Assert.True(saved.IsDeleted);
         Assert.Equal("tester", saved.UpdatedBy);
     }
+
+    [Fact]
+    public async Task Kyc_policies_can_be_created_edited_and_deleted_without_legacy_id()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientOperationsService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        var clientId = await service.SaveClientAsync(new ClientEditModel
+        {
+            KanaanId = "OPS-KYC-1",
+            SurnameOrEntityName = "Kyc",
+            DisplayName = "Kyc Client"
+        });
+
+        var policyId = await service.SaveKycPolicyAsync(new ClientKycPolicyEditModel
+        {
+            ClientId = clientId,
+            MainClassName = "Risk",
+            SubClassName = "Life and Disability Cover",
+            Administrator = "KCAS Provider",
+            Product = "Life Plan",
+            PolicyNumber = "KYC-001",
+            LifeCover = 500000m,
+            DisabilityCover = 250000m,
+            MonthlyPremium = 1250m,
+            IncludeInCalculations = true
+        }, "tester");
+
+        var model = await service.LoadKycPolicyAsync(clientId, policyId);
+        model.MonthlyPremium = 1300m;
+        model.IsQuote = true;
+        await service.SaveKycPolicyAsync(model, "tester");
+
+        var saved = await db.ClientKycPolicies.AsNoTracking().SingleAsync(policy => policy.Id == policyId);
+        Assert.Null(saved.LegacyKycId);
+        Assert.Equal("OPS-KYC-1", saved.KanaanId);
+        Assert.Equal("Life and Disability Cover", saved.SubClassName);
+        Assert.Equal(1300m, saved.MonthlyPremium);
+        Assert.True(saved.IncludeInCalculations);
+        Assert.True(saved.IsQuote);
+        Assert.Equal("tester", saved.OpenedBy);
+        Assert.Equal("tester", saved.UpdatedBy);
+
+        await service.DeleteKycPolicyAsync(clientId, policyId);
+
+        Assert.False(await db.ClientKycPolicies.AnyAsync(policy => policy.Id == policyId));
+    }
+
+    [Fact]
+    public async Task Imported_kyc_policies_can_be_edited_and_deleted_during_development()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientOperationsService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        var clientId = await service.SaveClientAsync(new ClientEditModel
+        {
+            KanaanId = "OPS-KYC-2",
+            SurnameOrEntityName = "Imported Kyc",
+            DisplayName = "Imported Kyc Client"
+        });
+
+        var imported = new ClientKycPolicy
+        {
+            ClientId = clientId,
+            LegacyKycId = 99001,
+            MainClassName = "Risk",
+            SubClassName = "Imported policy",
+            Product = "Legacy product",
+            PayloadJson = "{}",
+            ImportedAtUtc = DateTime.UtcNow
+        };
+        db.ClientKycPolicies.Add(imported);
+        await db.SaveChangesAsync();
+
+        var model = await service.LoadKycPolicyAsync(clientId, imported.Id);
+        model.Product = "Updated imported product";
+        model.Value = 150000m;
+        await service.SaveKycPolicyAsync(model, "tester");
+
+        var saved = await db.ClientKycPolicies.AsNoTracking().SingleAsync(policy => policy.Id == imported.Id);
+        Assert.Equal(99001, saved.LegacyKycId);
+        Assert.Equal("Updated imported product", saved.Product);
+        Assert.Equal(150000m, saved.Value);
+        Assert.Equal("tester", saved.UpdatedBy);
+
+        await service.DeleteKycPolicyAsync(clientId, imported.Id);
+
+        Assert.False(await db.ClientKycPolicies.AnyAsync(policy => policy.Id == imported.Id));
+    }
 }

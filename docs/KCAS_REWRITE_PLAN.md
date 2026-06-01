@@ -9,8 +9,9 @@ Rewrite the legacy Yii1 `kanaanclients` application into the modern Blazor proje
 ## Current State and Next Step
 
 - PR #6, `Add client relationship editing`, has been merged into `main`.
-- The current product-development phase is `Investments Read Model`.
-- The next functional goal is to review the refined imported investment/current-value display in the browser and then decide whether to add investment editing, fuller fund summaries/reports, or KYC workflow next.
+- The current product-development phase is `KYC Workflow`.
+- The next functional goal is to review native KYC policy create/edit/delete behavior in the browser, then decide whether to expand KYC recommendations/transfer behavior or move to fund summaries/reports.
+- Investment accounts, transactions, and fund valuations are still read-only. A later investment workflow slice should add investment account and history editing, including deposits, withdrawals, contributions, balance updates, and imported-row editing during development with legacy IDs kept only as traceability metadata.
 - Current legacy imports are development seed data. They help design and test KCAS against realistic records, but they are disposable.
 - The final production import will happen later, from the latest `kanaanclients` data, once KCAS is ready for switch-over. At that point current seed/imported data can be cleared and replaced.
 
@@ -237,6 +238,12 @@ Build status:
 - Added the investment display review refinement:
   - Added a client investment summary strip with total current value, valuation-matched account count, history-fallback account count, unmatched fund valuation count, and latest fund valuation date.
   - Kept the refinement read-only; no schema or import behavior changed.
+- Added the native KYC policy workflow slice:
+  - Made `ClientKycPolicy.LegacyKycId` nullable so KCAS-created policy rows can coexist with imported legacy seed rows.
+  - Added native KYC policy create/edit/delete behavior behind `Kyc.Manage`.
+  - Allowed imported seed KYC rows to be edited during development because they are disposable test data; `LegacyKycId` remains traceability metadata only.
+  - Added an operational KYC policy edit page and client detail actions for native rows.
+  - Added focused tests for native and imported KYC policy create/edit/delete behavior.
 
 ## Current Verification Status
 
@@ -304,7 +311,7 @@ Still to verify manually in browser:
    - Add read-only investment account/history/current-value display to client detail pages.
    - Preserve legacy traceability for reconciliation without making legacy row IDs KCAS identifiers.
    - Add mapper/import tests using realistic legacy rows.
-   - Status: implemented; first display refinement added; remaining work here is browser/acceptance review and selection of the next investment, reporting, or KYC slice.
+   - Status: read model implemented; first display refinement added. Remaining investment work includes account editing and transaction/history editing for deposits, withdrawals, contributions, and balance updates. Imported investment rows should be editable during development because the seed data is disposable; legacy IDs should remain traceability metadata, not edit locks.
 
 5. New schema design.
    - Design normalized EF Core entities for clients, contacts, notes, products, investments, KYC, documents, and reporting.
@@ -316,6 +323,7 @@ Still to verify manually in browser:
    - Review imported notes display against the old Yii notes grid.
    - Refine client operations after acceptance review.
    - Expand KYC/policy workflow beyond the current imported summaries.
+   - Status: native KYC policy create/edit/delete is implemented; remaining KYC work includes browser acceptance review, recommendations, transfer/copy behavior, and richer classification/reference workflows.
 
 7. Expand functional modules.
    - KYC and recommendations.

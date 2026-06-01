@@ -291,12 +291,17 @@ else
         }
     </section>
 
-    <section class="detail-panel">
+    <section id="kyc" class="detail-panel">
         <div class="section-heading-row">
             <div>
                 <h2>Current KYC policies</h2>
                 <p class="section-subtitle">@client.KycPolicies.Count policy record@(client.KycPolicies.Count == 1 ? "" : "s") available</p>
             </div>
+            <AuthorizeView Policy="@KcasPermissions.KycManage">
+                <Authorized>
+                    <a class="btn btn-outline-secondary btn-sm" href="@($"/clients/{Id}/kyc/new")">Add KYC policy</a>
+                </Authorized>
+            </AuthorizeView>
         </div>
         @if (client.KycPolicies.Count == 0)
         {
@@ -336,6 +341,11 @@ else
                             <th>Value</th>
                             <th>Premium</th>
                             <th>Flags</th>
+                            <AuthorizeView Policy="@KcasPermissions.KycManage">
+                                <Authorized>
+                                    <th></th>
+                                </Authorized>
+                            </AuthorizeView>
                         </tr>
                     </thead>
                     <tbody>
@@ -373,6 +383,16 @@ else
                                         }
                                     </div>
                                 </td>
+                                <AuthorizeView Policy="@KcasPermissions.KycManage">
+                                    <Authorized>
+                                        <td class="text-end">
+                                            <div class="row-actions">
+                                                <a class="btn btn-outline-secondary btn-sm" href="@($"/clients/{Id}/kyc/{policy.Id}/edit")">Edit</a>
+                                                <button class="btn btn-outline-danger btn-sm" type="button" @onclick="() => DeleteKycPolicyAsync(policy.Id)">Delete</button>
+                                            </div>
+                                        </td>
+                                    </Authorized>
+                                </AuthorizeView>
                             </tr>
                         }
                     </tbody>
@@ -848,6 +868,13 @@ else
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
         await ClientOperations.DeleteNoteAsync(Id, noteId, authState.User.Identity?.Name);
         statusMessage = "Note deleted.";
+        await LoadAsync();
+    }
+
+    private async Task DeleteKycPolicyAsync(int policyId)
+    {
+        await ClientOperations.DeleteKycPolicyAsync(Id, policyId);
+        statusMessage = "KYC policy deleted.";
         await LoadAsync();
     }
 

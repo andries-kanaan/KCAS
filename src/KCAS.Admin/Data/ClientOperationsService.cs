@@ -186,6 +186,130 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
         await db.SaveChangesAsync();
     }
 
+    public async Task<ClientKycPolicyEditModel> LoadKycPolicyAsync(int clientId, int? policyId)
+    {
+        if (policyId is null)
+        {
+            var clientExists = await db.Clients.AnyAsync(client => client.Id == clientId);
+            if (!clientExists)
+            {
+                throw new InvalidOperationException("Client not found.");
+            }
+
+            return new ClientKycPolicyEditModel
+            {
+                ClientId = clientId,
+                IncludeInCalculations = true
+            };
+        }
+
+        var policy = await db.ClientKycPolicies
+            .AsNoTracking()
+            .SingleOrDefaultAsync(policy => policy.ClientId == clientId && policy.Id == policyId.Value)
+            ?? throw new InvalidOperationException("KYC policy not found.");
+
+        return ClientKycPolicyEditModel.FromPolicy(policy);
+    }
+
+    public async Task<int> SaveKycPolicyAsync(ClientKycPolicyEditModel model, string? userName)
+    {
+        var mainClassName = Normalize(model.MainClassName);
+        var subClassName = Normalize(model.SubClassName);
+        var administrator = Normalize(model.Administrator);
+        var product = Normalize(model.Product);
+        var policyNumber = Normalize(model.PolicyNumber);
+        var description = Normalize(model.Description);
+        var fund = Normalize(model.Fund);
+
+        if (string.IsNullOrWhiteSpace(mainClassName) && string.IsNullOrWhiteSpace(subClassName))
+        {
+            throw new ValidationException("Enter a KYC main class or sub class.");
+        }
+
+        if (string.IsNullOrWhiteSpace(administrator) &&
+            string.IsNullOrWhiteSpace(product) &&
+            string.IsNullOrWhiteSpace(policyNumber) &&
+            string.IsNullOrWhiteSpace(description) &&
+            string.IsNullOrWhiteSpace(fund) &&
+            model.Value is null &&
+            model.LifeCover is null &&
+            model.DisabilityCover is null &&
+            model.DreadDiseaseCover is null &&
+            model.CompulsoryContributionValue is null &&
+            model.VoluntaryContributionValue is null &&
+            model.Debt is null &&
+            model.MonthlyPremium is null &&
+            model.OnceOffPremium is null &&
+            model.MonthlyIncome is null)
+        {
+            throw new ValidationException("Enter policy details or at least one financial amount.");
+        }
+
+        ClientKycPolicy policy;
+        if (model.Id is null)
+        {
+            var client = await db.Clients.AsNoTracking().SingleOrDefaultAsync(client => client.Id == model.ClientId)
+                ?? throw new InvalidOperationException("Client not found.");
+
+            policy = new ClientKycPolicy
+            {
+                ClientId = model.ClientId,
+                KanaanId = client.KanaanId,
+                PayloadJson = "{}",
+                ImportedAtUtc = DateTime.UtcNow,
+                OpenedBy = Normalize(userName)
+            };
+            db.ClientKycPolicies.Add(policy);
+        }
+        else
+        {
+            policy = await db.ClientKycPolicies.SingleOrDefaultAsync(policy => policy.ClientId == model.ClientId && policy.Id == model.Id.Value)
+                ?? throw new InvalidOperationException("KYC policy not found.");
+
+        }
+
+        policy.MainClassName = mainClassName;
+        policy.SubClassName = subClassName;
+        policy.SubClassExtra = Normalize(model.SubClassExtra);
+        policy.Administrator = administrator;
+        policy.Product = product;
+        policy.PolicyNumber = policyNumber;
+        policy.Description = description;
+        policy.Fund = fund;
+        policy.Value = model.Value;
+        policy.LifeCover = model.LifeCover;
+        policy.DisabilityCover = model.DisabilityCover;
+        policy.DreadDiseaseCover = model.DreadDiseaseCover;
+        policy.CompulsoryContributionValue = model.CompulsoryContributionValue;
+        policy.VoluntaryContributionValue = model.VoluntaryContributionValue;
+        policy.Debt = model.Debt;
+        policy.MonthlyPremium = model.MonthlyPremium;
+        policy.OnceOffPremium = model.OnceOffPremium;
+        policy.MonthlyIncome = model.MonthlyIncome;
+        policy.CapitalAdequacyRatioPercent = model.CapitalAdequacyRatioPercent;
+        policy.TaxPercent = model.TaxPercent;
+        policy.IncludeInCalculations = model.IncludeInCalculations;
+        policy.SurrenderOrLiquidate = model.SurrenderOrLiquidate;
+        policy.IsRetirementAnnuity = model.IsRetirementAnnuity;
+        policy.IsPreservationFund = model.IsPreservationFund;
+        policy.IsRetrenchmentPackage = model.IsRetrenchmentPackage;
+        policy.IsQuote = model.IsQuote;
+        policy.ValuationDate = model.ValuationDate;
+        policy.UpdatedBy = Normalize(userName);
+
+        await db.SaveChangesAsync();
+        return policy.Id;
+    }
+
+    public async Task DeleteKycPolicyAsync(int clientId, int policyId)
+    {
+        var policy = await db.ClientKycPolicies.SingleOrDefaultAsync(policy => policy.ClientId == clientId && policy.Id == policyId)
+            ?? throw new InvalidOperationException("KYC policy not found.");
+
+        db.ClientKycPolicies.Remove(policy);
+        await db.SaveChangesAsync();
+    }
+
     private async Task<Client> LoadClientAggregateAsync(int clientId)
     {
         return await db.Clients
@@ -511,5 +635,71 @@ public sealed class ClientNoteEditModel
         NoteDate = note.NoteDate,
         Title = note.Title,
         Details = note.Details
+    };
+}
+
+public sealed class ClientKycPolicyEditModel
+{
+    public int ClientId { get; set; }
+    public int? Id { get; set; }
+    public string? MainClassName { get; set; }
+    public string? SubClassName { get; set; }
+    public string? SubClassExtra { get; set; }
+    public string? Administrator { get; set; }
+    public string? Product { get; set; }
+    public string? PolicyNumber { get; set; }
+    public string? Description { get; set; }
+    public string? Fund { get; set; }
+    public decimal? Value { get; set; }
+    public decimal? LifeCover { get; set; }
+    public decimal? DisabilityCover { get; set; }
+    public decimal? DreadDiseaseCover { get; set; }
+    public decimal? CompulsoryContributionValue { get; set; }
+    public decimal? VoluntaryContributionValue { get; set; }
+    public decimal? Debt { get; set; }
+    public decimal? MonthlyPremium { get; set; }
+    public decimal? OnceOffPremium { get; set; }
+    public decimal? MonthlyIncome { get; set; }
+    public decimal? CapitalAdequacyRatioPercent { get; set; }
+    public decimal? TaxPercent { get; set; }
+    public bool IncludeInCalculations { get; set; }
+    public bool SurrenderOrLiquidate { get; set; }
+    public bool IsRetirementAnnuity { get; set; }
+    public bool IsPreservationFund { get; set; }
+    public bool IsRetrenchmentPackage { get; set; }
+    public bool IsQuote { get; set; }
+    public DateTime? ValuationDate { get; set; }
+
+    public static ClientKycPolicyEditModel FromPolicy(ClientKycPolicy policy) => new()
+    {
+        ClientId = policy.ClientId,
+        Id = policy.Id,
+        MainClassName = policy.MainClassName,
+        SubClassName = policy.SubClassName,
+        SubClassExtra = policy.SubClassExtra,
+        Administrator = policy.Administrator,
+        Product = policy.Product,
+        PolicyNumber = policy.PolicyNumber,
+        Description = policy.Description,
+        Fund = policy.Fund,
+        Value = policy.Value,
+        LifeCover = policy.LifeCover,
+        DisabilityCover = policy.DisabilityCover,
+        DreadDiseaseCover = policy.DreadDiseaseCover,
+        CompulsoryContributionValue = policy.CompulsoryContributionValue,
+        VoluntaryContributionValue = policy.VoluntaryContributionValue,
+        Debt = policy.Debt,
+        MonthlyPremium = policy.MonthlyPremium,
+        OnceOffPremium = policy.OnceOffPremium,
+        MonthlyIncome = policy.MonthlyIncome,
+        CapitalAdequacyRatioPercent = policy.CapitalAdequacyRatioPercent,
+        TaxPercent = policy.TaxPercent,
+        IncludeInCalculations = policy.IncludeInCalculations,
+        SurrenderOrLiquidate = policy.SurrenderOrLiquidate,
+        IsRetirementAnnuity = policy.IsRetirementAnnuity,
+        IsPreservationFund = policy.IsPreservationFund,
+        IsRetrenchmentPackage = policy.IsRetrenchmentPackage,
+        IsQuote = policy.IsQuote,
+        ValuationDate = policy.ValuationDate
     };
 }

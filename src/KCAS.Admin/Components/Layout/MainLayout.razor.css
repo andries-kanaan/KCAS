@@ -84,11 +84,18 @@
 
     .sidebar {
         width: 260px;
-        min-height: 100vh;
-        position: sticky;
+        height: 100vh;
+        position: fixed;
         top: 0;
+        left: 0;
+        z-index: 3;
+        overflow: hidden;
         border-right: 1px solid rgba(255, 255, 255, .12);
         border-bottom: 0;
+    }
+
+    .main-panel {
+        margin-left: 260px;
     }
 
     .top-row {

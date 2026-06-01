@@ -589,6 +589,12 @@ a, .btn-link {
     gap: .45rem !important;
 }
 
+.check-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+    gap: .55rem .85rem;
+}
+
 .edit-row {
     display: grid;
     grid-template-columns: minmax(8rem, 1fr) minmax(8rem, 1fr) minmax(12rem, 2fr) auto auto;
@@ -596,6 +602,10 @@ a, .btn-link {
     align-items: end;
     padding: .8rem 0;
     border-top: 1px solid rgba(0, 0, 0, .08);
+}
+
+.kyc-value-row {
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
 }
 
 .address-edit-row {
@@ -949,11 +959,18 @@ a, .btn-link {
 
     .sidebar {
         width: 260px;
-        min-height: 100vh;
-        position: sticky;
+        height: 100vh;
+        position: fixed;
         top: 0;
+        left: 0;
+        z-index: 3;
+        overflow: hidden;
         border-right: 1px solid rgba(255, 255, 255, .12);
         border-bottom: 0;
+    }
+
+    .main-panel {
+        margin-left: 260px;
     }
 
     .top-row {
@@ -989,6 +1006,10 @@ a, .btn-link {
 
     .sidebar-toggle:checked ~ .sidebar {
         width: 76px;
+    }
+
+    .sidebar-toggle:checked ~ .main-panel {
+        margin-left: 76px;
     }
 
     .sidebar-toggle:checked ~ .sidebar .brand-row {
