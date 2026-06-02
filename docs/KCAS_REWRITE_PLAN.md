@@ -8,7 +8,7 @@ Rewrite the legacy Yii1 `kanaanclients` application into the modern Blazor proje
 
 ## Current State and Next Step
 
-- PR #6, `Add client relationship editing`, has been merged into `main`.
+- PR #11, `Complete investment, fund, and KYC workflows`, has been merged into `main`.
 - The current product-development phase is browser acceptance review for the completed investment editing, fund summary, and deeper KYC workflow slices.
 - The next functional goal is to review investment account/transaction editing, fund summaries, KYC recommendations, and KYC copy/transfer behavior in the browser.
 - Investment accounts and transactions can now be edited during development, including imported rows. Legacy IDs are kept only as traceability metadata.
