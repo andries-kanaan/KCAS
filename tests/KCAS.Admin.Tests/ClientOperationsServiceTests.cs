@@ -295,4 +295,200 @@ public sealed class ClientOperationsServiceTests(KcasWebApplicationFactory facto
 
         Assert.False(await db.ClientKycPolicies.AnyAsync(policy => policy.Id == imported.Id));
     }
+
+    [Fact]
+    public async Task Investment_accounts_and_transactions_can_be_managed_without_legacy_ids()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientOperationsService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        var clientId = await service.SaveClientAsync(new ClientEditModel
+        {
+            KanaanId = "OPS-INV-1",
+            SurnameOrEntityName = "Investments",
+            DisplayName = "Investments Client"
+        });
+
+        var accountId = await service.SaveInvestmentAccountAsync(new ClientInvestmentAccountEditModel
+        {
+            ClientId = clientId,
+            Administrator = "Admin Co",
+            AccountNumber = "ACC-001",
+            ProductName = "Platform",
+            ProductType = "Unit trust",
+            FundName = "Balanced Fund",
+            InvestmentDate = new DateOnly(2026, 1, 1)
+        }, "tester");
+
+        var transactionId = await service.SaveInvestmentTransactionAsync(new ClientInvestmentTransactionEditModel
+        {
+            ClientId = clientId,
+            ClientInvestmentAccountId = accountId,
+            TransactionDate = new DateOnly(2026, 2, 1),
+            Description = "Initial contribution",
+            InvestmentAmountZar = 1000m,
+            BalanceZar = 1000m
+        }, "tester");
+
+        var transactionModel = await service.LoadInvestmentTransactionAsync(clientId, accountId, transactionId);
+        transactionModel.BalanceZar = 1250m;
+        await service.SaveInvestmentTransactionAsync(transactionModel, "tester");
+        await service.FinalizeInvestmentTransactionAsync(clientId, accountId, transactionId, "tester");
+        await service.DeleteInvestmentTransactionAsync(clientId, accountId, transactionId, "tester");
+
+        var account = await db.ClientInvestmentAccounts.AsNoTracking().SingleAsync(account => account.Id == accountId);
+        var transaction = await db.ClientInvestmentTransactions.AsNoTracking().SingleAsync(transaction => transaction.Id == transactionId);
+
+        Assert.Null(account.LegacyInvestmentAccountId);
+        Assert.Equal("ACC-001", account.AccountNumber);
+        Assert.Null(transaction.LegacyInvestmentHistoryId);
+        Assert.Equal(1250m, transaction.BalanceZar);
+        Assert.True(transaction.IsFinal);
+        Assert.True(transaction.IsDeleted);
+        Assert.Equal("tester", transaction.UpdatedBy);
+    }
+
+    [Fact]
+    public async Task Fund_summary_groups_matched_history_fallback_and_unmatched_values()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientOperationsService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        var clientId = await service.SaveClientAsync(new ClientEditModel
+        {
+            KanaanId = "OPS-FUND-1",
+            SurnameOrEntityName = "Funds",
+            DisplayName = "Funds Client"
+        });
+
+        var matchedAccount = new ClientInvestmentAccount
+        {
+            ClientId = clientId,
+            AccountNumber = "MATCH-1",
+            Administrator = "Admin",
+            ProductName = "Product",
+            PayloadJson = "{}"
+        };
+        var fallbackAccount = new ClientInvestmentAccount
+        {
+            ClientId = clientId,
+            AccountNumber = "FALLBACK-1",
+            Administrator = "Admin",
+            ProductName = "Product",
+            PayloadJson = "{}",
+            Transactions =
+            {
+                new ClientInvestmentTransaction
+                {
+                    TransactionDate = new DateOnly(2026, 3, 1),
+                    BalanceZar = 200m,
+                    PayloadJson = "{}"
+                }
+            }
+        };
+        db.ClientInvestmentAccounts.AddRange(matchedAccount, fallbackAccount);
+        db.ClientFundValuations.AddRange(
+            new ClientFundValuation
+            {
+                ClientId = clientId,
+                LegacyFundId = 900001,
+                InvestmentUniqueNumber = "MATCH-1",
+                Administrator = "Admin",
+                FundName = "Alpha Fund",
+                AmountZar = 300m,
+                ValuationDate = new DateOnly(2026, 4, 1)
+            },
+            new ClientFundValuation
+            {
+                ClientId = clientId,
+                LegacyFundId = 900002,
+                InvestmentUniqueNumber = "UNMATCHED-1",
+                Administrator = "Other",
+                FundName = "Unmatched Fund",
+                AmountZar = 400m,
+                ValuationDate = new DateOnly(2026, 4, 2)
+            });
+        await db.SaveChangesAsync();
+
+        var summary = await service.LoadFundSummaryAsync(clientId);
+
+        Assert.Equal(3, summary.Rows.Count);
+        Assert.Equal(900m, summary.TotalCurrentValueZar);
+        Assert.Equal(1, summary.MatchedValuationCount);
+        Assert.Equal(1, summary.HistoryFallbackCount);
+        Assert.Equal(1, summary.UnmatchedValuationCount);
+        Assert.Contains(summary.Rows, row => row.Source == "Fund valuation" && row.CurrentValueZar == 300m);
+        Assert.Contains(summary.Rows, row => row.Source == "History balance" && row.CurrentValueZar == 200m);
+        Assert.Contains(summary.Rows, row => row.Source == "Unmatched fund valuation" && row.CurrentValueZar == 400m);
+
+        var filtered = await service.LoadFundSummaryAsync(clientId, "Alpha");
+        Assert.Single(filtered.Rows);
+    }
+
+    [Fact]
+    public async Task Kyc_recommendations_can_be_managed_and_copied_or_transferred()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientOperationsService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        var sourceClientId = await service.SaveClientAsync(new ClientEditModel
+        {
+            KanaanId = "FAMILY-KYC-1",
+            SurnameOrEntityName = "Source",
+            DisplayName = "Source Client"
+        });
+        var targetClientId = await service.SaveClientAsync(new ClientEditModel
+        {
+            KanaanId = "FAMILY-KYC-1",
+            SurnameOrEntityName = "Target",
+            DisplayName = "Target Client"
+        });
+
+        var policyId = await service.SaveKycPolicyAsync(new ClientKycPolicyEditModel
+        {
+            ClientId = sourceClientId,
+            MainClassName = "Risk",
+            SubClassName = "Cover",
+            PolicyNumber = "COPY-1",
+            LifeCover = 100m
+        }, "tester");
+        var recommendationId = await service.SaveKycRecommendationAsync(new ClientKycRecommendationEditModel
+        {
+            ClientId = sourceClientId,
+            ClientKycPolicyId = policyId,
+            RecommendationType = "Review",
+            Status = "Open",
+            Details = "Review cover"
+        }, "tester");
+
+        await service.CopyOrTransferKycAsync(new KycTransferModel
+        {
+            SourceClientId = sourceClientId,
+            TargetClientId = targetClientId,
+            Operation = KycTransferOperation.Copy,
+            PolicyIds = [policyId],
+            RecommendationIds = [recommendationId]
+        }, "tester");
+
+        Assert.Equal(2, await db.ClientKycPolicies.CountAsync(policy => policy.PolicyNumber == "COPY-1"));
+        Assert.Equal(2, await db.ClientKycRecommendations.CountAsync(recommendation => recommendation.RecommendationType == "Review"));
+        Assert.True(await db.ClientKycPolicies.AnyAsync(policy => policy.ClientId == sourceClientId && policy.Id == policyId));
+        Assert.True(await db.ClientKycPolicies.AnyAsync(policy => policy.ClientId == targetClientId && policy.PolicyNumber == "COPY-1"));
+
+        await service.CopyOrTransferKycAsync(new KycTransferModel
+        {
+            SourceClientId = sourceClientId,
+            TargetClientId = targetClientId,
+            Operation = KycTransferOperation.Transfer,
+            PolicyIds = [policyId],
+            RecommendationIds = [recommendationId]
+        }, "tester");
+
+        Assert.False(await db.ClientKycPolicies.AnyAsync(policy => policy.ClientId == sourceClientId && policy.Id == policyId));
+        Assert.True(await db.ClientKycPolicies.AnyAsync(policy => policy.ClientId == targetClientId && policy.Id == policyId && policy.KanaanId == "FAMILY-KYC-1"));
+        Assert.True(await db.ClientKycRecommendations.AnyAsync(recommendation => recommendation.ClientId == targetClientId && recommendation.Id == recommendationId));
+    }
 }

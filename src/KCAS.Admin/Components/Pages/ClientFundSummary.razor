@@ -1,0 +1,126 @@
+@page "/clients/{ClientId:int}/fund-summary"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.InvestmentsView)]
+@using KCAS.Admin.Data
+@inject ClientOperationsService ClientOperations
+
+<PageTitle>Fund summary</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Investment workflow</p>
+        <h1>Fund summary</h1>
+        <p class="text-muted mb-0">@Display(summary?.ClientDisplayName)</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}#investments")">Back to client</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(statusMessage))
+{
+    <div class="alert alert-warning">@statusMessage</div>
+}
+else if (summary is not null)
+{
+    <section class="detail-panel">
+        <div class="notes-toolbar">
+            <input class="form-control" value="@filter" @oninput="FilterAsync" aria-label="Filter fund summary" placeholder="Filter funds" />
+            <div class="note-count">@summary.Rows.Count row@(summary.Rows.Count == 1 ? "" : "s")</div>
+        </div>
+        <div class="investment-summary">
+            <div>
+                <span>Total ZAR</span>
+                <strong>@Money(summary.TotalCurrentValueZar)</strong>
+            </div>
+            <div>
+                <span>Matched valuations</span>
+                <strong>@summary.MatchedValuationCount</strong>
+            </div>
+            <div>
+                <span>History fallback</span>
+                <strong>@summary.HistoryFallbackCount</strong>
+            </div>
+            <div>
+                <span>Unmatched valuations</span>
+                <strong>@summary.UnmatchedValuationCount</strong>
+            </div>
+            <div>
+                <span>Latest value date</span>
+                <strong>@Date(summary.LatestValueDate)</strong>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead>
+                    <tr>
+                        <th>Account</th>
+                        <th>Administrator</th>
+                        <th>Product</th>
+                        <th>Fund</th>
+                        <th>Value</th>
+                        <th>Source</th>
+                        <th>Transactions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in summary.Rows)
+                    {
+                        <tr>
+                            <td>@Display(row.AccountNumber)</td>
+                            <td>@Display(row.Administrator)</td>
+                            <td>
+                                @Display(row.ProductName)
+                                <div class="text-muted small">@Display(row.ProductType)</div>
+                            </td>
+                            <td>@Display(row.FundName)</td>
+                            <td>
+                                <div>@Money(row.CurrentValueZar)</div>
+                                <div class="text-muted small">@Money(row.CurrentValueForeign)</div>
+                                <div class="text-muted small">@Date(row.CurrentValueDate)</div>
+                            </td>
+                            <td>@row.Source</td>
+                            <td>@row.TransactionCount</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}
+
+@code {
+    [Parameter]
+    public int ClientId { get; set; }
+
+    private ClientFundSummaryModel? summary;
+    private string? filter;
+    private string? statusMessage;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            summary = await ClientOperations.LoadFundSummaryAsync(ClientId, filter);
+        }
+        catch (InvalidOperationException ex)
+        {
+            statusMessage = ex.Message;
+        }
+    }
+
+    private async Task FilterAsync(ChangeEventArgs args)
+    {
+        filter = args.Value?.ToString();
+        await LoadAsync();
+    }
+
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "Not captured" : value;
+
+    private static string Money(decimal? value) => value is null ? "Not captured" : value.Value.ToString("C");
+
+    private static string Date(DateOnly? value) => value is null ? "Not captured" : value.Value.ToString("yyyy-MM-dd");
+}

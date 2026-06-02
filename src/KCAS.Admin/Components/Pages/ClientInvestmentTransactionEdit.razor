@@ -1,0 +1,104 @@
+@page "/clients/{ClientId:int}/investments/{AccountId:int}/transactions/new"
+@page "/clients/{ClientId:int}/investments/{AccountId:int}/transactions/{TransactionId:int}/edit"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.InvestmentsManage)]
+@using System.ComponentModel.DataAnnotations
+@using KCAS.Admin.Data
+@inject ClientOperationsService ClientOperations
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>@(TransactionId is null ? "New investment transaction" : "Edit investment transaction")</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Investment workflow</p>
+        <h1>@(TransactionId is null ? "New investment transaction" : "Edit investment transaction")</h1>
+    </div>
+    <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}#investments")">Cancel</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(statusMessage))
+{
+    <div class="alert alert-warning">@statusMessage</div>
+}
+
+<EditForm Model="model" OnValidSubmit="SaveAsync" FormName="investment-transaction-edit">
+    <section class="detail-grid">
+        <article class="detail-panel form-panel">
+            <h2>Transaction</h2>
+            <label>Date <InputDate class="form-control" @bind-Value="model.TransactionDate" /></label>
+            <label>Description <InputTextArea class="form-control" @bind-Value="model.Description" /></label>
+            <label>Frequency <InputText class="form-control" @bind-Value="model.InvestmentFrequency" /></label>
+            <label>Exchange rate <InputNumber class="form-control" @bind-Value="model.ExchangeRate" /></label>
+        </article>
+        <article class="detail-panel form-panel">
+            <h2>Status</h2>
+            <label>Annual increase % <InputNumber class="form-control" @bind-Value="model.AnnualIncreasePercent" /></label>
+            <label class="check-row"><InputCheckbox @bind-Value="model.IsFinal" /> Final</label>
+        </article>
+    </section>
+
+    <section class="detail-panel form-panel">
+        <h2>Amounts</h2>
+        <div class="edit-row kyc-value-row">
+            <label>Investment ZAR <InputNumber class="form-control" @bind-Value="model.InvestmentAmountZar" /></label>
+            <label>Investment foreign <InputNumber class="form-control" @bind-Value="model.InvestmentAmountForeign" /></label>
+            <label>Withdrawal ZAR <InputNumber class="form-control" @bind-Value="model.WithdrawalAmountZar" /></label>
+            <label>Withdrawal foreign <InputNumber class="form-control" @bind-Value="model.WithdrawalAmountForeign" /></label>
+        </div>
+        <div class="edit-row kyc-value-row">
+            <label>Balance ZAR <InputNumber class="form-control" @bind-Value="model.BalanceZar" /></label>
+            <label>Balance foreign <InputNumber class="form-control" @bind-Value="model.BalanceForeign" /></label>
+        </div>
+    </section>
+
+    <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Save transaction</button>
+        <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}#investments")">Cancel</a>
+    </div>
+</EditForm>
+
+@code {
+    [Parameter]
+    public int ClientId { get; set; }
+
+    [Parameter]
+    public int AccountId { get; set; }
+
+    [Parameter]
+    public int? TransactionId { get; set; }
+
+    private ClientInvestmentTransactionEditModel model = new();
+    private string? statusMessage;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            model = await ClientOperations.LoadInvestmentTransactionAsync(ClientId, AccountId, TransactionId);
+        }
+        catch (InvalidOperationException ex)
+        {
+            statusMessage = ex.Message;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            await ClientOperations.SaveInvestmentTransactionAsync(model, authState.User.Identity?.Name);
+            Navigation.NavigateTo($"/clients/{ClientId}#investments");
+        }
+        catch (ValidationException ex)
+        {
+            statusMessage = ex.Message;
+        }
+        catch (InvalidOperationException ex)
+        {
+            statusMessage = ex.Message;
+        }
+    }
+}

@@ -299,6 +299,8 @@ else
             </div>
             <AuthorizeView Policy="@KcasPermissions.KycManage">
                 <Authorized>
+                    <a class="btn btn-outline-secondary btn-sm" href="@($"/clients/{Id}/kyc/transfer")">Copy or transfer</a>
+                    <a class="btn btn-outline-secondary btn-sm" href="@($"/clients/{Id}/kyc/recommendations/new")">Add recommendation</a>
                     <a class="btn btn-outline-secondary btn-sm" href="@($"/clients/{Id}/kyc/new")">Add KYC policy</a>
                 </Authorized>
             </AuthorizeView>
@@ -401,11 +403,80 @@ else
         }
     </section>
 
+    <section id="kyc-recommendations" class="detail-panel">
+        <div class="section-heading-row">
+            <div>
+                <h2>KYC recommendations</h2>
+                <p class="section-subtitle">@KycRecommendations.Count recommendation@(KycRecommendations.Count == 1 ? "" : "s") captured</p>
+            </div>
+            <AuthorizeView Policy="@KcasPermissions.KycManage">
+                <Authorized>
+                    <a class="btn btn-outline-secondary btn-sm" href="@($"/clients/{Id}/kyc/recommendations/new")">Add recommendation</a>
+                </Authorized>
+            </AuthorizeView>
+        </div>
+        @if (KycRecommendations.Count == 0)
+        {
+            <p class="text-muted">No KYC recommendations captured for this client.</p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Type</th>
+                            <th>Status</th>
+                            <th>Details</th>
+                            <th>Outcome</th>
+                            <AuthorizeView Policy="@KcasPermissions.KycManage">
+                                <Authorized>
+                                    <th></th>
+                                </Authorized>
+                            </AuthorizeView>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var recommendation in KycRecommendations)
+                        {
+                            <tr>
+                                <td>@Date(recommendation.RecommendationDate)</td>
+                                <td>@Display(recommendation.RecommendationType)</td>
+                                <td>@Display(recommendation.Status)</td>
+                                <td class="preserve-lines">@Display(recommendation.Details)</td>
+                                <td class="preserve-lines">@Display(recommendation.Outcome)</td>
+                                <AuthorizeView Policy="@KcasPermissions.KycManage">
+                                    <Authorized>
+                                        <td class="text-end">
+                                            <div class="row-actions">
+                                                <a class="btn btn-outline-secondary btn-sm" href="@($"/clients/{Id}/kyc/recommendations/{recommendation.Id}/edit")">Edit</a>
+                                                <button class="btn btn-outline-danger btn-sm" type="button" @onclick="() => DeleteKycRecommendationAsync(recommendation.Id)">Delete</button>
+                                            </div>
+                                        </td>
+                                    </Authorized>
+                                </AuthorizeView>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
     <section id="investments" class="detail-panel">
         <div class="section-heading-row">
             <div>
                 <h2>Investments</h2>
                 <p class="section-subtitle">@InvestmentAccounts.Count account@(InvestmentAccounts.Count == 1 ? "" : "s") and @FundValuations.Count current fund value@(FundValuations.Count == 1 ? "" : "s") available</p>
+            </div>
+            <div class="row-actions">
+                <a class="btn btn-outline-secondary btn-sm" href="@($"/clients/{Id}/fund-summary")">Fund summary</a>
+                <AuthorizeView Policy="@KcasPermissions.InvestmentsManage">
+                    <Authorized>
+                        <a class="btn btn-outline-secondary btn-sm" href="@($"/clients/{Id}/investments/new")">Add account</a>
+                    </Authorized>
+                </AuthorizeView>
             </div>
         </div>
         <div class="investment-summary">
@@ -447,6 +518,11 @@ else
                             <th>Dates</th>
                             <th>Current value</th>
                             <th>Transactions</th>
+                            <AuthorizeView Policy="@KcasPermissions.InvestmentsManage">
+                                <Authorized>
+                                    <th></th>
+                                </Authorized>
+                            </AuthorizeView>
                         </tr>
                     </thead>
                     <tbody>
@@ -466,7 +542,7 @@ else
                             <tr>
                                 <td>
                                     <strong>@Display(account.AccountNumber)</strong>
-                                    <div class="text-muted small">Legacy account ID @account.LegacyInvestmentAccountId</div>
+                                    <div class="text-muted small">@InvestmentAccountSource(account)</div>
                                 </td>
                                 <td>@Display(account.Administrator)</td>
                                 <td>
@@ -499,11 +575,22 @@ else
                                         <div class="text-muted small">Latest: @Date(latestTransaction.TransactionDate)</div>
                                     }
                                 </td>
+                                <AuthorizeView Policy="@KcasPermissions.InvestmentsManage">
+                                    <Authorized>
+                                        <td class="text-end">
+                                            <div class="row-actions">
+                                                <a class="btn btn-outline-secondary btn-sm" href="@($"/clients/{Id}/investments/{account.Id}/edit")">Edit</a>
+                                                <a class="btn btn-outline-secondary btn-sm" href="@($"/clients/{Id}/investments/{account.Id}/transactions/new")">Add transaction</a>
+                                                <button class="btn btn-outline-danger btn-sm" type="button" @onclick="() => DeleteInvestmentAccountAsync(account.Id)">Delete</button>
+                                            </div>
+                                        </td>
+                                    </Authorized>
+                                </AuthorizeView>
                             </tr>
                             @if (activeTransactions.Count > 0)
                             {
                                 <tr>
-                                    <td colspan="7">
+                                    <td colspan="8">
                                         <details>
                                             <summary>Show history</summary>
                                             <div class="table-responsive mt-2">
@@ -517,6 +604,11 @@ else
                                                             <th>Withdrawal</th>
                                                             <th>Balance</th>
                                                             <th>Status</th>
+                                                            <AuthorizeView Policy="@KcasPermissions.InvestmentsManage">
+                                                                <Authorized>
+                                                                    <th></th>
+                                                                </Authorized>
+                                                            </AuthorizeView>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
@@ -539,6 +631,20 @@ else
                                                                     <div class="text-muted small">@Money(transaction.BalanceForeign)</div>
                                                                 </td>
                                                                 <td>@(transaction.IsFinal ? "Final" : "Preliminary")</td>
+                                                                <AuthorizeView Policy="@KcasPermissions.InvestmentsManage">
+                                                                    <Authorized>
+                                                                        <td class="text-end">
+                                                                            <div class="row-actions">
+                                                                                @if (!transaction.IsFinal)
+                                                                                {
+                                                                                    <a class="btn btn-outline-secondary btn-sm" href="@($"/clients/{Id}/investments/{account.Id}/transactions/{transaction.Id}/edit")">Edit</a>
+                                                                                    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="() => FinalizeInvestmentTransactionAsync(account.Id, transaction.Id)">Finalize</button>
+                                                                                }
+                                                                                <button class="btn btn-outline-danger btn-sm" type="button" @onclick="() => DeleteInvestmentTransactionAsync(account.Id, transaction.Id)">Delete</button>
+                                                                            </div>
+                                                                        </td>
+                                                                    </Authorized>
+                                                                </AuthorizeView>
                                                             </tr>
                                                         }
                                                     </tbody>
@@ -702,6 +808,7 @@ else
             .Include(client => client.LegacySnapshots)
             .Include(client => client.Notes)
             .Include(client => client.KycPolicies)
+            .Include(client => client.KycRecommendations)
             .Include(client => client.FundValuations)
             .Include(client => client.InvestmentAccounts)
                 .ThenInclude(account => account.Transactions)
@@ -723,6 +830,11 @@ else
     private List<ClientKycPolicy> LifeAndDisabilityPolicies => CurrentKycPolicies
         .Where(IsLifeAndDisabilityPolicy)
         .ToList();
+
+    private List<ClientKycRecommendation> KycRecommendations => client?.KycRecommendations
+        .OrderByDescending(recommendation => recommendation.RecommendationDate)
+        .ThenBy(recommendation => recommendation.RecommendationType)
+        .ToList() ?? [];
 
     private List<ClientInvestmentAccount> InvestmentAccounts => client?.InvestmentAccounts
         .OrderByDescending(account => account.InvestmentDate)
@@ -855,6 +967,9 @@ else
     private static string NoteSource(ClientNote note) =>
         note.LegacyClientNoteId is null ? "KCAS note" : $"Legacy note ID {note.LegacyClientNoteId}";
 
+    private static string InvestmentAccountSource(ClientInvestmentAccount account) =>
+        account.LegacyInvestmentAccountId is null ? "KCAS account" : $"Legacy account ID {account.LegacyInvestmentAccountId}";
+
     private async Task FinalizeNoteAsync(int noteId)
     {
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
@@ -875,6 +990,36 @@ else
     {
         await ClientOperations.DeleteKycPolicyAsync(Id, policyId);
         statusMessage = "KYC policy deleted.";
+        await LoadAsync();
+    }
+
+    private async Task DeleteKycRecommendationAsync(int recommendationId)
+    {
+        await ClientOperations.DeleteKycRecommendationAsync(Id, recommendationId);
+        statusMessage = "KYC recommendation deleted.";
+        await LoadAsync();
+    }
+
+    private async Task DeleteInvestmentAccountAsync(int accountId)
+    {
+        await ClientOperations.DeleteInvestmentAccountAsync(Id, accountId);
+        statusMessage = "Investment account deleted.";
+        await LoadAsync();
+    }
+
+    private async Task FinalizeInvestmentTransactionAsync(int accountId, int transactionId)
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        await ClientOperations.FinalizeInvestmentTransactionAsync(Id, accountId, transactionId, authState.User.Identity?.Name);
+        statusMessage = "Investment transaction finalized.";
+        await LoadAsync();
+    }
+
+    private async Task DeleteInvestmentTransactionAsync(int accountId, int transactionId)
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        await ClientOperations.DeleteInvestmentTransactionAsync(Id, accountId, transactionId, authState.User.Identity?.Name);
+        statusMessage = "Investment transaction deleted.";
         await LoadAsync();
     }
 

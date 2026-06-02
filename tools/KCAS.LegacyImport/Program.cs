@@ -259,7 +259,8 @@ var pendingInvestmentAccountChanges = 0;
 const int investmentAccountSaveBatchSize = 250;
 
 var investmentAccountsByLegacyId = await db.ClientInvestmentAccounts
-    .ToDictionaryAsync(account => account.LegacyInvestmentAccountId);
+    .Where(account => account.LegacyInvestmentAccountId.HasValue)
+    .ToDictionaryAsync(account => account.LegacyInvestmentAccountId!.Value);
 
 await foreach (var row in ReadLegacyRowsAsync(legacyConnection, "tbl_investmentaccount"))
 {
@@ -298,10 +299,10 @@ await foreach (var row in ReadLegacyRowsAsync(legacyConnection, "tbl_investmenta
 
     try
     {
-        if (!investmentAccountsByLegacyId.TryGetValue(mapped.LegacyInvestmentAccountId, out var existing))
+        if (!investmentAccountsByLegacyId.TryGetValue(mapped.LegacyInvestmentAccountId!.Value, out var existing))
         {
             db.ClientInvestmentAccounts.Add(mapped);
-            investmentAccountsByLegacyId[mapped.LegacyInvestmentAccountId] = mapped;
+            investmentAccountsByLegacyId[mapped.LegacyInvestmentAccountId!.Value] = mapped;
             investmentAccountImported++;
         }
         else
@@ -331,7 +332,8 @@ if (!options.DryRun && pendingInvestmentAccountChanges > 0)
 }
 
 investmentAccountsByLegacyId = await db.ClientInvestmentAccounts
-    .ToDictionaryAsync(account => account.LegacyInvestmentAccountId);
+    .Where(account => account.LegacyInvestmentAccountId.HasValue)
+    .ToDictionaryAsync(account => account.LegacyInvestmentAccountId!.Value);
 
 var investmentTransactionImported = 0;
 var investmentTransactionUpdated = 0;
@@ -341,7 +343,8 @@ var pendingInvestmentTransactionChanges = 0;
 const int investmentTransactionSaveBatchSize = 250;
 
 var investmentTransactionsByLegacyId = await db.ClientInvestmentTransactions
-    .ToDictionaryAsync(transaction => transaction.LegacyInvestmentHistoryId);
+    .Where(transaction => transaction.LegacyInvestmentHistoryId.HasValue)
+    .ToDictionaryAsync(transaction => transaction.LegacyInvestmentHistoryId!.Value);
 
 await foreach (var row in ReadLegacyRowsAsync(legacyConnection, "tbl_investmenthistory"))
 {
@@ -380,10 +383,10 @@ await foreach (var row in ReadLegacyRowsAsync(legacyConnection, "tbl_investmenth
 
     try
     {
-        if (!investmentTransactionsByLegacyId.TryGetValue(mapped.LegacyInvestmentHistoryId, out var existing))
+        if (!investmentTransactionsByLegacyId.TryGetValue(mapped.LegacyInvestmentHistoryId!.Value, out var existing))
         {
             db.ClientInvestmentTransactions.Add(mapped);
-            investmentTransactionsByLegacyId[mapped.LegacyInvestmentHistoryId] = mapped;
+            investmentTransactionsByLegacyId[mapped.LegacyInvestmentHistoryId!.Value] = mapped;
             investmentTransactionImported++;
         }
         else

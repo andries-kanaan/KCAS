@@ -1,0 +1,182 @@
+@page "/clients/{ClientId:int}/kyc/transfer"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.KycManage)]
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.EntityFrameworkCore
+@using KCAS.Admin.Data
+@inject ApplicationDbContext Db
+@inject ClientOperationsService ClientOperations
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>Copy or transfer KYC</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">KYC workflow</p>
+        <h1>Copy or transfer KYC</h1>
+        <p class="text-muted mb-0">@Display(sourceClient?.DisplayName)</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}#kyc")">Cancel</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(statusMessage))
+{
+    <div class="alert alert-warning">@statusMessage</div>
+}
+
+<section class="detail-panel form-panel">
+    <h2>Target client</h2>
+    <div class="notes-toolbar">
+        <input class="form-control" value="@targetFilter" @oninput="SearchTargetsAsync" aria-label="Find target client" placeholder="Search target clients" />
+        <div class="note-count">@targets.Count target@(targets.Count == 1 ? "" : "s")</div>
+    </div>
+    <label>
+        Target
+        <InputSelect class="form-control" @bind-Value="targetClientId">
+            <option value="0">Choose target client</option>
+            @foreach (var target in targets)
+            {
+                <option value="@target.ClientId">@target.DisplayName (@Display(target.KanaanId))</option>
+            }
+        </InputSelect>
+    </label>
+</section>
+
+<section class="detail-grid">
+    <article class="detail-panel form-panel">
+        <h2>KYC policies</h2>
+        @foreach (var policy in policies)
+        {
+            <label class="check-row" @key="policy.Id">
+                <input type="checkbox" checked="@selectedPolicyIds.Contains(policy.Id)" @onchange="args => TogglePolicy(policy.Id, args)" />
+                @Display(policy.MainClassName) / @Display(policy.SubClassName) - @Display(policy.PolicyNumber)
+            </label>
+        }
+        @if (policies.Count == 0)
+        {
+            <p class="text-muted">No policies available.</p>
+        }
+    </article>
+    <article class="detail-panel form-panel">
+        <h2>Recommendations</h2>
+        @foreach (var recommendation in recommendations)
+        {
+            <label class="check-row" @key="recommendation.Id">
+                <input type="checkbox" checked="@selectedRecommendationIds.Contains(recommendation.Id)" @onchange="args => ToggleRecommendation(recommendation.Id, args)" />
+                @Display(recommendation.RecommendationType) - @Display(recommendation.Status)
+            </label>
+        }
+        @if (recommendations.Count == 0)
+        {
+            <p class="text-muted">No recommendations available.</p>
+        }
+    </article>
+</section>
+
+<section class="detail-panel form-panel">
+    <h2>Action</h2>
+    <div class="check-grid">
+        <label class="check-row">
+            <input type="radio" name="operation" checked="@(operation == KycTransferOperation.Copy)" @onchange="() => operation = KycTransferOperation.Copy" />
+            Copy selected rows
+        </label>
+        <label class="check-row">
+            <input type="radio" name="operation" checked="@(operation == KycTransferOperation.Transfer)" @onchange="() => operation = KycTransferOperation.Transfer" />
+            Transfer selected rows
+        </label>
+    </div>
+    <div class="form-actions">
+        <button class="btn btn-primary" type="button" @onclick="ExecuteAsync">Apply</button>
+        <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}#kyc")">Cancel</a>
+    </div>
+</section>
+
+@code {
+    [Parameter]
+    public int ClientId { get; set; }
+
+    private Client? sourceClient;
+    private List<ClientKycPolicy> policies = [];
+    private List<ClientKycRecommendation> recommendations = [];
+    private List<ClientTransferTargetModel> targets = [];
+    private readonly HashSet<int> selectedPolicyIds = [];
+    private readonly HashSet<int> selectedRecommendationIds = [];
+    private string? targetFilter;
+    private int targetClientId;
+    private KycTransferOperation operation = KycTransferOperation.Copy;
+    private string? statusMessage;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        sourceClient = await Db.Clients.AsNoTracking().SingleOrDefaultAsync(client => client.Id == ClientId);
+        policies = await Db.ClientKycPolicies.AsNoTracking()
+            .Where(policy => policy.ClientId == ClientId)
+            .OrderBy(policy => policy.MainClassName)
+            .ThenBy(policy => policy.SubClassName)
+            .ToListAsync();
+        recommendations = await Db.ClientKycRecommendations.AsNoTracking()
+            .Where(recommendation => recommendation.ClientId == ClientId)
+            .OrderByDescending(recommendation => recommendation.RecommendationDate)
+            .ToListAsync();
+        await LoadTargetsAsync();
+    }
+
+    private async Task SearchTargetsAsync(ChangeEventArgs args)
+    {
+        targetFilter = args.Value?.ToString();
+        await LoadTargetsAsync();
+    }
+
+    private async Task LoadTargetsAsync()
+    {
+        targets = await ClientOperations.SearchKycTransferTargetsAsync(ClientId, targetFilter);
+        if (targetClientId != 0 && targets.All(target => target.ClientId != targetClientId))
+        {
+            targetClientId = 0;
+        }
+    }
+
+    private void TogglePolicy(int policyId, ChangeEventArgs args) => Toggle(selectedPolicyIds, policyId, args);
+
+    private void ToggleRecommendation(int recommendationId, ChangeEventArgs args) => Toggle(selectedRecommendationIds, recommendationId, args);
+
+    private static void Toggle(HashSet<int> selectedIds, int id, ChangeEventArgs args)
+    {
+        if (args.Value is true)
+        {
+            selectedIds.Add(id);
+        }
+        else
+        {
+            selectedIds.Remove(id);
+        }
+    }
+
+    private async Task ExecuteAsync()
+    {
+        try
+        {
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            await ClientOperations.CopyOrTransferKycAsync(new KycTransferModel
+            {
+                SourceClientId = ClientId,
+                TargetClientId = targetClientId,
+                Operation = operation,
+                PolicyIds = selectedPolicyIds.ToList(),
+                RecommendationIds = selectedRecommendationIds.ToList()
+            }, authState.User.Identity?.Name);
+            Navigation.NavigateTo($"/clients/{ClientId}#kyc");
+        }
+        catch (ValidationException ex)
+        {
+            statusMessage = ex.Message;
+        }
+        catch (InvalidOperationException ex)
+        {
+            statusMessage = ex.Message;
+        }
+    }
+
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "Not captured" : value;
+}

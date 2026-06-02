@@ -1,0 +1,86 @@
+@page "/clients/{ClientId:int}/kyc/recommendations/new"
+@page "/clients/{ClientId:int}/kyc/recommendations/{RecommendationId:int}/edit"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.KycManage)]
+@using System.ComponentModel.DataAnnotations
+@using KCAS.Admin.Data
+@inject ClientOperationsService ClientOperations
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>@(RecommendationId is null ? "New KYC recommendation" : "Edit KYC recommendation")</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">KYC workflow</p>
+        <h1>@(RecommendationId is null ? "New KYC recommendation" : "Edit KYC recommendation")</h1>
+    </div>
+    <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}#kyc-recommendations")">Cancel</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(statusMessage))
+{
+    <div class="alert alert-warning">@statusMessage</div>
+}
+
+<EditForm Model="model" OnValidSubmit="SaveAsync" FormName="kyc-recommendation-edit">
+    <section class="detail-grid">
+        <article class="detail-panel form-panel">
+            <h2>Recommendation</h2>
+            <label>Type <InputText class="form-control" @bind-Value="model.RecommendationType" /></label>
+            <label>Status <InputText class="form-control" @bind-Value="model.Status" /></label>
+            <label>Date <InputDate class="form-control" @bind-Value="model.RecommendationDate" /></label>
+        </article>
+        <article class="detail-panel form-panel">
+            <h2>Details</h2>
+            <label>Recommendation <InputTextArea class="form-control" @bind-Value="model.Details" /></label>
+            <label>Outcome <InputTextArea class="form-control" @bind-Value="model.Outcome" /></label>
+        </article>
+    </section>
+
+    <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Save recommendation</button>
+        <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}#kyc-recommendations")">Cancel</a>
+    </div>
+</EditForm>
+
+@code {
+    [Parameter]
+    public int ClientId { get; set; }
+
+    [Parameter]
+    public int? RecommendationId { get; set; }
+
+    private ClientKycRecommendationEditModel model = new();
+    private string? statusMessage;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            model = await ClientOperations.LoadKycRecommendationAsync(ClientId, RecommendationId);
+        }
+        catch (InvalidOperationException ex)
+        {
+            statusMessage = ex.Message;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            await ClientOperations.SaveKycRecommendationAsync(model, authState.User.Identity?.Name);
+            Navigation.NavigateTo($"/clients/{ClientId}#kyc-recommendations");
+        }
+        catch (ValidationException ex)
+        {
+            statusMessage = ex.Message;
+        }
+        catch (InvalidOperationException ex)
+        {
+            statusMessage = ex.Message;
+        }
+    }
+}
