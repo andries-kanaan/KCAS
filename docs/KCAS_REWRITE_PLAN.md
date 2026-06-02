@@ -1,6 +1,6 @@
 # KCAS Blazor Rewrite Plan
 
-Last updated: 2026-05-31
+Last updated: 2026-06-02
 
 ## Current Goal
 
@@ -9,9 +9,9 @@ Rewrite the legacy Yii1 `kanaanclients` application into the modern Blazor proje
 ## Current State and Next Step
 
 - PR #6, `Add client relationship editing`, has been merged into `main`.
-- The current product-development phase is `KYC Workflow`.
-- The next functional goal is to review native KYC policy create/edit/delete behavior in the browser, then decide whether to expand KYC recommendations/transfer behavior or move to fund summaries/reports.
-- Investment accounts, transactions, and fund valuations are still read-only. A later investment workflow slice should add investment account and history editing, including deposits, withdrawals, contributions, balance updates, and imported-row editing during development with legacy IDs kept only as traceability metadata.
+- The current product-development phase is browser acceptance review for the completed investment editing, fund summary, and deeper KYC workflow slices.
+- The next functional goal is to review investment account/transaction editing, fund summaries, KYC recommendations, and KYC copy/transfer behavior in the browser.
+- Investment accounts and transactions can now be edited during development, including imported rows. Legacy IDs are kept only as traceability metadata.
 - Current legacy imports are development seed data. They help design and test KCAS against realistic records, but they are disposable.
 - The final production import will happen later, from the latest `kanaanclients` data, once KCAS is ready for switch-over. At that point current seed/imported data can be cleared and replaced.
 
@@ -244,6 +244,13 @@ Build status:
   - Allowed imported seed KYC rows to be edited during development because they are disposable test data; `LegacyKycId` remains traceability metadata only.
   - Added an operational KYC policy edit page and client detail actions for native rows.
   - Added focused tests for native and imported KYC policy create/edit/delete behavior.
+- Added the outstanding workflow completion slice:
+  - Added investment account create/edit/delete behavior behind `Investments.Manage`.
+  - Added investment transaction create/edit/finalize/soft-delete behavior behind `Investments.Manage`.
+  - Made investment legacy IDs nullable so KCAS-native investment rows can coexist with imported seed rows.
+  - Added fund summary review page with matched valuations, history fallback balances, unmatched valuations, filtering, and totals.
+  - Added KYC recommendations and KYC copy/transfer behavior behind `Kyc.Manage`.
+  - Added focused service tests for investment editing, fund summaries, recommendations, and KYC copy/transfer.
 
 ## Current Verification Status
 
@@ -311,7 +318,7 @@ Still to verify manually in browser:
    - Add read-only investment account/history/current-value display to client detail pages.
    - Preserve legacy traceability for reconciliation without making legacy row IDs KCAS identifiers.
    - Add mapper/import tests using realistic legacy rows.
-   - Status: read model implemented; first display refinement added. Remaining investment work includes account editing and transaction/history editing for deposits, withdrawals, contributions, and balance updates. Imported investment rows should be editable during development because the seed data is disposable; legacy IDs should remain traceability metadata, not edit locks.
+   - Status: read model, fund summaries, investment account editing, and transaction/history editing are implemented. Remaining investment work is browser acceptance review and refinements found during use.
 
 5. New schema design.
    - Design normalized EF Core entities for clients, contacts, notes, products, investments, KYC, documents, and reporting.
@@ -323,7 +330,7 @@ Still to verify manually in browser:
    - Review imported notes display against the old Yii notes grid.
    - Refine client operations after acceptance review.
    - Expand KYC/policy workflow beyond the current imported summaries.
-   - Status: native KYC policy create/edit/delete is implemented; remaining KYC work includes browser acceptance review, recommendations, transfer/copy behavior, and richer classification/reference workflows.
+   - Status: native KYC policy create/edit/delete, KYC recommendations, and KYC copy/transfer are implemented. Remaining KYC work includes browser acceptance review and richer classification/reference workflows.
 
 7. Expand functional modules.
    - KYC and recommendations.

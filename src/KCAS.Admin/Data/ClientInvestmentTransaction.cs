@@ -10,7 +10,7 @@ public class ClientInvestmentTransaction
 
     public ClientInvestmentAccount InvestmentAccount { get; set; } = null!;
 
-    public int LegacyInvestmentHistoryId { get; set; }
+    public int? LegacyInvestmentHistoryId { get; set; }
 
     public int? LegacyInvestmentAccountId { get; set; }
 

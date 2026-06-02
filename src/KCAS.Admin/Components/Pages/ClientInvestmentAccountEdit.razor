@@ -1,0 +1,90 @@
+@page "/clients/{ClientId:int}/investments/new"
+@page "/clients/{ClientId:int}/investments/{AccountId:int}/edit"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.InvestmentsManage)]
+@using System.ComponentModel.DataAnnotations
+@using KCAS.Admin.Data
+@inject ClientOperationsService ClientOperations
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>@(AccountId is null ? "New investment account" : "Edit investment account")</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Investment workflow</p>
+        <h1>@(AccountId is null ? "New investment account" : "Edit investment account")</h1>
+    </div>
+    <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}#investments")">Cancel</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(statusMessage))
+{
+    <div class="alert alert-warning">@statusMessage</div>
+}
+
+<EditForm Model="model" OnValidSubmit="SaveAsync" FormName="investment-account-edit">
+    <section class="detail-grid">
+        <article class="detail-panel form-panel">
+            <h2>Account</h2>
+            <label>Administrator <InputText class="form-control" @bind-Value="model.Administrator" /></label>
+            <label>Account number <InputText class="form-control" @bind-Value="model.AccountNumber" /></label>
+            <label>Investment date <InputDate class="form-control" @bind-Value="model.InvestmentDate" /></label>
+            <label>Surrender date <InputDate class="form-control" @bind-Value="model.SurrenderDate" /></label>
+        </article>
+        <article class="detail-panel form-panel">
+            <h2>Product</h2>
+            <label>Product <InputText class="form-control" @bind-Value="model.ProductName" /></label>
+            <label>Product type <InputText class="form-control" @bind-Value="model.ProductType" /></label>
+            <label>Fund <InputText class="form-control" @bind-Value="model.FundName" /></label>
+            <label class="check-row"><InputCheckbox @bind-Value="model.IsLinkedHead" /> Linked head account</label>
+            <label class="check-row"><InputCheckbox @bind-Value="model.IsFinal" /> Final</label>
+        </article>
+    </section>
+
+    <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Save account</button>
+        <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}#investments")">Cancel</a>
+    </div>
+</EditForm>
+
+@code {
+    [Parameter]
+    public int ClientId { get; set; }
+
+    [Parameter]
+    public int? AccountId { get; set; }
+
+    private ClientInvestmentAccountEditModel model = new();
+    private string? statusMessage;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            model = await ClientOperations.LoadInvestmentAccountAsync(ClientId, AccountId);
+        }
+        catch (InvalidOperationException ex)
+        {
+            statusMessage = ex.Message;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            await ClientOperations.SaveInvestmentAccountAsync(model, authState.User.Identity?.Name);
+            Navigation.NavigateTo($"/clients/{ClientId}#investments");
+        }
+        catch (ValidationException ex)
+        {
+            statusMessage = ex.Message;
+        }
+        catch (InvalidOperationException ex)
+        {
+            statusMessage = ex.Message;
+        }
+    }
+}

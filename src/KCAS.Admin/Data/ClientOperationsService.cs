@@ -310,6 +310,609 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
         await db.SaveChangesAsync();
     }
 
+    public async Task<ClientInvestmentAccountEditModel> LoadInvestmentAccountAsync(int clientId, int? accountId)
+    {
+        if (accountId is null)
+        {
+            if (!await db.Clients.AnyAsync(client => client.Id == clientId))
+            {
+                throw new InvalidOperationException("Client not found.");
+            }
+
+            return new ClientInvestmentAccountEditModel { ClientId = clientId };
+        }
+
+        var account = await db.ClientInvestmentAccounts
+            .AsNoTracking()
+            .SingleOrDefaultAsync(account => account.ClientId == clientId && account.Id == accountId.Value)
+            ?? throw new InvalidOperationException("Investment account not found.");
+
+        return ClientInvestmentAccountEditModel.FromAccount(account);
+    }
+
+    public async Task<int> SaveInvestmentAccountAsync(ClientInvestmentAccountEditModel model, string? userName)
+    {
+        var administrator = Normalize(model.Administrator);
+        var accountNumber = Normalize(model.AccountNumber);
+        var productName = Normalize(model.ProductName);
+        var productType = Normalize(model.ProductType);
+        var fundName = Normalize(model.FundName);
+
+        if (string.IsNullOrWhiteSpace(administrator) &&
+            string.IsNullOrWhiteSpace(accountNumber) &&
+            string.IsNullOrWhiteSpace(productName) &&
+            string.IsNullOrWhiteSpace(productType) &&
+            string.IsNullOrWhiteSpace(fundName) &&
+            model.InvestmentDate is null &&
+            model.SurrenderDate is null)
+        {
+            throw new ValidationException("Enter investment account details.");
+        }
+
+        ClientInvestmentAccount account;
+        if (model.Id is null)
+        {
+            var clientExists = await db.Clients.AnyAsync(client => client.Id == model.ClientId);
+            if (!clientExists)
+            {
+                throw new InvalidOperationException("Client not found.");
+            }
+
+            account = new ClientInvestmentAccount
+            {
+                ClientId = model.ClientId,
+                PayloadJson = "{}",
+                ImportedAtUtc = DateTime.UtcNow,
+                OpenedBy = Normalize(userName)
+            };
+            db.ClientInvestmentAccounts.Add(account);
+        }
+        else
+        {
+            account = await db.ClientInvestmentAccounts.SingleOrDefaultAsync(account => account.ClientId == model.ClientId && account.Id == model.Id.Value)
+                ?? throw new InvalidOperationException("Investment account not found.");
+        }
+
+        account.InvestmentDate = model.InvestmentDate;
+        account.SurrenderDate = model.SurrenderDate;
+        account.Administrator = administrator;
+        account.AccountNumber = accountNumber;
+        account.ProductName = productName;
+        account.ProductType = productType;
+        account.FundName = fundName;
+        account.IsLinkedHead = model.IsLinkedHead;
+        account.IsFinal = model.IsFinal;
+        account.UpdatedBy = Normalize(userName);
+
+        await db.SaveChangesAsync();
+        return account.Id;
+    }
+
+    public async Task DeleteInvestmentAccountAsync(int clientId, int accountId)
+    {
+        var account = await db.ClientInvestmentAccounts.SingleOrDefaultAsync(account => account.ClientId == clientId && account.Id == accountId)
+            ?? throw new InvalidOperationException("Investment account not found.");
+
+        db.ClientInvestmentAccounts.Remove(account);
+        await db.SaveChangesAsync();
+    }
+
+    public async Task<ClientInvestmentTransactionEditModel> LoadInvestmentTransactionAsync(int clientId, int accountId, int? transactionId)
+    {
+        var accountExists = await db.ClientInvestmentAccounts.AnyAsync(account => account.ClientId == clientId && account.Id == accountId);
+        if (!accountExists)
+        {
+            throw new InvalidOperationException("Investment account not found.");
+        }
+
+        if (transactionId is null)
+        {
+            return new ClientInvestmentTransactionEditModel
+            {
+                ClientId = clientId,
+                ClientInvestmentAccountId = accountId,
+                TransactionDate = DateOnly.FromDateTime(DateTime.Today)
+            };
+        }
+
+        var transaction = await db.ClientInvestmentTransactions
+            .AsNoTracking()
+            .SingleOrDefaultAsync(transaction => transaction.ClientInvestmentAccountId == accountId && transaction.Id == transactionId.Value)
+            ?? throw new InvalidOperationException("Investment transaction not found.");
+
+        return ClientInvestmentTransactionEditModel.FromTransaction(clientId, transaction);
+    }
+
+    public async Task<int> SaveInvestmentTransactionAsync(ClientInvestmentTransactionEditModel model, string? userName)
+    {
+        var account = await db.ClientInvestmentAccounts.AsNoTracking().SingleOrDefaultAsync(account =>
+                account.ClientId == model.ClientId && account.Id == model.ClientInvestmentAccountId)
+            ?? throw new InvalidOperationException("Investment account not found.");
+
+        if (string.IsNullOrWhiteSpace(Normalize(model.Description)) &&
+            model.TransactionDate is null &&
+            model.ExchangeRate is null &&
+            model.InvestmentAmountForeign is null &&
+            model.InvestmentAmountZar is null &&
+            model.WithdrawalAmountForeign is null &&
+            model.WithdrawalAmountZar is null &&
+            model.BalanceForeign is null &&
+            model.BalanceZar is null)
+        {
+            throw new ValidationException("Enter transaction details or at least one amount.");
+        }
+
+        ClientInvestmentTransaction transaction;
+        if (model.Id is null)
+        {
+            transaction = new ClientInvestmentTransaction
+            {
+                ClientInvestmentAccountId = model.ClientInvestmentAccountId,
+                LegacyInvestmentAccountId = account.LegacyInvestmentAccountId,
+                PayloadJson = "{}",
+                ImportedAtUtc = DateTime.UtcNow,
+                OpenedBy = Normalize(userName)
+            };
+            db.ClientInvestmentTransactions.Add(transaction);
+        }
+        else
+        {
+            transaction = await db.ClientInvestmentTransactions.SingleOrDefaultAsync(transaction =>
+                    transaction.ClientInvestmentAccountId == model.ClientInvestmentAccountId && transaction.Id == model.Id.Value)
+                ?? throw new InvalidOperationException("Investment transaction not found.");
+        }
+
+        transaction.TransactionDate = model.TransactionDate;
+        transaction.Description = Normalize(model.Description);
+        transaction.ExchangeRate = model.ExchangeRate;
+        transaction.InvestmentAmountForeign = model.InvestmentAmountForeign;
+        transaction.InvestmentAmountZar = model.InvestmentAmountZar;
+        transaction.WithdrawalAmountForeign = model.WithdrawalAmountForeign;
+        transaction.WithdrawalAmountZar = model.WithdrawalAmountZar;
+        transaction.InvestmentFrequency = Normalize(model.InvestmentFrequency);
+        transaction.AnnualIncreasePercent = model.AnnualIncreasePercent;
+        transaction.BalanceForeign = model.BalanceForeign;
+        transaction.BalanceZar = model.BalanceZar;
+        transaction.IsFinal = model.IsFinal;
+        transaction.UpdatedBy = Normalize(userName);
+
+        await db.SaveChangesAsync();
+        return transaction.Id;
+    }
+
+    public async Task FinalizeInvestmentTransactionAsync(int clientId, int accountId, int transactionId, string? userName)
+    {
+        var transaction = await LoadInvestmentTransactionForMutationAsync(clientId, accountId, transactionId);
+        if (transaction.IsDeleted)
+        {
+            throw new InvalidOperationException("Deleted investment transactions cannot be finalized.");
+        }
+
+        transaction.IsFinal = true;
+        transaction.UpdatedBy = Normalize(userName);
+        await db.SaveChangesAsync();
+    }
+
+    public async Task DeleteInvestmentTransactionAsync(int clientId, int accountId, int transactionId, string? userName)
+    {
+        var transaction = await LoadInvestmentTransactionForMutationAsync(clientId, accountId, transactionId);
+        transaction.IsDeleted = true;
+        transaction.UpdatedBy = Normalize(userName);
+        await db.SaveChangesAsync();
+    }
+
+    public async Task<ClientFundSummaryModel> LoadFundSummaryAsync(int clientId, string? filter = null)
+    {
+        var client = await db.Clients
+            .AsNoTracking()
+            .AsSplitQuery()
+            .Include(client => client.InvestmentAccounts)
+                .ThenInclude(account => account.Transactions)
+            .Include(client => client.FundValuations)
+            .SingleOrDefaultAsync(client => client.Id == clientId)
+            ?? throw new InvalidOperationException("Client not found.");
+
+        var rows = BuildFundSummaryRows(client.InvestmentAccounts, client.FundValuations);
+        var normalizedFilter = Normalize(filter);
+        if (!string.IsNullOrWhiteSpace(normalizedFilter))
+        {
+            rows = rows
+                .Where(row =>
+                    Contains(row.Administrator, normalizedFilter) ||
+                    Contains(row.ProductName, normalizedFilter) ||
+                    Contains(row.ProductType, normalizedFilter) ||
+                    Contains(row.FundName, normalizedFilter) ||
+                    Contains(row.AccountNumber, normalizedFilter))
+                .ToList();
+        }
+
+        return new ClientFundSummaryModel
+        {
+            ClientId = client.Id,
+            ClientDisplayName = client.DisplayName,
+            Filter = normalizedFilter,
+            Rows = rows
+        };
+    }
+
+    public async Task<ClientKycRecommendationEditModel> LoadKycRecommendationAsync(int clientId, int? recommendationId)
+    {
+        if (recommendationId is null)
+        {
+            if (!await db.Clients.AnyAsync(client => client.Id == clientId))
+            {
+                throw new InvalidOperationException("Client not found.");
+            }
+
+            return new ClientKycRecommendationEditModel
+            {
+                ClientId = clientId,
+                RecommendationDate = DateOnly.FromDateTime(DateTime.Today),
+                Status = "Open"
+            };
+        }
+
+        var recommendation = await db.ClientKycRecommendations
+            .AsNoTracking()
+            .SingleOrDefaultAsync(recommendation => recommendation.ClientId == clientId && recommendation.Id == recommendationId.Value)
+            ?? throw new InvalidOperationException("KYC recommendation not found.");
+
+        return ClientKycRecommendationEditModel.FromRecommendation(recommendation);
+    }
+
+    public async Task<int> SaveKycRecommendationAsync(ClientKycRecommendationEditModel model, string? userName)
+    {
+        var recommendationType = Normalize(model.RecommendationType);
+        var status = Normalize(model.Status) ?? "Open";
+        var details = Normalize(model.Details);
+        var outcome = Normalize(model.Outcome);
+
+        if (string.IsNullOrWhiteSpace(recommendationType) && string.IsNullOrWhiteSpace(details))
+        {
+            throw new ValidationException("Enter a recommendation type or details.");
+        }
+
+        ClientKycRecommendation recommendation;
+        if (model.Id is null)
+        {
+            var client = await db.Clients.AsNoTracking().SingleOrDefaultAsync(client => client.Id == model.ClientId)
+                ?? throw new InvalidOperationException("Client not found.");
+
+            recommendation = new ClientKycRecommendation
+            {
+                ClientId = model.ClientId,
+                KanaanId = client.KanaanId,
+                PayloadJson = "{}",
+                ImportedAtUtc = DateTime.UtcNow,
+                OpenedBy = Normalize(userName)
+            };
+            db.ClientKycRecommendations.Add(recommendation);
+        }
+        else
+        {
+            recommendation = await db.ClientKycRecommendations.SingleOrDefaultAsync(recommendation =>
+                    recommendation.ClientId == model.ClientId && recommendation.Id == model.Id.Value)
+                ?? throw new InvalidOperationException("KYC recommendation not found.");
+        }
+
+        recommendation.ClientKycPolicyId = model.ClientKycPolicyId;
+        recommendation.RecommendationType = recommendationType;
+        recommendation.Status = status;
+        recommendation.RecommendationDate = model.RecommendationDate;
+        recommendation.Details = details;
+        recommendation.Outcome = outcome;
+        recommendation.UpdatedBy = Normalize(userName);
+
+        await db.SaveChangesAsync();
+        return recommendation.Id;
+    }
+
+    public async Task DeleteKycRecommendationAsync(int clientId, int recommendationId)
+    {
+        var recommendation = await db.ClientKycRecommendations.SingleOrDefaultAsync(recommendation =>
+                recommendation.ClientId == clientId && recommendation.Id == recommendationId)
+            ?? throw new InvalidOperationException("KYC recommendation not found.");
+
+        db.ClientKycRecommendations.Remove(recommendation);
+        await db.SaveChangesAsync();
+    }
+
+    public async Task<List<ClientTransferTargetModel>> SearchKycTransferTargetsAsync(int sourceClientId, string? search)
+    {
+        var source = await db.Clients.AsNoTracking().SingleOrDefaultAsync(client => client.Id == sourceClientId)
+            ?? throw new InvalidOperationException("Client not found.");
+
+        var query = db.Clients.AsNoTracking().Where(client => client.Id != sourceClientId);
+        var normalizedSearch = Normalize(search);
+        if (string.IsNullOrWhiteSpace(normalizedSearch) && !string.IsNullOrWhiteSpace(source.KanaanId))
+        {
+            query = query.Where(client => client.KanaanId == source.KanaanId);
+        }
+        else if (!string.IsNullOrWhiteSpace(normalizedSearch))
+        {
+            query = query.Where(client =>
+                client.DisplayName.Contains(normalizedSearch) ||
+                client.SurnameOrEntityName.Contains(normalizedSearch) ||
+                (client.KanaanId != null && client.KanaanId.Contains(normalizedSearch)));
+        }
+
+        return await query
+            .OrderBy(client => client.DisplayName)
+            .Take(25)
+            .Select(client => new ClientTransferTargetModel
+            {
+                ClientId = client.Id,
+                DisplayName = client.DisplayName,
+                SurnameOrEntityName = client.SurnameOrEntityName,
+                KanaanId = client.KanaanId
+            })
+            .ToListAsync();
+    }
+
+    public async Task CopyOrTransferKycAsync(KycTransferModel model, string? userName)
+    {
+        if (model.SourceClientId == model.TargetClientId)
+        {
+            throw new ValidationException("Choose a different target client.");
+        }
+
+        if (model.PolicyIds.Count == 0 && model.RecommendationIds.Count == 0)
+        {
+            throw new ValidationException("Select at least one KYC policy or recommendation.");
+        }
+
+        var target = await db.Clients.AsNoTracking().SingleOrDefaultAsync(client => client.Id == model.TargetClientId)
+            ?? throw new InvalidOperationException("Target client not found.");
+
+        var policies = await db.ClientKycPolicies
+            .Where(policy => policy.ClientId == model.SourceClientId && model.PolicyIds.Contains(policy.Id))
+            .ToListAsync();
+        var recommendations = await db.ClientKycRecommendations
+            .Where(recommendation => recommendation.ClientId == model.SourceClientId && model.RecommendationIds.Contains(recommendation.Id))
+            .ToListAsync();
+
+        if (policies.Count != model.PolicyIds.Count || recommendations.Count != model.RecommendationIds.Count)
+        {
+            throw new InvalidOperationException("One or more selected KYC rows were not found.");
+        }
+
+        var updatedBy = Normalize(userName);
+        if (model.Operation == KycTransferOperation.Transfer)
+        {
+            foreach (var policy in policies)
+            {
+                policy.ClientId = target.Id;
+                policy.KanaanId = target.KanaanId;
+                policy.UpdatedBy = updatedBy;
+            }
+
+            foreach (var recommendation in recommendations)
+            {
+                recommendation.ClientId = target.Id;
+                recommendation.KanaanId = target.KanaanId;
+                recommendation.UpdatedBy = updatedBy;
+            }
+        }
+        else
+        {
+            var copiedPolicyIds = new Dictionary<int, int>();
+            foreach (var policy in policies)
+            {
+                var copy = CopyPolicy(policy, target, updatedBy);
+                db.ClientKycPolicies.Add(copy);
+                await db.SaveChangesAsync();
+                copiedPolicyIds[policy.Id] = copy.Id;
+            }
+
+            foreach (var recommendation in recommendations)
+            {
+                var copy = CopyRecommendation(recommendation, target, updatedBy);
+                if (copy.ClientKycPolicyId.HasValue && copiedPolicyIds.TryGetValue(copy.ClientKycPolicyId.Value, out var copiedPolicyId))
+                {
+                    copy.ClientKycPolicyId = copiedPolicyId;
+                }
+                else
+                {
+                    copy.ClientKycPolicyId = null;
+                }
+
+                db.ClientKycRecommendations.Add(copy);
+            }
+        }
+
+        await db.SaveChangesAsync();
+    }
+
+    private async Task<ClientInvestmentTransaction> LoadInvestmentTransactionForMutationAsync(int clientId, int accountId, int transactionId)
+    {
+        return await db.ClientInvestmentTransactions
+            .Include(transaction => transaction.InvestmentAccount)
+            .SingleOrDefaultAsync(transaction =>
+                transaction.Id == transactionId &&
+                transaction.ClientInvestmentAccountId == accountId &&
+                transaction.InvestmentAccount.ClientId == clientId)
+            ?? throw new InvalidOperationException("Investment transaction not found.");
+    }
+
+    private static List<ClientFundSummaryRowModel> BuildFundSummaryRows(
+        IEnumerable<ClientInvestmentAccount> accounts,
+        IEnumerable<ClientFundValuation> valuations)
+    {
+        var accountList = accounts.ToList();
+        var valuationList = valuations.ToList();
+        var rows = new List<ClientFundSummaryRowModel>();
+
+        foreach (var account in accountList)
+        {
+            var matchedValuations = CurrentValuations(account, valuationList).ToList();
+            var latestBalance = LatestBalanceTransaction(account);
+            if (matchedValuations.Count == 0)
+            {
+                rows.Add(new ClientFundSummaryRowModel
+                {
+                    AccountId = account.Id,
+                    AccountNumber = account.AccountNumber,
+                    Administrator = account.Administrator,
+                    ProductName = account.ProductName,
+                    ProductType = account.ProductType,
+                    FundName = account.FundName,
+                    CurrentValueZar = latestBalance?.BalanceZar,
+                    CurrentValueForeign = latestBalance?.BalanceForeign,
+                    CurrentValueDate = latestBalance?.TransactionDate,
+                    Source = latestBalance is null ? "No current value" : "History balance",
+                    TransactionCount = account.Transactions.Count(transaction => !transaction.IsDeleted)
+                });
+                continue;
+            }
+
+            foreach (var valuation in matchedValuations)
+            {
+                rows.Add(new ClientFundSummaryRowModel
+                {
+                    AccountId = account.Id,
+                    AccountNumber = account.AccountNumber,
+                    Administrator = valuation.Administrator ?? account.Administrator,
+                    ProductName = valuation.ProductName ?? account.ProductName,
+                    ProductType = valuation.ProductType ?? account.ProductType,
+                    FundName = valuation.FundName,
+                    CurrentValueZar = valuation.AmountZar,
+                    CurrentValueForeign = valuation.AmountForeign,
+                    CurrentValueDate = valuation.ValuationDate,
+                    Source = "Fund valuation",
+                    TransactionCount = account.Transactions.Count(transaction => !transaction.IsDeleted)
+                });
+            }
+        }
+
+        var accountNumbers = accountList
+            .Select(account => NormalizeAccountNumber(account.AccountNumber))
+            .Where(accountNumber => accountNumber is not null)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var valuation in valuationList)
+        {
+            var valuationAccountNumber = NormalizeAccountNumber(valuation.InvestmentUniqueNumber);
+            if (valuationAccountNumber is not null && accountNumbers.Contains(valuationAccountNumber))
+            {
+                continue;
+            }
+
+            rows.Add(new ClientFundSummaryRowModel
+            {
+                AccountNumber = valuation.InvestmentUniqueNumber,
+                Administrator = valuation.Administrator,
+                ProductName = valuation.ProductName,
+                ProductType = valuation.ProductType,
+                FundName = valuation.FundName,
+                CurrentValueZar = valuation.AmountZar,
+                CurrentValueForeign = valuation.AmountForeign,
+                CurrentValueDate = valuation.ValuationDate,
+                Source = "Unmatched fund valuation"
+            });
+        }
+
+        return rows
+            .OrderBy(row => row.Administrator)
+            .ThenBy(row => row.ProductName)
+            .ThenBy(row => row.AccountNumber)
+            .ThenBy(row => row.FundName)
+            .ToList();
+    }
+
+    private static ClientInvestmentTransaction? LatestBalanceTransaction(ClientInvestmentAccount account) =>
+        account.Transactions
+            .Where(transaction =>
+                !transaction.IsDeleted &&
+                ((transaction.BalanceZar.HasValue && transaction.BalanceZar.Value != 0) ||
+                 (transaction.BalanceForeign.HasValue && transaction.BalanceForeign.Value != 0)))
+            .OrderByDescending(transaction => transaction.TransactionDate)
+            .ThenByDescending(transaction => transaction.LegacyInvestmentHistoryId)
+            .FirstOrDefault();
+
+    private static IEnumerable<ClientFundValuation> CurrentValuations(ClientInvestmentAccount account, IEnumerable<ClientFundValuation> valuations)
+    {
+        var accountNumber = NormalizeAccountNumber(account.AccountNumber);
+        if (accountNumber is null)
+        {
+            return [];
+        }
+
+        var matches = valuations
+            .Where(valuation => string.Equals(NormalizeAccountNumber(valuation.InvestmentUniqueNumber), accountNumber, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var administrator = NormalizeLookup(account.Administrator);
+        if (administrator is null)
+        {
+            return matches;
+        }
+
+        var administratorMatches = matches
+            .Where(valuation => AdministratorsMatch(administrator, NormalizeLookup(valuation.Administrator)))
+            .ToList();
+
+        return administratorMatches.Count > 0 ? administratorMatches : matches;
+    }
+
+    private static ClientKycPolicy CopyPolicy(ClientKycPolicy source, Client target, string? userName) => new()
+    {
+        ClientId = target.Id,
+        KanaanId = target.KanaanId,
+        LegacyKycId = source.LegacyKycId,
+        LegacyClientId = source.LegacyClientId,
+        LegacyMainClassId = source.LegacyMainClassId,
+        MainClassName = source.MainClassName,
+        LegacySubClassId = source.LegacySubClassId,
+        SubClassName = source.SubClassName,
+        SubClassExtra = source.SubClassExtra,
+        Administrator = source.Administrator,
+        Product = source.Product,
+        PolicyNumber = source.PolicyNumber,
+        Description = source.Description,
+        Fund = source.Fund,
+        Value = source.Value,
+        LifeCover = source.LifeCover,
+        DisabilityCover = source.DisabilityCover,
+        DreadDiseaseCover = source.DreadDiseaseCover,
+        CompulsoryContributionValue = source.CompulsoryContributionValue,
+        VoluntaryContributionValue = source.VoluntaryContributionValue,
+        Debt = source.Debt,
+        MonthlyPremium = source.MonthlyPremium,
+        OnceOffPremium = source.OnceOffPremium,
+        MonthlyIncome = source.MonthlyIncome,
+        CapitalAdequacyRatioPercent = source.CapitalAdequacyRatioPercent,
+        TaxPercent = source.TaxPercent,
+        IncludeInCalculations = source.IncludeInCalculations,
+        SurrenderOrLiquidate = source.SurrenderOrLiquidate,
+        IsRetirementAnnuity = source.IsRetirementAnnuity,
+        IsPreservationFund = source.IsPreservationFund,
+        IsRetrenchmentPackage = source.IsRetrenchmentPackage,
+        IsQuote = source.IsQuote,
+        ValuationDate = source.ValuationDate,
+        OpenedBy = userName,
+        UpdatedBy = userName,
+        PayloadJson = source.PayloadJson,
+        ImportedAtUtc = DateTime.UtcNow
+    };
+
+    private static ClientKycRecommendation CopyRecommendation(ClientKycRecommendation source, Client target, string? userName) => new()
+    {
+        ClientId = target.Id,
+        ClientKycPolicyId = source.ClientKycPolicyId,
+        KanaanId = target.KanaanId,
+        LegacyRecommendationId = source.LegacyRecommendationId,
+        LegacyClientId = source.LegacyClientId,
+        RecommendationType = source.RecommendationType,
+        Status = source.Status,
+        RecommendationDate = source.RecommendationDate,
+        Details = source.Details,
+        Outcome = source.Outcome,
+        OpenedBy = userName,
+        UpdatedBy = userName,
+        PayloadJson = source.PayloadJson,
+        ImportedAtUtc = DateTime.UtcNow
+    };
+
     private async Task<Client> LoadClientAggregateAsync(int clientId)
     {
         return await db.Clients
@@ -456,6 +1059,23 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
     }
 
     private static string? Normalize(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static bool Contains(string? value, string filter) =>
+        value?.Contains(filter, StringComparison.OrdinalIgnoreCase) == true;
+
+    private static bool AdministratorsMatch(string accountAdministrator, string? valuationAdministrator) =>
+        valuationAdministrator is not null &&
+        (string.Equals(accountAdministrator, valuationAdministrator, StringComparison.OrdinalIgnoreCase) ||
+         accountAdministrator.Contains(valuationAdministrator, StringComparison.OrdinalIgnoreCase) ||
+         valuationAdministrator.Contains(accountAdministrator, StringComparison.OrdinalIgnoreCase));
+
+    private static string? NormalizeAccountNumber(string? value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? null
+            : new string(value.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
+
+    private static string? NormalizeLookup(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
 
@@ -702,4 +1322,158 @@ public sealed class ClientKycPolicyEditModel
         IsQuote = policy.IsQuote,
         ValuationDate = policy.ValuationDate
     };
+}
+
+public sealed class ClientInvestmentAccountEditModel
+{
+    public int ClientId { get; set; }
+    public int? Id { get; set; }
+    public DateOnly? InvestmentDate { get; set; }
+    public DateOnly? SurrenderDate { get; set; }
+    public string? Administrator { get; set; }
+    public string? AccountNumber { get; set; }
+    public string? ProductName { get; set; }
+    public string? ProductType { get; set; }
+    public string? FundName { get; set; }
+    public bool IsLinkedHead { get; set; }
+    public bool IsFinal { get; set; }
+
+    public static ClientInvestmentAccountEditModel FromAccount(ClientInvestmentAccount account) => new()
+    {
+        ClientId = account.ClientId,
+        Id = account.Id,
+        InvestmentDate = account.InvestmentDate,
+        SurrenderDate = account.SurrenderDate,
+        Administrator = account.Administrator,
+        AccountNumber = account.AccountNumber,
+        ProductName = account.ProductName,
+        ProductType = account.ProductType,
+        FundName = account.FundName,
+        IsLinkedHead = account.IsLinkedHead,
+        IsFinal = account.IsFinal
+    };
+}
+
+public sealed class ClientInvestmentTransactionEditModel
+{
+    public int ClientId { get; set; }
+    public int ClientInvestmentAccountId { get; set; }
+    public int? Id { get; set; }
+    public DateOnly? TransactionDate { get; set; }
+    public string? Description { get; set; }
+    public decimal? ExchangeRate { get; set; }
+    public decimal? InvestmentAmountForeign { get; set; }
+    public decimal? InvestmentAmountZar { get; set; }
+    public decimal? WithdrawalAmountForeign { get; set; }
+    public decimal? WithdrawalAmountZar { get; set; }
+    public string? InvestmentFrequency { get; set; }
+    public decimal? AnnualIncreasePercent { get; set; }
+    public decimal? BalanceForeign { get; set; }
+    public decimal? BalanceZar { get; set; }
+    public bool IsFinal { get; set; }
+
+    public static ClientInvestmentTransactionEditModel FromTransaction(int clientId, ClientInvestmentTransaction transaction) => new()
+    {
+        ClientId = clientId,
+        ClientInvestmentAccountId = transaction.ClientInvestmentAccountId,
+        Id = transaction.Id,
+        TransactionDate = transaction.TransactionDate,
+        Description = transaction.Description,
+        ExchangeRate = transaction.ExchangeRate,
+        InvestmentAmountForeign = transaction.InvestmentAmountForeign,
+        InvestmentAmountZar = transaction.InvestmentAmountZar,
+        WithdrawalAmountForeign = transaction.WithdrawalAmountForeign,
+        WithdrawalAmountZar = transaction.WithdrawalAmountZar,
+        InvestmentFrequency = transaction.InvestmentFrequency,
+        AnnualIncreasePercent = transaction.AnnualIncreasePercent,
+        BalanceForeign = transaction.BalanceForeign,
+        BalanceZar = transaction.BalanceZar,
+        IsFinal = transaction.IsFinal
+    };
+}
+
+public sealed class ClientFundSummaryModel
+{
+    public int ClientId { get; set; }
+    public string ClientDisplayName { get; set; } = string.Empty;
+    public string? Filter { get; set; }
+    public List<ClientFundSummaryRowModel> Rows { get; set; } = [];
+    public decimal? TotalCurrentValueZar => Sum(Rows.Select(row => row.CurrentValueZar));
+    public decimal? TotalCurrentValueForeign => Sum(Rows.Select(row => row.CurrentValueForeign));
+    public int MatchedValuationCount => Rows.Count(row => row.Source == "Fund valuation");
+    public int HistoryFallbackCount => Rows.Count(row => row.Source == "History balance");
+    public int UnmatchedValuationCount => Rows.Count(row => row.Source == "Unmatched fund valuation");
+    public DateOnly? LatestValueDate => Rows
+        .Where(row => row.CurrentValueDate.HasValue)
+        .OrderByDescending(row => row.CurrentValueDate)
+        .Select(row => row.CurrentValueDate)
+        .FirstOrDefault();
+
+    private static decimal? Sum(IEnumerable<decimal?> values)
+    {
+        var captured = values.Where(value => value.HasValue).Select(value => value!.Value).ToList();
+        return captured.Count == 0 ? null : captured.Sum();
+    }
+}
+
+public sealed class ClientFundSummaryRowModel
+{
+    public int? AccountId { get; set; }
+    public string? AccountNumber { get; set; }
+    public string? Administrator { get; set; }
+    public string? ProductName { get; set; }
+    public string? ProductType { get; set; }
+    public string? FundName { get; set; }
+    public decimal? CurrentValueZar { get; set; }
+    public decimal? CurrentValueForeign { get; set; }
+    public DateOnly? CurrentValueDate { get; set; }
+    public string Source { get; set; } = string.Empty;
+    public int TransactionCount { get; set; }
+}
+
+public sealed class ClientKycRecommendationEditModel
+{
+    public int ClientId { get; set; }
+    public int? Id { get; set; }
+    public int? ClientKycPolicyId { get; set; }
+    public string? RecommendationType { get; set; }
+    public string? Status { get; set; }
+    public DateOnly? RecommendationDate { get; set; }
+    public string? Details { get; set; }
+    public string? Outcome { get; set; }
+
+    public static ClientKycRecommendationEditModel FromRecommendation(ClientKycRecommendation recommendation) => new()
+    {
+        ClientId = recommendation.ClientId,
+        Id = recommendation.Id,
+        ClientKycPolicyId = recommendation.ClientKycPolicyId,
+        RecommendationType = recommendation.RecommendationType,
+        Status = recommendation.Status,
+        RecommendationDate = recommendation.RecommendationDate,
+        Details = recommendation.Details,
+        Outcome = recommendation.Outcome
+    };
+}
+
+public sealed class ClientTransferTargetModel
+{
+    public int ClientId { get; set; }
+    public string DisplayName { get; set; } = string.Empty;
+    public string SurnameOrEntityName { get; set; } = string.Empty;
+    public string? KanaanId { get; set; }
+}
+
+public sealed class KycTransferModel
+{
+    public int SourceClientId { get; set; }
+    public int TargetClientId { get; set; }
+    public KycTransferOperation Operation { get; set; } = KycTransferOperation.Copy;
+    public List<int> PolicyIds { get; set; } = [];
+    public List<int> RecommendationIds { get; set; } = [];
+}
+
+public enum KycTransferOperation
+{
+    Copy,
+    Transfer
 }

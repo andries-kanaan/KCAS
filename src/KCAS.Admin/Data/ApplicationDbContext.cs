@@ -16,6 +16,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<ClientLegacySnapshot> ClientLegacySnapshots => Set<ClientLegacySnapshot>();
     public DbSet<ClientNote> ClientNotes => Set<ClientNote>();
     public DbSet<ClientKycPolicy> ClientKycPolicies => Set<ClientKycPolicy>();
+    public DbSet<ClientKycRecommendation> ClientKycRecommendations => Set<ClientKycRecommendation>();
     public DbSet<ClientInvestmentAccount> ClientInvestmentAccounts => Set<ClientInvestmentAccount>();
     public DbSet<ClientInvestmentTransaction> ClientInvestmentTransactions => Set<ClientInvestmentTransaction>();
     public DbSet<ClientFundValuation> ClientFundValuations => Set<ClientFundValuation>();
@@ -196,11 +197,33 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.Property(policy => policy.MonthlyIncome).HasPrecision(18, 2);
             entity.Property(policy => policy.CapitalAdequacyRatioPercent).HasPrecision(9, 4);
             entity.Property(policy => policy.TaxPercent).HasPrecision(9, 4);
-            entity.HasIndex(policy => policy.LegacyKycId).IsUnique();
+            entity.HasIndex(policy => policy.LegacyKycId);
             entity.HasIndex(policy => policy.ClientId);
             entity.HasIndex(policy => policy.PolicyNumber);
             entity.HasIndex(policy => new { policy.LegacyMainClassId, policy.LegacySubClassId });
             entity.HasIndex(policy => new { policy.IncludeInCalculations, policy.IsQuote });
+        });
+
+        builder.Entity<ClientKycRecommendation>(entity =>
+        {
+            entity.HasOne(recommendation => recommendation.Client)
+                .WithMany(client => client.KycRecommendations)
+                .HasForeignKey(recommendation => recommendation.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(recommendation => recommendation.KycPolicy)
+                .WithMany()
+                .HasForeignKey(recommendation => recommendation.ClientKycPolicyId)
+                .OnDelete(DeleteBehavior.SetNull);
+            entity.Property(recommendation => recommendation.RecommendationDate)
+                .HasColumnType("date")
+                .HasConversion(new ValueConverter<DateOnly?, DateTime?>(
+                    value => value.HasValue ? value.Value.ToDateTime(TimeOnly.MinValue) : null,
+                    value => value.HasValue ? DateOnly.FromDateTime(value.Value) : null));
+            entity.HasIndex(recommendation => recommendation.LegacyRecommendationId);
+            entity.HasIndex(recommendation => recommendation.ClientId);
+            entity.HasIndex(recommendation => recommendation.ClientKycPolicyId);
+            entity.HasIndex(recommendation => recommendation.KanaanId);
+            entity.HasIndex(recommendation => recommendation.Status);
         });
 
         builder.Entity<ClientInvestmentAccount>(entity =>
