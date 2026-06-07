@@ -63,22 +63,22 @@
             </tr>
             <tr class="filter-row">
                 <th>
-                    <input class="form-control form-control-sm" value="@kanaanIdFilter" @oninput="@(args => FilterChangedAsync(args, value => kanaanIdFilter = value))" aria-label="Filter by Kanaan ID" />
+                    <input class="form-control form-control-sm" @bind="kanaanIdFilter" @bind:event="oninput" @bind:after="LoadClientsAsync" aria-label="Filter by Kanaan ID" />
                 </th>
                 <th>
-                    <input class="form-control form-control-sm" value="@nameFilter" @oninput="@(args => FilterChangedAsync(args, value => nameFilter = value))" aria-label="Filter by name" />
+                    <input class="form-control form-control-sm" @bind="nameFilter" @bind:event="oninput" @bind:after="LoadClientsAsync" aria-label="Filter by name" />
                 </th>
                 <th>
-                    <input class="form-control form-control-sm" value="@surnameFilter" @oninput="@(args => FilterChangedAsync(args, value => surnameFilter = value))" aria-label="Filter by surname" />
+                    <input class="form-control form-control-sm" @bind="surnameFilter" @bind:event="oninput" @bind:after="LoadClientsAsync" aria-label="Filter by surname" />
                 </th>
                 <th>
-                    <input class="form-control form-control-sm" value="@emailFilter" @oninput="@(args => FilterChangedAsync(args, value => emailFilter = value))" aria-label="Filter by email" />
+                    <input class="form-control form-control-sm" @bind="emailFilter" @bind:event="oninput" @bind:after="LoadClientsAsync" aria-label="Filter by email" />
                 </th>
                 <th>
-                    <input class="form-control form-control-sm" value="@phoneFilter" @oninput="@(args => FilterChangedAsync(args, value => phoneFilter = value))" aria-label="Filter by phone" />
+                    <input class="form-control form-control-sm" @bind="phoneFilter" @bind:event="oninput" @bind:after="LoadClientsAsync" aria-label="Filter by phone" />
                 </th>
                 <th>
-                    <input class="form-control form-control-sm" value="@statusFilter" @oninput="@(args => FilterChangedAsync(args, value => statusFilter = value))" aria-label="Filter by status" placeholder="Active" />
+                    <input class="form-control form-control-sm" @bind="statusFilter" @bind:event="oninput" @bind:after="LoadClientsAsync" aria-label="Filter by status" placeholder="Active" />
                 </th>
             </tr>
         </thead>
@@ -113,12 +113,6 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadClientsAsync();
-    }
-
-    private async Task FilterChangedAsync(ChangeEventArgs args, Action<string?> setValue)
-    {
-        setValue(args.Value?.ToString());
         await LoadClientsAsync();
     }
 
