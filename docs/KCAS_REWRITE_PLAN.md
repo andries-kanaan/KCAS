@@ -1,6 +1,6 @@
 # KCAS Blazor Rewrite Plan
 
-Last updated: 2026-06-02
+Last updated: 2026-06-07
 
 ## Current Goal
 
@@ -8,11 +8,12 @@ Rewrite the legacy Yii1 `kanaanclients` application into the modern Blazor proje
 
 ## Current State and Next Step
 
-- PR #11, `Complete investment, fund, and KYC workflows`, has been merged into `main`.
-- The current product-development phase is browser acceptance review for the completed investment editing, fund summary, and deeper KYC workflow slices.
-- The next functional goal is to review investment account/transaction editing, fund summaries, KYC recommendations, and KYC copy/transfer behavior in the browser.
-- Investment accounts and transactions can now be edited during development, including imported rows. Legacy IDs are kept only as traceability metadata.
-- Current legacy imports are development seed data. They help design and test KCAS against realistic records, but they are disposable.
+- PR #12, `Update KCAS favicon`, has been merged into `main`.
+- The local `main` branch currently includes one additional committed database deployment fix that has not yet been pushed: `84e370b Update KCAS database schema script`.
+- Core v1 operational workflows are implemented for clients, notes, relationships, KYC policies, KYC recommendations, investment accounts, investment transactions, fund summary review, and KYC copy/transfer.
+- The current product phase is acceptance review and production hardening, not another foundational rewrite slice.
+- The next functional goal is browser acceptance review of client operations, investment account/transaction workflows, fund summaries, KYC recommendations, KYC copy/transfer, and security/admin flows against the deployed production-style environment.
+- Current legacy imports remain development seed data. They help design and test KCAS against realistic records, but they are disposable.
 - The final production import will happen later, from the latest `kanaanclients` data, once KCAS is ready for switch-over. At that point current seed/imported data can be cleared and replaced.
 
 ## Local Development Setup
@@ -41,6 +42,11 @@ Rewrite the legacy Yii1 `kanaanclients` application into the modern Blazor proje
 - Pull requests to `main` should pass the GitHub Actions PR checks before merge.
 - The PR check workflow builds the solution and runs the test suite against an isolated MySQL service database.
 - Local integration tests use `kcas_blazor_test` and recreate it for deterministic test runs.
+- First production deployment direction is now explicit:
+  - Publish the app with `dotnet publish`.
+  - Run the published app through Kestrel.
+  - Use Apache/WAMP as the reverse proxy.
+  - Keep production secrets out of the repository, preferably in environment variables or non-committed production configuration.
 
 ## Legacy Yii1 App
 
@@ -203,7 +209,7 @@ Build status:
     - Extended the console importer to import `tbl_clientnote` after clients.
     - Imported 11,856 local legacy notes with 0 skipped and 0 failed.
     - Added a paged, searchable Notes section to client detail pages so large note histories do not render as one long list.
-    - Deferred note create/edit/finalize/delete workflow until after read/import is reviewed.
+    - Initially deferred note create/edit/finalize/delete workflow until after read/import review; that workflow was later implemented in the KYC/policy seed import slice.
 - Added the KYC/policy seed import slice and merged it through PR #4:
   - Added `ClientKycPolicies`.
   - Imported KYC policy data from `tbl_kyc` for development review.
@@ -251,6 +257,15 @@ Build status:
   - Added fund summary review page with matched valuations, history fallback balances, unmatched valuations, filtering, and totals.
   - Added KYC recommendations and KYC copy/transfer behavior behind `Kyc.Manage`.
   - Added focused service tests for investment editing, fund summaries, recommendations, and KYC copy/transfer.
+- Added the KCAS favicon update and merged it through PR #12:
+  - Replaced the default Blazor favicon with the KCAS `K` icon.
+  - Added a favicon cache-busting query string.
+- Added the production database schema script fix:
+  - Replaced the stale first-migration-only `kcas_blazor_initial.sql` with `kcas_blazor_schema.sql`.
+  - Updated `Apply-KCAS-Database.ps1` to use the full fresh-database schema script.
+  - Added guardrails so the fresh schema script is not applied over a partially migrated or non-empty database.
+  - Updated README database deployment guidance.
+  - Verified the full schema script against a temporary MySQL database.
 
 ## Current Verification Status
 
@@ -270,9 +285,12 @@ $env:ASPNETCORE_ENVIRONMENT='Development'
 Start-Process -FilePath "C:\Users\andriesvt\OneDrive\KCAS\.dotnet\dotnet.exe" -ArgumentList "bin\Debug\net10.0\KCAS.Admin.dll","--urls","http://127.0.0.1:5143" -WorkingDirectory "C:\Users\andriesvt\OneDrive\KCAS\src\KCAS.Admin"
 ```
 
-Verified after the security seed fix:
+Verified locally after the security seed and deployment-script fixes:
 
 - `dotnet build` succeeds.
+- `dotnet test tests\KCAS.Admin.Tests\KCAS.Admin.Tests.csproj` passes.
+- `dotnet ef migrations has-pending-model-changes` reports no pending model changes.
+- `src\KCAS.Admin\Data\Migrations\kcas_blazor_schema.sql` applies successfully to an empty temporary MySQL database and records latest migration `20260602211709_CompleteOutstandingWorkflows`.
 - Kestrel starts on `http://127.0.0.1:5143`.
 - WAMP HTTPS proxy reaches the app at `https://kcas.test:8443`.
 - `https://kcas.test:8443/clients` redirects unauthenticated users to login.
@@ -283,79 +301,57 @@ Verified after the security seed fix:
 
 Still to verify manually in browser:
 
-- First local registered user becomes approved Administrator.
+- First local or production registered user becomes approved Administrator on a clean database.
 - Pending users see `/Account/PendingApproval`.
 - `/security` can approve users and assign roles.
-- `/Account/WindowsLogin` works in the browser/WAMP environment.
+- `/Account/WindowsLogin` works in the browser/WAMP and production reverse-proxy environments.
+- Client create/edit, contact/address editing, relationship editing, note create/edit/finalize/delete.
+- Investment account create/edit/delete and transaction create/edit/finalize/delete.
+- Fund summary filtering/totals and unmatched valuation handling.
+- KYC policy create/edit/delete, KYC recommendation create/edit/delete, and KYC copy/transfer.
 
 ## Remaining Rewrite Phases
 
-1. Verify security foundation manually.
-   - Manually verify first-user promotion, approval workflow, and Windows login behavior in the browser.
-   - Keep automated security seed and smoke tests in place.
+1. Browser acceptance review.
+   - Verify security flows: first-user promotion, pending approval, role assignment, and Windows login.
+   - Verify client operations: client create/edit, contact/address editing, relationship editing, and note create/edit/finalize/delete.
+   - Verify investment operations: account create/edit/delete and transaction create/edit/finalize/delete.
+   - Verify fund summary review: matched valuations, history fallback balances, unmatched valuations, filtering, and totals.
+   - Verify KYC operations: policy create/edit/delete, recommendation create/edit/delete, and copy/transfer.
+   - Record refinements found during real browser use as small follow-up slices.
 
-2. Client Operations v1.
-   - Create and edit normalized client records in KCAS.
-   - Generate Kanaan IDs for new records when one is not entered manually.
-   - Manage client contact points and addresses from the operational UI.
-   - Manage spouse, child, dependent, family contact, and other relationship rows from the operational UI.
-   - Add, edit, finalize, and soft-delete KCAS client notes.
-   - Treat current imported rows as disposable development seed data, not as permanent production data.
-   - Keep import traceability only for mapping checks and final-import reconciliation.
-   - Enforce `Clients.Manage` and `Notes.Manage` for operational changes.
-   - Status: core v1 client operations are implemented; remaining work here is acceptance review and refinements found during use.
+2. Production hardening.
+   - Push and PR the database schema script fix if it has not already been pushed.
+   - Standardize the production startup model as a Windows Service or another supervised startup mechanism.
+   - Keep Apache/WAMP as the reverse proxy to Kestrel.
+   - Move production secrets to environment variables or protected server-local configuration.
+   - Keep `Database:MigrateOnStartup` disabled for controlled production migration windows.
+   - Add backup/restore procedure and a repeatable migration procedure for existing databases.
 
-3. Legacy domain analysis.
-   - Document current Yii models, controllers, workflows, and screen behavior.
-   - Identify actual business concepts behind legacy table/field names.
-   - Decide which legacy screens should be rebuilt first.
-   - Status: first pass documented in `docs\LEGACY_DOMAIN_ANALYSIS.md`.
+3. Final production data switch-over.
+   - Take a fresh backup/export of the latest legacy `kanaanclients` database.
+   - Clear disposable seed/imported rows from KCAS as needed.
+   - Run the final import from latest legacy data.
+   - Reconcile counts and spot-check representative clients, notes, KYC, investments, and fund valuations.
 
-4. Investments read model and seed import.
-   - Design normalized EF Core entities for investment accounts and investment history.
-   - Import `tbl_investmentaccount` and `tbl_investmenthistory` as disposable development seed data.
-   - Import `tbl_fund` current values as disposable development seed data.
-   - Add read-only investment account/history/current-value display to client detail pages.
-   - Preserve legacy traceability for reconciliation without making legacy row IDs KCAS identifiers.
-   - Add mapper/import tests using realistic legacy rows.
-   - Status: read model, fund summaries, investment account editing, and transaction/history editing are implemented. Remaining investment work is browser acceptance review and refinements found during use.
-
-5. New schema design.
-   - Design normalized EF Core entities for clients, contacts, notes, products, investments, KYC, documents, and reporting.
-   - Break up over-wide legacy structures where needed.
-   - Add explicit relationships, constraints, indexes, audit fields, and import traceability.
-
-6. Continue the client workflow.
-   - Review imported client detail fields against the old Yii screens.
-   - Review imported notes display against the old Yii notes grid.
-   - Refine client operations after acceptance review.
-   - Expand KYC/policy workflow beyond the current imported summaries.
-   - Status: native KYC policy create/edit/delete, KYC recommendations, and KYC copy/transfer are implemented. Remaining KYC work includes browser acceptance review and richer classification/reference workflows.
-
-7. Expand functional modules.
-   - KYC and recommendations.
-   - Funds/products/reference data.
-   - Reports.
-   - Administration/security.
-
-8. Production readiness.
-   - Decide final hosting target.
-   - Add CI/CD using GitHub once the remote is created.
-   - Use `dotnet publish` in the deployment pipeline.
-   - Move secrets to environment variables or hosting secret storage.
-   - Add backup/restore and migration procedures.
+4. Richer domain modules.
+   - Add richer KYC classification/reference workflows around `tbl_mainclass`, `tbl_subclass`, products, and recommendation categories.
+   - Build funds/products/reference-data administration where needed.
+   - Build report/export workflows.
+   - Continue administration/security refinements after acceptance review.
 
 ## Important Resume Notes
 
 - Do not revert unrelated working tree changes unless the user explicitly asks.
 - Before continuing feature work, inspect `git status --short --branch`.
-- Start new work from clean `main` and create a feature branch first.
-- Use `feature/investment-read-model` for the next recommended domain slice unless the user chooses a different priority.
+- Start new feature work from clean, up-to-date `main` and create a feature branch first.
+- The old `feature/investment-read-model` recommendation is complete and no longer the next domain slice.
+- Current local state may be ahead of GitHub by the committed database schema script fix until it is pushed/PR'd.
 - Do not commit local secrets, logs, build output, or generated `artifacts/`.
 - Before committing feature work, run:
   - `.\.dotnet\dotnet.exe build KCAS.slnx`
   - `.\.dotnet\dotnet.exe test tests\KCAS.Admin.Tests\KCAS.Admin.Tests.csproj`
-  - `.\.dotnet\dotnet.exe ef migrations has-pending-model-changes --project src\KCAS.Admin\KCAS.Admin.csproj`
+  - `.\.dotnet\dotnet.exe tool run dotnet-ef migrations has-pending-model-changes --project src\KCAS.Admin\KCAS.Admin.csproj --startup-project src\KCAS.Admin\KCAS.Admin.csproj`
 - If Kestrel was stopped to release locked build outputs, run `.\Restart-KCAS.ps1` before handing the app back to the user.
 - Before final handoff after local app work, verify `https://kcas.test:8443/clients` returns the app/login page instead of Apache `503`.
 - If the app fails at startup, capture logs before changing more code.
