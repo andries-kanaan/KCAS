@@ -491,4 +491,51 @@ public sealed class ClientOperationsServiceTests(KcasWebApplicationFactory facto
         Assert.True(await db.ClientKycPolicies.AnyAsync(policy => policy.ClientId == targetClientId && policy.Id == policyId && policy.KanaanId == "FAMILY-KYC-1"));
         Assert.True(await db.ClientKycRecommendations.AnyAsync(recommendation => recommendation.ClientId == targetClientId && recommendation.Id == recommendationId));
     }
+
+    [Fact]
+    public async Task LoadInvestmentReferenceOptionsAsync_returns_current_reference_choices()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientOperationsService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        db.InvestmentAdministratorReferences.AddRange(
+            new InvestmentAdministratorReference { LegacyLispId = 9001, Name = "Zeta Platform", IsCurrent = true },
+            new InvestmentAdministratorReference { LegacyLispId = 9002, Name = "Old Platform", IsCurrent = false });
+        db.InvestmentProductTypeReferences.Add(new InvestmentProductTypeReference { LegacyCompanyProductId = 9003, Name = "Living Annuity" });
+        db.InvestmentFundReferences.AddRange(
+            new InvestmentFundReference { LegacyFundNameId = 9004, Name = "Balanced Fund", IsCurrent = true },
+            new InvestmentFundReference { LegacyFundNameId = 9005, Name = "Closed Fund", IsCurrent = false });
+        await db.SaveChangesAsync();
+
+        var options = await service.LoadInvestmentReferenceOptionsAsync();
+
+        Assert.Contains("Zeta Platform", options.Administrators);
+        Assert.DoesNotContain("Old Platform", options.Administrators);
+        Assert.Contains("Living Annuity", options.ProductTypes);
+        Assert.Contains("Balanced Fund", options.Funds);
+        Assert.DoesNotContain("Closed Fund", options.Funds);
+    }
+
+    [Fact]
+    public async Task LoadKycReferenceOptionsAsync_returns_classification_choices()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientOperationsService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        var mainClass = new KycMainClassReference { LegacyMainClassId = 9101, Name = "Equities" };
+        mainClass.SubClasses.Add(new KycSubClassReference { LegacySubClassId = 9102, LegacyMainClassId = 9101, Name = "Unit Trust" });
+        db.KycMainClassReferences.Add(mainClass);
+        db.InvestmentAdministratorReferences.Add(new InvestmentAdministratorReference { LegacyLispId = 9103, Name = "KYC Admin", IsCurrent = true });
+        db.InvestmentFundReferences.Add(new InvestmentFundReference { LegacyFundNameId = 9104, Name = "KYC Fund", IsCurrent = true });
+        await db.SaveChangesAsync();
+
+        var options = await service.LoadKycReferenceOptionsAsync();
+
+        Assert.Contains(options.MainClasses, option => option.Name == "Equities" && option.LegacyMainClassId == 9101);
+        Assert.Contains(options.SubClasses, option => option.Name == "Unit Trust" && option.MainClassName == "Equities");
+        Assert.Contains("KYC Admin", options.Administrators);
+        Assert.Contains("KYC Fund", options.Funds);
+    }
 }

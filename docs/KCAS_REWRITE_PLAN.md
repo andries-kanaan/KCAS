@@ -8,9 +8,11 @@ Rewrite the legacy Yii1 `kanaanclients` application into the modern Blazor proje
 
 ## Current State and Next Step
 
-- PR #12, `Update KCAS favicon`, has been merged into `main`.
-- The local `main` branch currently includes one additional committed database deployment fix that has not yet been pushed: `84e370b Update KCAS database schema script`.
+- PR #14, `Fix client list filters`, has been merged into `main`.
+- The database deployment schema fix and client notes shortcut have been merged through PR #13.
 - Core v1 operational workflows are implemented for clients, notes, relationships, KYC policies, KYC recommendations, investment accounts, investment transactions, fund summary review, and KYC copy/transfer.
+- Stable non-client Yii reference tables are carried forward as modern KCAS reference data, not as Yii table clones.
+- `tbl_feed` and `tbl_feedtopic` are intentionally excluded because they were an abandoned correspondence experiment.
 - The current product phase is acceptance review and production hardening, not another foundational rewrite slice.
 - The next functional goal is browser acceptance review of client operations, investment account/transaction workflows, fund summaries, KYC recommendations, KYC copy/transfer, and security/admin flows against the deployed production-style environment.
 - Current legacy imports remain development seed data. They help design and test KCAS against realistic records, but they are disposable.
@@ -106,6 +108,10 @@ Current decision:
 - Preserve only enough traceability to validate mapping and reconciliation. Do not design KCAS around preserving today's seed rows permanently.
 - KCAS-owned records must use KCAS-owned identifiers. Legacy row IDs must not become KCAS primary keys or KCAS business identifiers.
 - Kanaan ID is a current internal administration identifier used to track family units. Multiple clients can intentionally share the same Kanaan ID when they belong to the same family unit.
+- Remaining non-client Yii tables are explicitly classified:
+  - Stable reference data: `tbl_companyproduct`, `tbl_lispname`, `tbl_fundname`, `tbl_mainclass`, `tbl_subclass`, `tbl_miscinfo`.
+  - Excluded/obsolete: `tbl_feed`, `tbl_feedtopic`, `tbl_user`, `tbl_finplanpar`, `tbl_kyc_recommend`.
+  - Calculation-only: capital-gain behavior should be rebuilt as Blazor calculation/report logic if needed later.
 
 ## Security/RBAC Plan
 
@@ -266,6 +272,11 @@ Build status:
   - Added guardrails so the fresh schema script is not applied over a partially migrated or non-empty database.
   - Updated README database deployment guidance.
   - Verified the full schema script against a temporary MySQL database.
+- Added the reference-data closure slice:
+  - Added modern reference tables for investment administrators/platforms, funds, product types, KYC main classes, KYC sub classes, and market/reference values.
+  - Extended the legacy importer to upsert stable reference data before client-linked operational data.
+  - Updated KYC and investment edit screens to use reference autocomplete choices while preserving historical text values.
+  - Explicitly excluded abandoned Yii feed tables, legacy users, empty planned tables, and capital-gain table concepts from the Blazor data model.
 
 ## Current Verification Status
 
@@ -331,12 +342,11 @@ Still to verify manually in browser:
 3. Final production data switch-over.
    - Take a fresh backup/export of the latest legacy `kanaanclients` database.
    - Clear disposable seed/imported rows from KCAS as needed.
-   - Run the final import from latest legacy data.
-   - Reconcile counts and spot-check representative clients, notes, KYC, investments, and fund valuations.
+   - Run the final import from latest legacy data, importing reference data before client-linked operational data.
+   - Reconcile counts and spot-check representative clients, notes, KYC, investments, fund valuations, and reference choices.
 
 4. Richer domain modules.
-   - Add richer KYC classification/reference workflows around `tbl_mainclass`, `tbl_subclass`, products, and recommendation categories.
-   - Build funds/products/reference-data administration where needed.
+   - Add reference-data administration screens only if operational users need to maintain values inside KCAS.
    - Build report/export workflows.
    - Continue administration/security refinements after acceptance review.
 

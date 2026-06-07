@@ -211,6 +211,39 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
         return ClientKycPolicyEditModel.FromPolicy(policy);
     }
 
+    public async Task<KycReferenceOptionsModel> LoadKycReferenceOptionsAsync()
+    {
+        var mainClasses = await db.KycMainClassReferences
+            .AsNoTracking()
+            .OrderBy(reference => reference.Name)
+            .Select(reference => new KycMainClassOption(reference.Name, reference.LegacyMainClassId))
+            .ToListAsync();
+
+        var subClasses = await db.KycSubClassReferences
+            .AsNoTracking()
+            .Include(reference => reference.MainClass)
+            .OrderBy(reference => reference.MainClass.Name)
+            .ThenBy(reference => reference.Name)
+            .Select(reference => new KycSubClassOption(reference.Name, reference.MainClass.Name, reference.LegacySubClassId))
+            .ToListAsync();
+
+        var administrators = await db.InvestmentAdministratorReferences
+            .AsNoTracking()
+            .Where(reference => reference.IsCurrent)
+            .OrderBy(reference => reference.Name)
+            .Select(reference => reference.Name)
+            .ToListAsync();
+
+        var funds = await db.InvestmentFundReferences
+            .AsNoTracking()
+            .Where(reference => reference.IsCurrent)
+            .OrderBy(reference => reference.Name)
+            .Select(reference => reference.Name)
+            .ToListAsync();
+
+        return new KycReferenceOptionsModel(mainClasses, subClasses, administrators, funds);
+    }
+
     public async Task<int> SaveKycPolicyAsync(ClientKycPolicyEditModel model, string? userName)
     {
         var mainClassName = Normalize(model.MainClassName);
@@ -328,6 +361,31 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
             ?? throw new InvalidOperationException("Investment account not found.");
 
         return ClientInvestmentAccountEditModel.FromAccount(account);
+    }
+
+    public async Task<InvestmentReferenceOptionsModel> LoadInvestmentReferenceOptionsAsync()
+    {
+        var administrators = await db.InvestmentAdministratorReferences
+            .AsNoTracking()
+            .Where(reference => reference.IsCurrent)
+            .OrderBy(reference => reference.Name)
+            .Select(reference => reference.Name)
+            .ToListAsync();
+
+        var productTypes = await db.InvestmentProductTypeReferences
+            .AsNoTracking()
+            .OrderBy(reference => reference.Name)
+            .Select(reference => reference.Name)
+            .ToListAsync();
+
+        var funds = await db.InvestmentFundReferences
+            .AsNoTracking()
+            .Where(reference => reference.IsCurrent)
+            .OrderBy(reference => reference.Name)
+            .Select(reference => reference.Name)
+            .ToListAsync();
+
+        return new InvestmentReferenceOptionsModel(administrators, productTypes, funds);
     }
 
     public async Task<int> SaveInvestmentAccountAsync(ClientInvestmentAccountEditModel model, string? userName)
@@ -1324,6 +1382,16 @@ public sealed class ClientKycPolicyEditModel
     };
 }
 
+public sealed record KycReferenceOptionsModel(
+    IReadOnlyList<KycMainClassOption> MainClasses,
+    IReadOnlyList<KycSubClassOption> SubClasses,
+    IReadOnlyList<string> Administrators,
+    IReadOnlyList<string> Funds);
+
+public sealed record KycMainClassOption(string Name, int? LegacyMainClassId);
+
+public sealed record KycSubClassOption(string Name, string MainClassName, int? LegacySubClassId);
+
 public sealed class ClientInvestmentAccountEditModel
 {
     public int ClientId { get; set; }
@@ -1353,6 +1421,11 @@ public sealed class ClientInvestmentAccountEditModel
         IsFinal = account.IsFinal
     };
 }
+
+public sealed record InvestmentReferenceOptionsModel(
+    IReadOnlyList<string> Administrators,
+    IReadOnlyList<string> ProductTypes,
+    IReadOnlyList<string> Funds);
 
 public sealed class ClientInvestmentTransactionEditModel
 {

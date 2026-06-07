@@ -27,18 +27,42 @@
     <section class="detail-grid">
         <article class="detail-panel form-panel">
             <h2>Classification</h2>
-            <label>Main class <InputText class="form-control" @bind-Value="model.MainClassName" /></label>
-            <label>Sub class <InputText class="form-control" @bind-Value="model.SubClassName" /></label>
+            <label>Main class <input class="form-control" @bind="model.MainClassName" list="kyc-main-classes" /></label>
+            <datalist id="kyc-main-classes">
+                @foreach (var option in ReferenceValues(referenceOptions.MainClasses.Select(option => option.Name), model.MainClassName))
+                {
+                    <option value="@option"></option>
+                }
+            </datalist>
+            <label>Sub class <input class="form-control" @bind="model.SubClassName" list="kyc-sub-classes" /></label>
+            <datalist id="kyc-sub-classes">
+                @foreach (var option in ReferenceValues(VisibleSubClassNames, model.SubClassName))
+                {
+                    <option value="@option"></option>
+                }
+            </datalist>
             <label>Sub class detail <InputText class="form-control" @bind-Value="model.SubClassExtra" /></label>
             <label>Description <InputTextArea class="form-control" @bind-Value="model.Description" /></label>
         </article>
 
         <article class="detail-panel form-panel">
             <h2>Policy</h2>
-            <label>Administrator <InputText class="form-control" @bind-Value="model.Administrator" /></label>
+            <label>Administrator <input class="form-control" @bind="model.Administrator" list="kyc-administrators" /></label>
+            <datalist id="kyc-administrators">
+                @foreach (var option in ReferenceValues(referenceOptions.Administrators, model.Administrator))
+                {
+                    <option value="@option"></option>
+                }
+            </datalist>
             <label>Product <InputText class="form-control" @bind-Value="model.Product" /></label>
             <label>Policy number <InputText class="form-control" @bind-Value="model.PolicyNumber" /></label>
-            <label>Fund <InputText class="form-control" @bind-Value="model.Fund" /></label>
+            <label>Fund <input class="form-control" @bind="model.Fund" list="kyc-funds" /></label>
+            <datalist id="kyc-funds">
+                @foreach (var option in ReferenceValues(referenceOptions.Funds, model.Fund))
+                {
+                    <option value="@option"></option>
+                }
+            </datalist>
             <label>Valuation date <InputDate class="form-control" @bind-Value="model.ValuationDate" /></label>
         </article>
     </section>
@@ -91,6 +115,7 @@
     public int? PolicyId { get; set; }
 
     private ClientKycPolicyEditModel model = new();
+    private KycReferenceOptionsModel referenceOptions = new([], [], [], []);
     private string? statusMessage;
 
     protected override async Task OnParametersSetAsync()
@@ -98,6 +123,7 @@
         try
         {
             model = await ClientOperations.LoadKycPolicyAsync(ClientId, PolicyId);
+            referenceOptions = await ClientOperations.LoadKycReferenceOptionsAsync();
         }
         catch (InvalidOperationException ex)
         {
@@ -120,6 +146,37 @@
         catch (InvalidOperationException ex)
         {
             statusMessage = ex.Message;
+        }
+    }
+
+    private IEnumerable<string> VisibleSubClassNames
+    {
+        get
+        {
+            var selectedMainClass = model.MainClassName?.Trim();
+            var values = string.IsNullOrWhiteSpace(selectedMainClass)
+                ? referenceOptions.SubClasses
+                : referenceOptions.SubClasses.Where(option => string.Equals(option.MainClassName, selectedMainClass, StringComparison.OrdinalIgnoreCase));
+
+            return values.Select(option => option.Name);
+        }
+    }
+
+    private static IEnumerable<string> ReferenceValues(IEnumerable<string> values, string? currentValue)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (!string.IsNullOrWhiteSpace(currentValue) && seen.Add(currentValue.Trim()))
+        {
+            yield return currentValue.Trim();
+        }
+
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value) && seen.Add(value.Trim()))
+            {
+                yield return value.Trim();
+            }
         }
     }
 }

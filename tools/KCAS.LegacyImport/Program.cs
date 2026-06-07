@@ -28,6 +28,8 @@ var targetOptions = new DbContextOptionsBuilder<ApplicationDbContext>()
 await using var db = new ApplicationDbContext(targetOptions);
 await db.Database.MigrateAsync();
 
+await ImportReferenceDataAsync(db, legacyConnection, options.DryRun);
+
 var clientImported = 0;
 var clientUpdated = 0;
 var clientSkipped = 0;
@@ -560,6 +562,305 @@ static string NormalizeLegacyConnectionString(string connectionString)
     };
 
     return builder.ConnectionString;
+}
+
+static async Task ImportReferenceDataAsync(ApplicationDbContext db, MySqlConnection legacyConnection, bool dryRun)
+{
+    var productTypeCount = 0;
+    var administratorCount = 0;
+    var mainClassCount = 0;
+    var subClassCount = 0;
+    var fundCount = 0;
+    var marketValueCount = 0;
+
+    var productTypesByLegacyId = await db.InvestmentProductTypeReferences
+        .Where(reference => reference.LegacyCompanyProductId.HasValue)
+        .ToDictionaryAsync(reference => reference.LegacyCompanyProductId!.Value);
+
+    await foreach (var row in ReadLegacyRowsAsync(legacyConnection, "tbl_companyproduct"))
+    {
+        var legacyId = ReadInt(row, "id");
+        var name = ReadString(row, "name");
+        if (legacyId is null || string.IsNullOrWhiteSpace(name))
+        {
+            continue;
+        }
+
+        productTypeCount++;
+        if (dryRun)
+        {
+            continue;
+        }
+
+        if (!productTypesByLegacyId.TryGetValue(legacyId.Value, out var reference))
+        {
+            reference = new InvestmentProductTypeReference { LegacyCompanyProductId = legacyId.Value };
+            db.InvestmentProductTypeReferences.Add(reference);
+            productTypesByLegacyId[legacyId.Value] = reference;
+        }
+
+        reference.Name = name;
+        ApplyLegacyAudit(reference, row);
+    }
+
+    var administratorsByLegacyId = await db.InvestmentAdministratorReferences
+        .Where(reference => reference.LegacyLispId.HasValue)
+        .ToDictionaryAsync(reference => reference.LegacyLispId!.Value);
+
+    await foreach (var row in ReadLegacyRowsAsync(legacyConnection, "tbl_lispname"))
+    {
+        var legacyId = ReadInt(row, "id");
+        var name = ReadString(row, "name");
+        if (legacyId is null || string.IsNullOrWhiteSpace(name))
+        {
+            continue;
+        }
+
+        administratorCount++;
+        if (dryRun)
+        {
+            continue;
+        }
+
+        if (!administratorsByLegacyId.TryGetValue(legacyId.Value, out var reference))
+        {
+            reference = new InvestmentAdministratorReference { LegacyLispId = legacyId.Value };
+            db.InvestmentAdministratorReferences.Add(reference);
+            administratorsByLegacyId[legacyId.Value] = reference;
+        }
+
+        reference.Name = name;
+        reference.ShortName = ReadString(row, "short_name");
+        reference.IsCurrent = ReadBool(row, "current_lisp") ?? true;
+        reference.MonthlyUpload = ReadBool(row, "monthly_upload") ?? false;
+        ApplyLegacyAudit(reference, row);
+    }
+
+    var mainClassesByLegacyId = await db.KycMainClassReferences
+        .Where(reference => reference.LegacyMainClassId.HasValue)
+        .ToDictionaryAsync(reference => reference.LegacyMainClassId!.Value);
+
+    await foreach (var row in ReadLegacyRowsAsync(legacyConnection, "tbl_mainclass"))
+    {
+        var legacyId = ReadInt(row, "id");
+        var name = ReadString(row, "name");
+        if (legacyId is null || string.IsNullOrWhiteSpace(name))
+        {
+            continue;
+        }
+
+        mainClassCount++;
+        if (dryRun)
+        {
+            continue;
+        }
+
+        if (!mainClassesByLegacyId.TryGetValue(legacyId.Value, out var reference))
+        {
+            reference = new KycMainClassReference { LegacyMainClassId = legacyId.Value };
+            db.KycMainClassReferences.Add(reference);
+            mainClassesByLegacyId[legacyId.Value] = reference;
+        }
+
+        reference.Name = name;
+        reference.AfrikaansDescription = StripTags(ReadString(row, "afullname"));
+        reference.EnglishDescription = StripTags(ReadString(row, "efullname"));
+        ApplyLegacyAudit(reference, row);
+    }
+
+    if (!dryRun)
+    {
+        await db.SaveChangesAsync();
+        mainClassesByLegacyId = await db.KycMainClassReferences
+            .Where(reference => reference.LegacyMainClassId.HasValue)
+            .ToDictionaryAsync(reference => reference.LegacyMainClassId!.Value);
+    }
+
+    var subClassesByLegacyId = await db.KycSubClassReferences
+        .Where(reference => reference.LegacySubClassId.HasValue)
+        .ToDictionaryAsync(reference => reference.LegacySubClassId!.Value);
+
+    await foreach (var row in ReadLegacyRowsAsync(legacyConnection, "tbl_subclass"))
+    {
+        var legacyId = ReadInt(row, "id");
+        var legacyMainClassId = ReadInt(row, "mainclass_id");
+        var name = ReadString(row, "name");
+        if (legacyId is null || legacyMainClassId is null || string.IsNullOrWhiteSpace(name))
+        {
+            continue;
+        }
+
+        var mainClassReferenceId = 0;
+        if (!dryRun)
+        {
+            if (!mainClassesByLegacyId.TryGetValue(legacyMainClassId.Value, out var mainClass))
+            {
+                continue;
+            }
+
+            mainClassReferenceId = mainClass.Id;
+        }
+
+        if (!dryRun && mainClassReferenceId == 0)
+        {
+            continue;
+        }
+
+        subClassCount++;
+        if (dryRun)
+        {
+            continue;
+        }
+
+        if (!subClassesByLegacyId.TryGetValue(legacyId.Value, out var reference))
+        {
+            reference = new KycSubClassReference { LegacySubClassId = legacyId.Value };
+            db.KycSubClassReferences.Add(reference);
+            subClassesByLegacyId[legacyId.Value] = reference;
+        }
+
+        reference.KycMainClassReferenceId = mainClassReferenceId;
+        reference.LegacyMainClassId = legacyMainClassId.Value;
+        reference.Name = name;
+        ApplyLegacyAudit(reference, row);
+    }
+
+    var fundsByLegacyId = await db.InvestmentFundReferences
+        .Where(reference => reference.LegacyFundNameId.HasValue)
+        .ToDictionaryAsync(reference => reference.LegacyFundNameId!.Value);
+
+    await foreach (var row in ReadLegacyRowsAsync(legacyConnection, "tbl_fundname"))
+    {
+        var legacyId = ReadInt(row, "id");
+        var name = ReadString(row, "name");
+        if (legacyId is null || string.IsNullOrWhiteSpace(name))
+        {
+            continue;
+        }
+
+        fundCount++;
+        if (dryRun)
+        {
+            continue;
+        }
+
+        if (!fundsByLegacyId.TryGetValue(legacyId.Value, out var reference))
+        {
+            reference = new InvestmentFundReference { LegacyFundNameId = legacyId.Value };
+            db.InvestmentFundReferences.Add(reference);
+            fundsByLegacyId[legacyId.Value] = reference;
+        }
+
+        reference.Name = name;
+        reference.ShortName = ReadString(row, "short_name");
+        reference.IsCurrent = ReadBool(row, "current_fund") ?? true;
+        reference.MonthlyUpload = ReadBool(row, "monthly_upload") ?? false;
+        reference.Currency = ReadString(row, "currency");
+        reference.LegacyMainClassId = ReadInt(row, "mainclass_id");
+        reference.LegacySubClassId = ReadInt(row, "subclass_id");
+        reference.LegacyAdministratorId = ReadInt(row, "administrator_id");
+        ApplyLegacyAudit(reference, row);
+    }
+
+    var marketValuesByLegacyId = await db.MarketReferenceValues
+        .Where(reference => reference.LegacyMiscInfoId.HasValue)
+        .ToDictionaryAsync(reference => reference.LegacyMiscInfoId!.Value);
+
+    await foreach (var row in ReadLegacyRowsAsync(legacyConnection, "tbl_miscinfo"))
+    {
+        var legacyId = ReadInt(row, "id");
+        var name = ReadString(row, "name");
+        if (legacyId is null || string.IsNullOrWhiteSpace(name))
+        {
+            continue;
+        }
+
+        marketValueCount++;
+        if (dryRun)
+        {
+            continue;
+        }
+
+        if (!marketValuesByLegacyId.TryGetValue(legacyId.Value, out var reference))
+        {
+            reference = new MarketReferenceValue { LegacyMiscInfoId = legacyId.Value };
+            db.MarketReferenceValues.Add(reference);
+            marketValuesByLegacyId[legacyId.Value] = reference;
+        }
+
+        reference.Name = name;
+        reference.PriceDate = ReadDateOnly(row, "price_date");
+        reference.Value = ReadDecimal(row, "value");
+        ApplyLegacyAudit(reference, row);
+    }
+
+    if (!dryRun)
+    {
+        await db.SaveChangesAsync();
+    }
+
+    Console.WriteLine($"Legacy reference import complete. Product types: {productTypeCount}; Administrators: {administratorCount}; KYC main classes: {mainClassCount}; KYC sub classes: {subClassCount}; Funds: {fundCount}; Market values: {marketValueCount}; Dry run: {dryRun}");
+}
+
+static string? ReadString(IReadOnlyDictionary<string, string?> row, string key)
+{
+    return row.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
+        ? value.Trim()
+        : null;
+}
+
+static bool? ReadBool(IReadOnlyDictionary<string, string?> row, string key)
+{
+    return ReadString(row, key)?.ToUpperInvariant() switch
+    {
+        "Y" or "YES" or "TRUE" or "1" => true,
+        "N" or "NO" or "FALSE" or "0" => false,
+        _ => null
+    };
+}
+
+static DateOnly? ReadDateOnly(IReadOnlyDictionary<string, string?> row, string key)
+{
+    var value = ReadString(row, key);
+    if (DateOnly.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var parsedDate))
+    {
+        return parsedDate;
+    }
+
+    return DateTime.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeLocal, out var parsedDateTime)
+        ? DateOnly.FromDateTime(parsedDateTime)
+        : null;
+}
+
+static DateTime? ReadDateTime(IReadOnlyDictionary<string, string?> row, string key)
+{
+    var value = ReadString(row, key);
+    return DateTime.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeLocal, out var parsed)
+        ? parsed
+        : null;
+}
+
+static decimal? ReadDecimal(IReadOnlyDictionary<string, string?> row, string key)
+{
+    var value = ReadString(row, key);
+    return decimal.TryParse(value, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+        ? parsed
+        : null;
+}
+
+static string? StripTags(string? value)
+{
+    return string.IsNullOrWhiteSpace(value)
+        ? null
+        : System.Text.RegularExpressions.Regex.Replace(value, "<.*?>", string.Empty, System.Text.RegularExpressions.RegexOptions.Singleline).Trim();
+}
+
+static void ApplyLegacyAudit(dynamic reference, IReadOnlyDictionary<string, string?> row)
+{
+    reference.OpenedBy = ReadString(row, "opened_by");
+    reference.UpdatedBy = ReadString(row, "updated_by");
+    reference.LegacyOpenedAt = ReadDateTime(row, "date_opened");
+    reference.LegacyUpdatedAt = ReadDateTime(row, "date_updated");
 }
 
 internal sealed record ImportOptions(string LegacyConnectionString, string TargetConnectionString, bool DryRun)
