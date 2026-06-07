@@ -26,6 +26,7 @@ else
         </div>
         <div class="header-actions">
             <a class="btn btn-outline-secondary" href="@($"/clients/{Id}#investments")">Investments</a>
+            <a class="btn btn-outline-secondary" href="@($"/clients/{Id}#notes")">Notes</a>
             <AuthorizeView Policy="@KcasPermissions.ClientsManage">
                 <Authorized>
                     <a class="btn btn-primary" href="@($"/clients/{Id}/edit")">Edit client</a>
@@ -661,7 +662,7 @@ else
         }
     </section>
 
-    <section class="detail-panel">
+    <section id="notes" class="detail-panel">
         <div class="section-heading-row">
             <div>
                 <h2>Notes</h2>
