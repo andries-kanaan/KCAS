@@ -27,7 +27,13 @@
     <section class="detail-grid">
         <article class="detail-panel form-panel">
             <h2>Account</h2>
-            <label>Administrator <InputText class="form-control" @bind-Value="model.Administrator" /></label>
+            <label>Administrator <input class="form-control" @bind="model.Administrator" list="investment-administrators" /></label>
+            <datalist id="investment-administrators">
+                @foreach (var option in ReferenceValues(referenceOptions.Administrators, model.Administrator))
+                {
+                    <option value="@option"></option>
+                }
+            </datalist>
             <label>Account number <InputText class="form-control" @bind-Value="model.AccountNumber" /></label>
             <label>Investment date <InputDate class="form-control" @bind-Value="model.InvestmentDate" /></label>
             <label>Surrender date <InputDate class="form-control" @bind-Value="model.SurrenderDate" /></label>
@@ -35,8 +41,20 @@
         <article class="detail-panel form-panel">
             <h2>Product</h2>
             <label>Product <InputText class="form-control" @bind-Value="model.ProductName" /></label>
-            <label>Product type <InputText class="form-control" @bind-Value="model.ProductType" /></label>
-            <label>Fund <InputText class="form-control" @bind-Value="model.FundName" /></label>
+            <label>Product type <input class="form-control" @bind="model.ProductType" list="investment-product-types" /></label>
+            <datalist id="investment-product-types">
+                @foreach (var option in ReferenceValues(referenceOptions.ProductTypes, model.ProductType))
+                {
+                    <option value="@option"></option>
+                }
+            </datalist>
+            <label>Fund <input class="form-control" @bind="model.FundName" list="investment-funds" /></label>
+            <datalist id="investment-funds">
+                @foreach (var option in ReferenceValues(referenceOptions.Funds, model.FundName))
+                {
+                    <option value="@option"></option>
+                }
+            </datalist>
             <label class="check-row"><InputCheckbox @bind-Value="model.IsLinkedHead" /> Linked head account</label>
             <label class="check-row"><InputCheckbox @bind-Value="model.IsFinal" /> Final</label>
         </article>
@@ -56,6 +74,7 @@
     public int? AccountId { get; set; }
 
     private ClientInvestmentAccountEditModel model = new();
+    private InvestmentReferenceOptionsModel referenceOptions = new([], [], []);
     private string? statusMessage;
 
     protected override async Task OnParametersSetAsync()
@@ -63,6 +82,7 @@
         try
         {
             model = await ClientOperations.LoadInvestmentAccountAsync(ClientId, AccountId);
+            referenceOptions = await ClientOperations.LoadInvestmentReferenceOptionsAsync();
         }
         catch (InvalidOperationException ex)
         {
@@ -85,6 +105,24 @@
         catch (InvalidOperationException ex)
         {
             statusMessage = ex.Message;
+        }
+    }
+
+    private static IEnumerable<string> ReferenceValues(IEnumerable<string> values, string? currentValue)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (!string.IsNullOrWhiteSpace(currentValue) && seen.Add(currentValue.Trim()))
+        {
+            yield return currentValue.Trim();
+        }
+
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value) && seen.Add(value.Trim()))
+            {
+                yield return value.Trim();
+            }
         }
     }
 }

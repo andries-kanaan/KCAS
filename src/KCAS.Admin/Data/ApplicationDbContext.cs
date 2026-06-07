@@ -20,6 +20,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<ClientInvestmentAccount> ClientInvestmentAccounts => Set<ClientInvestmentAccount>();
     public DbSet<ClientInvestmentTransaction> ClientInvestmentTransactions => Set<ClientInvestmentTransaction>();
     public DbSet<ClientFundValuation> ClientFundValuations => Set<ClientFundValuation>();
+    public DbSet<InvestmentAdministratorReference> InvestmentAdministratorReferences => Set<InvestmentAdministratorReference>();
+    public DbSet<InvestmentFundReference> InvestmentFundReferences => Set<InvestmentFundReference>();
+    public DbSet<InvestmentProductTypeReference> InvestmentProductTypeReferences => Set<InvestmentProductTypeReference>();
+    public DbSet<KycMainClassReference> KycMainClassReferences => Set<KycMainClassReference>();
+    public DbSet<KycSubClassReference> KycSubClassReferences => Set<KycSubClassReference>();
+    public DbSet<MarketReferenceValue> MarketReferenceValues => Set<MarketReferenceValue>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -293,6 +299,58 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.HasIndex(valuation => valuation.KanaanId);
             entity.HasIndex(valuation => valuation.InvestmentUniqueNumber);
             entity.HasIndex(valuation => valuation.ValuationDate);
+        });
+
+        builder.Entity<InvestmentAdministratorReference>(entity =>
+        {
+            entity.HasIndex(reference => reference.LegacyLispId).IsUnique();
+            entity.HasIndex(reference => reference.Name);
+            entity.HasIndex(reference => new { reference.IsCurrent, reference.Name });
+        });
+
+        builder.Entity<InvestmentFundReference>(entity =>
+        {
+            entity.HasIndex(reference => reference.LegacyFundNameId).IsUnique();
+            entity.HasIndex(reference => reference.Name);
+            entity.HasIndex(reference => reference.ShortName);
+            entity.HasIndex(reference => new { reference.IsCurrent, reference.Name });
+            entity.HasIndex(reference => new { reference.LegacyAdministratorId, reference.LegacyMainClassId, reference.LegacySubClassId });
+        });
+
+        builder.Entity<InvestmentProductTypeReference>(entity =>
+        {
+            entity.HasIndex(reference => reference.LegacyCompanyProductId).IsUnique();
+            entity.HasIndex(reference => reference.Name);
+        });
+
+        builder.Entity<KycMainClassReference>(entity =>
+        {
+            entity.HasIndex(reference => reference.LegacyMainClassId).IsUnique();
+            entity.HasIndex(reference => reference.Name);
+        });
+
+        builder.Entity<KycSubClassReference>(entity =>
+        {
+            entity.HasOne(reference => reference.MainClass)
+                .WithMany(mainClass => mainClass.SubClasses)
+                .HasForeignKey(reference => reference.KycMainClassReferenceId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(reference => reference.LegacySubClassId).IsUnique();
+            entity.HasIndex(reference => reference.LegacyMainClassId);
+            entity.HasIndex(reference => new { reference.KycMainClassReferenceId, reference.Name });
+        });
+
+        builder.Entity<MarketReferenceValue>(entity =>
+        {
+            entity.Property(reference => reference.PriceDate)
+                .HasColumnType("date")
+                .HasConversion(new ValueConverter<DateOnly?, DateTime?>(
+                    value => value.HasValue ? value.Value.ToDateTime(TimeOnly.MinValue) : null,
+                    value => value.HasValue ? DateOnly.FromDateTime(value.Value) : null));
+            entity.Property(reference => reference.Value).HasPrecision(18, 4);
+            entity.HasIndex(reference => reference.LegacyMiscInfoId).IsUnique();
+            entity.HasIndex(reference => reference.Name);
+            entity.HasIndex(reference => reference.PriceDate);
         });
     }
 }

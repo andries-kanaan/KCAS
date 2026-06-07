@@ -121,7 +121,9 @@ Reference data supports the classification and product workflows. Main class/sub
 
 Current KCAS coverage:
 
-- Some reference values are preserved through imported KYC summaries and raw snapshots, but reference management screens are not rebuilt.
+- Stable reference data is now treated as KCAS reference data, not as legacy table preservation.
+- `tbl_companyproduct`, `tbl_lispname`, `tbl_fundname`, `tbl_mainclass`, `tbl_subclass`, and `tbl_miscinfo` are imported into modern reference structures.
+- KYC and investment edit screens use these references as autocomplete choices while preserving existing text values on imported historical rows.
 
 ### Reports And Planning Forms
 
@@ -143,25 +145,13 @@ Current imports from `kanaanclients` are test and seeding data only. They are us
 
 They are not the final production dataset. Once KCAS is ready for deployment and switch-over, the current seed data can be cleared and the latest full legacy data can be imported as the final migration.
 
+Tables intentionally not carried forward:
+
+- `tbl_feed` and `tbl_feedtopic`: abandoned correspondence experiment.
+- `tbl_user`: replaced by ASP.NET Core Identity.
+- `tbl_finplanpar` and `tbl_kyc_recommend`: empty/planned-only legacy tables.
+- `capitalgain`: calculation/report behavior, not a persisted table requirement.
+
 ## Recommended Next Slice
 
-Review the imported investment display, then choose the next operational investment or KYC slice.
-
-Candidate investment follow-up scope:
-
-- Add investment account editing.
-- Add investment transaction editing.
-- Add fuller fund summaries, fee calculations, and report exports from `tbl_fund`.
-- Rebuild selected fund summary/report views only after the imported account/history display is accepted.
-
-Reasoning:
-
-- Client, notes, relationships, and KYC summaries already provide the client-centered foundation.
-- Investment accounts and history are now available for review in KCAS.
-- The next step should be driven by what is most useful operationally after reviewing that data: editing workflows, fund summaries, or deeper KYC management.
-
-Deferred until after this slice:
-
-- Fund summary reports.
-- KYC transfer/copy workflow.
-- Planning and Excel-style reports.
+The Yii analysis loop is closed for table coverage. Future work should focus on Blazor acceptance review, production hardening, final data import/reconciliation, and Blazor-native reports or calculations.
