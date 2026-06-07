@@ -37,16 +37,22 @@ WAMP's MySQL client needs the plugin directory specified on this machine:
 C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe --plugin-dir=C:\wamp64\bin\mysql\mysql9.1.0\lib\plugin --protocol=tcp --host=127.0.0.1 --port=3307 --user=root
 ```
 
-The generated initial SQL script is:
+The generated full schema script for a fresh database is:
 
 ```text
-src\KCAS.Admin\Data\Migrations\kcas_blazor_initial.sql
+src\KCAS.Admin\Data\Migrations\kcas_blazor_schema.sql
 ```
 
 Apply it to a fresh database with:
 
 ```powershell
 .\Apply-KCAS-Database.ps1
+```
+
+For an existing database, do not run the fresh schema script over the existing tables. Generate a targeted migration script from the database's current migration to the latest migration, review it, then apply it during a controlled migration window:
+
+```powershell
+.\.dotnet\dotnet.exe tool run dotnet-ef migrations script FromMigrationName ToMigrationName --project src\KCAS.Admin\KCAS.Admin.csproj --startup-project src\KCAS.Admin\KCAS.Admin.csproj --output reviewed-production-migration.sql
 ```
 
 For normal local development after the first setup, apply EF migrations with:
