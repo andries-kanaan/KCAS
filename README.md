@@ -34,7 +34,7 @@ After stopping Kestrel for builds or verification, restart and verify the local 
 WAMP's MySQL client needs the plugin directory specified on this machine:
 
 ```powershell
-C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe --plugin-dir=C:\wamp64\bin\mysql\mysql9.1.0\lib\plugin --protocol=tcp --host=127.0.0.1 --port=3307 --user=root
+C:\wamp64\bin\mysql\mysql9.1.0\bin\mysql.exe --plugin-dir=C:\wamp64\bin\mysql\mysql9.1.0\lib\plugin --protocol=tcp --host=127.0.0.1 --port=3306 --user=root
 ```
 
 The generated full schema script for a fresh database is:
@@ -49,10 +49,29 @@ Apply it to a fresh database with:
 .\Apply-KCAS-Database.ps1
 ```
 
-For an existing database, do not run the fresh schema script over the existing tables. Generate a targeted migration script from the database's current migration to the latest migration, review it, then apply it during a controlled migration window:
+`Apply-KCAS-Database.ps1` derives the latest migration from `src\KCAS.Admin\Data\Migrations`, checks `__EFMigrationsHistory`, and then either:
+
+- applies the full schema to an empty database, or
+- applies a reviewed targeted script from `src\KCAS.Admin\Data\Migrations\Scripts`.
+
+For production WAMP on `D:\wamp64`:
 
 ```powershell
-.\.dotnet\dotnet.exe tool run dotnet-ef migrations script FromMigrationName ToMigrationName --project src\KCAS.Admin\KCAS.Admin.csproj --startup-project src\KCAS.Admin\KCAS.Admin.csproj --output reviewed-production-migration.sql
+.\Apply-KCAS-Database.ps1 -MySqlBasePath 'D:\wamp64\bin\mysql\mysql9.1.0' -Port 3306
+```
+
+The same settings can be supplied through environment variables:
+
+```powershell
+$env:KCAS_MYSQL_BASE_PATH = 'D:\wamp64\bin\mysql\mysql9.1.0'
+$env:KCAS_MYSQL_PORT = '3306'
+.\Apply-KCAS-Database.ps1
+```
+
+For an existing database, do not run the fresh schema script over the existing tables. Generate a targeted migration script from the database's current migration to the latest migration, review it, commit it under `src\KCAS.Admin\Data\Migrations\Scripts`, then apply it during a controlled migration window:
+
+```powershell
+.\.dotnet\dotnet.exe tool run dotnet-ef migrations script FromMigrationName ToMigrationName --project src\KCAS.Admin\KCAS.Admin.csproj --startup-project src\KCAS.Admin\KCAS.Admin.csproj --output src\KCAS.Admin\Data\Migrations\Scripts\FromMigrationName_to_ToMigrationName.sql
 ```
 
 For normal local development after the first setup, apply EF migrations with:
