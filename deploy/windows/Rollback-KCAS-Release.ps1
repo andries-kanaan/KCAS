@@ -5,7 +5,7 @@ param(
     [string]$GitCommit,
     [string]$InstallRoot = 'D:\Deploy\KCAS',
     [string]$ScheduledTaskName = 'KCAS',
-    [string]$DirectHealthUrl = 'http://127.0.0.1:5143/health/ready',
+    [string]$DirectHealthUrl = 'http://127.0.0.1:5000/health/ready',
     [int]$HealthTimeoutSeconds = 60,
     [Parameter(Mandatory)]
     [switch]$DatabaseIsCompatible
