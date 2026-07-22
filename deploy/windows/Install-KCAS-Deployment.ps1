@@ -21,14 +21,10 @@ if (-not (Test-Path -LiteralPath (Join-Path $repositoryFullPath '.git') -PathTyp
 if (-not (Get-ScheduledTask -TaskName $ScheduledTaskName -ErrorAction SilentlyContinue)) {
     throw "Scheduled Task '$ScheduledTaskName' was not found."
 }
-foreach ($command in @('git.exe','gh.exe')) {
+foreach ($command in @('git.exe')) {
     if (-not (Get-Command $command -ErrorAction SilentlyContinue)) {
-        throw "Required command '$command' is not installed or is not on PATH. Install GitHub CLI with 'winget install --id GitHub.cli' if gh.exe is missing."
+        throw "Required command '$command' is not installed or is not on PATH."
     }
-}
-& gh.exe auth status --hostname github.com
-if ($LASTEXITCODE -ne 0) {
-    throw "GitHub CLI is not authenticated. Run 'gh auth login --hostname github.com --git-protocol https --web', then rerun this installer."
 }
 
 $sharedPath = Join-Path $installRootPath 'shared'
@@ -76,7 +72,7 @@ $settings = [ordered]@{
     schemaVersion = 1
     repositoryPath = $repositoryFullPath
     githubRepository = $githubRepository
-    workflow = 'windows-release.yml'
+    deploymentReleaseTagPrefix = 'deploy-'
     scheduledTaskName = $ScheduledTaskName
     mySqlBasePath = $MySqlBasePath
     proxyHealthUrl = $ProxyHealthUrl

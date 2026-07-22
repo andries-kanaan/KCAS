@@ -47,7 +47,7 @@ $settings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
 if ($settings.schemaVersion -ne 1) { throw "Unsupported deployment settings in '$settingsPath'." }
 
 $repositoryPath = [System.IO.Path]::GetFullPath([string]$settings.repositoryPath)
-$workflow = if ([string]::IsNullOrWhiteSpace([string]$settings.workflow)) { 'windows-release.yml' } else { [string]$settings.workflow }
+$deploymentReleaseTagPrefix = if ([string]::IsNullOrWhiteSpace([string]$settings.deploymentReleaseTagPrefix)) { 'deploy-' } else { [string]$settings.deploymentReleaseTagPrefix }
 $scheduledTaskName = if ([string]::IsNullOrWhiteSpace([string]$settings.scheduledTaskName)) { 'KCAS' } else { [string]$settings.scheduledTaskName }
 $mySqlBasePath = if ([string]::IsNullOrWhiteSpace([string]$settings.mySqlBasePath)) { 'D:\wamp64\bin\mysql\mysql9.1.0' } else { [string]$settings.mySqlBasePath }
 $proxyHealthUrl = if ($SkipProxyHealthCheck) { '' } else { [string]$settings.proxyHealthUrl }
@@ -57,7 +57,7 @@ $releaseEnginePath = Join-Path $installRootPath 'Deploy-KCAS-Release.ps1'
 foreach ($requiredPath in @($repositoryPath, $sharedConfigurationPath, $releaseEnginePath)) {
     if (-not (Test-Path -LiteralPath $requiredPath)) { throw "Required deployment path not found: $requiredPath" }
 }
-foreach ($command in @('git.exe','gh.exe')) {
+foreach ($command in @('git.exe')) {
     if (-not (Get-Command $command -ErrorAction SilentlyContinue)) { throw "Required command '$command' is not installed or is not on PATH." }
 }
 
@@ -73,7 +73,6 @@ if ($commit -notmatch '^[0-9a-f]{40}$') { throw "Git returned an invalid commit 
 
 $remoteUrl = (Invoke-CheckedCommand 'git.exe' @('-C',$repositoryPath,'remote','get-url','origin') 'Could not inspect the GitHub remote' | Out-String).Trim()
 $githubRepository = if ([string]::IsNullOrWhiteSpace([string]$settings.githubRepository)) { Get-GitHubRepositoryName $remoteUrl } else { [string]$settings.githubRepository }
-$null = Invoke-CheckedCommand 'gh.exe' @('auth','status','--hostname','github.com') 'GitHub CLI is not authenticated'
 
 # Refresh the non-running deployment engine and rollback helper from reviewed main.
 foreach ($toolName in @('Deploy-KCAS-Release.ps1','Rollback-KCAS-Release.ps1')) {
@@ -91,41 +90,42 @@ if (Test-Path -LiteralPath $currentManifestPath -PathType Leaf) {
     }
 }
 
-Write-Host "Finding the tested Windows package for $commit..."
-$runListJson = Invoke-CheckedCommand 'gh.exe' @('run','list','--repo',$githubRepository,'--workflow',$workflow,'--commit',$commit,'--limit','10','--json','databaseId,status,conclusion,headSha,createdAt') 'Could not inspect GitHub release runs'
-$runs = @((($runListJson | Out-String) | ConvertFrom-Json) | Where-Object { $_.headSha -eq $commit })
-if ($runs.Count -eq 0) {
-    Write-Host 'No packaging run exists yet; starting one in GitHub Actions...'
-    $null = Invoke-CheckedCommand 'gh.exe' @('workflow','run',$workflow,'--repo',$githubRepository,'--ref','main','-f',"version_label=deploy-$($commit.Substring(0,12))") 'Could not start the Windows release workflow'
-    $deadline = [DateTime]::UtcNow.AddMinutes(2)
-    do {
-        Start-Sleep -Seconds 3
-        $runListJson = Invoke-CheckedCommand 'gh.exe' @('run','list','--repo',$githubRepository,'--workflow',$workflow,'--commit',$commit,'--limit','10','--json','databaseId,status,conclusion,headSha,createdAt') 'Could not find the started Windows release workflow'
-        $runs = @((($runListJson | Out-String) | ConvertFrom-Json) | Where-Object { $_.headSha -eq $commit })
-    } while ($runs.Count -eq 0 -and [DateTime]::UtcNow -lt $deadline)
-    if ($runs.Count -eq 0) { throw 'The Windows release workflow did not appear within two minutes.' }
+Write-Host "Waiting for the tested Windows package for $commit..."
+$releaseTag = "$deploymentReleaseTagPrefix$commit"
+$releaseApiUrl = "https://api.github.com/repos/$githubRepository/releases/tags/$releaseTag"
+$requestHeaders = @{ 'User-Agent' = 'KCAS-Immutable-Deployment' }
+$release = $null
+$releaseError = $null
+$deadline = [DateTime]::UtcNow.AddMinutes(20)
+do {
+    try {
+        $release = Invoke-RestMethod -Uri $releaseApiUrl -Headers $requestHeaders -Method Get
+        $releaseError = $null
+    }
+    catch {
+        $releaseError = $_.Exception.Message
+        Start-Sleep -Seconds 10
+    }
+} while ($null -eq $release -and [DateTime]::UtcNow -lt $deadline)
+if ($null -eq $release) {
+    throw "The tested deployment release '$releaseTag' did not become available within 20 minutes. Last GitHub result: $releaseError"
 }
-
-$run = $runs | Sort-Object @{ Expression = { if ($_.status -eq 'completed' -and $_.conclusion -eq 'success') { 0 } else { 1 } } }, @{ Expression = 'createdAt'; Descending = $true } | Select-Object -First 1
-if ($run.status -ne 'completed') {
-    Write-Host "Waiting for GitHub Actions run $($run.databaseId) to finish..."
-    $null = Invoke-CheckedCommand 'gh.exe' @('run','watch',[string]$run.databaseId,'--repo',$githubRepository,'--exit-status') 'The Windows release workflow failed'
-}
-elseIf ($run.conclusion -ne 'success') {
-    throw "GitHub Actions run $($run.databaseId) completed with '$($run.conclusion)'."
+if ([string]$release.target_commitish -ne $commit) {
+    throw "Deployment release '$releaseTag' targets '$($release.target_commitish)', not '$commit'."
 }
 
 $inboxPath = Join-Path $installRootPath "inbox\$commit"
 if (Test-Path -LiteralPath $inboxPath) { Remove-Item -LiteralPath $inboxPath -Recurse -Force }
 New-Item -ItemType Directory -Path $inboxPath -Force | Out-Null
 Write-Host 'Downloading the verified release from GitHub...'
-$null = Invoke-CheckedCommand 'gh.exe' @('run','download',[string]$run.databaseId,'--repo',$githubRepository,'--name',"kcas-windows-$commit",'--dir',$inboxPath) 'Could not download the Windows release artifact'
-
-$packages = @(Get-ChildItem -LiteralPath $inboxPath -File -Filter 'KCAS-*-win-x64.zip')
-if ($packages.Count -ne 1) { throw "Expected exactly one KCAS release ZIP in '$inboxPath'; found $($packages.Count)." }
-$packagePath = $packages[0].FullName
-$checksumPath = "$packagePath.sha256"
-if (-not (Test-Path -LiteralPath $checksumPath -PathType Leaf)) { throw "Release checksum not found: $checksumPath" }
+$packageAssets = @($release.assets | Where-Object { $_.name -like 'KCAS-*-win-x64.zip' })
+if ($packageAssets.Count -ne 1) { throw "Expected one release ZIP on '$releaseTag'; found $($packageAssets.Count)." }
+$checksumAssets = @($release.assets | Where-Object { $_.name -eq "$($packageAssets[0].name).sha256" })
+if ($checksumAssets.Count -ne 1) { throw "Expected one checksum for '$($packageAssets[0].name)' on '$releaseTag'; found $($checksumAssets.Count)." }
+$packagePath = Join-Path $inboxPath $packageAssets[0].name
+$checksumPath = Join-Path $inboxPath $checksumAssets[0].name
+Invoke-WebRequest -Uri $packageAssets[0].browser_download_url -Headers $requestHeaders -OutFile $packagePath
+Invoke-WebRequest -Uri $checksumAssets[0].browser_download_url -Headers $requestHeaders -OutFile $checksumPath
 
 $configuration = Get-Content -LiteralPath $sharedConfigurationPath -Raw | ConvertFrom-Json
 $connectionString = [string]$configuration.ConnectionStrings.DefaultConnection
