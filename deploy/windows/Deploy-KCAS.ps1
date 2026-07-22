@@ -50,6 +50,7 @@ $repositoryPath = [System.IO.Path]::GetFullPath([string]$settings.repositoryPath
 $deploymentReleaseTagPrefix = if ([string]::IsNullOrWhiteSpace([string]$settings.deploymentReleaseTagPrefix)) { 'deploy-' } else { [string]$settings.deploymentReleaseTagPrefix }
 $scheduledTaskName = if ([string]::IsNullOrWhiteSpace([string]$settings.scheduledTaskName)) { 'KCAS' } else { [string]$settings.scheduledTaskName }
 $mySqlBasePath = if ([string]::IsNullOrWhiteSpace([string]$settings.mySqlBasePath)) { 'D:\wamp64\bin\mysql\mysql9.1.0' } else { [string]$settings.mySqlBasePath }
+$directHealthUrl = if ($settings.PSObject.Properties.Name -notcontains 'directHealthUrl' -or [string]::IsNullOrWhiteSpace([string]$settings.directHealthUrl)) { 'http://127.0.0.1:5000/health/ready' } else { [string]$settings.directHealthUrl }
 $proxyHealthUrl = if ($SkipProxyHealthCheck) { '' } else { [string]$settings.proxyHealthUrl }
 $sharedConfigurationPath = Join-Path $installRootPath 'shared\appsettings.Production.json'
 $releaseEnginePath = Join-Path $installRootPath 'Deploy-KCAS-Release.ps1'
@@ -151,6 +152,7 @@ $deploymentArguments = @{
     MySqlUser = $mySqlUser
     MySqlPassword = $mySqlPassword
     Database = $database
+    DirectHealthUrl = $directHealthUrl
 }
 if (-not [string]::IsNullOrWhiteSpace($proxyHealthUrl)) { $deploymentArguments.ProxyHealthUrl = $proxyHealthUrl }
 if (-not (Test-Path -LiteralPath (Join-Path $installRootPath 'current'))) {

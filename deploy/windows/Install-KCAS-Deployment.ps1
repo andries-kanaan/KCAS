@@ -7,6 +7,7 @@ param(
     [string]$RepositoryPath = 'D:\Deploy\KCAS\repo',
     [string]$MySqlBasePath = 'D:\wamp64\bin\mysql\mysql9.1.0',
     [string]$ScheduledTaskName = 'KCAS',
+    [string]$DirectHealthUrl = 'http://127.0.0.1:5000/health/ready',
     [string]$ProxyHealthUrl = ''
 )
 
@@ -75,6 +76,7 @@ $settings = [ordered]@{
     deploymentReleaseTagPrefix = 'deploy-'
     scheduledTaskName = $ScheduledTaskName
     mySqlBasePath = $MySqlBasePath
+    directHealthUrl = $DirectHealthUrl
     proxyHealthUrl = $ProxyHealthUrl
     installedAtUtc = [DateTime]::UtcNow.ToString('O')
 }

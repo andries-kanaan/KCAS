@@ -133,7 +133,8 @@ The first deployment deliberately preserves the task's existing principal, trigg
 - that account can read and execute under `D:\Deploy\KCAS`;
 - it can modify `shared\DataProtectionKeys`;
 - the existing Windows Login works before deployment;
-- Apache currently proxies to `http://127.0.0.1:5143`.
+- the production Scheduled Task starts Kestrel on `http://localhost:5000`;
+- Apache exposes KCAS at `https://kcas:8443/` and proxies to that internal Kestrel endpoint.
 
 The existing Scheduled Task registration is never changed. On the first immutable deployment, the previous `D:\Deploy\KCAS\publish` directory is preserved under `shared\legacy-deployment-backup`, and `publish` becomes a junction to `current\app`. This keeps both the executable and DLL locations expected by the old task compatible, so no Windows account password is required.
 

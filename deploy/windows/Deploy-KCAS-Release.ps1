@@ -7,7 +7,7 @@ param(
     [string]$ScheduledTaskName = 'KCAS',
     # Retained as an ignored compatibility switch for the pre-fix one-click launcher.
     [switch]$UpdateScheduledTaskAction,
-    [string]$DirectHealthUrl = 'http://127.0.0.1:5143/health/ready',
+    [string]$DirectHealthUrl = 'http://127.0.0.1:5000/health/ready',
     [string]$ProxyHealthUrl,
     [int]$HealthTimeoutSeconds = 60,
     [string]$SharedConfigurationPath,
