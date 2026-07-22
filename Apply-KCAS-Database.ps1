@@ -69,10 +69,11 @@ function Invoke-KcasMySql {
     return $output
 }
 
-$latestMigration = Get-ChildItem -Path $migrationsPath -Filter '*.cs' |
+$repositoryMigrations = @(Get-ChildItem -Path $migrationsPath -Filter '*.cs' |
     Where-Object { $_.Name -notlike '*.Designer.cs' -and $_.Name -match '^\d{14}_.+\.cs$' } |
     Sort-Object Name |
-    Select-Object -Last 1 -ExpandProperty BaseName
+    Select-Object -ExpandProperty BaseName)
+$latestMigration = $repositoryMigrations | Select-Object -Last 1
 
 if ([string]::IsNullOrWhiteSpace($latestMigration)) {
     throw "Could not determine the latest EF migration under '$migrationsPath'."
@@ -101,15 +102,43 @@ if ($migrationCount -eq '1') {
         throw "KCAS database has EF migration history table but no applied migrations. Back it up and review manually."
     }
 
-    $targetedScriptName = "${currentMigration}_to_${latestMigration}.sql"
-    $targetedScript = Join-Path $migrationScriptsPath $targetedScriptName
-    if (-not (Test-Path -LiteralPath $targetedScript)) {
-        throw "KCAS database is at '$currentMigration' but repository latest is '$latestMigration'. Missing reviewed migration script '$targetedScriptName'. Generate and review a targeted EF script; do not run the fresh schema script over an existing database."
+    $currentMigrationIndex = [Array]::IndexOf($repositoryMigrations, [string]$currentMigration)
+    if ($currentMigrationIndex -lt 0) {
+        throw "KCAS database reports migration '$currentMigration', which is not present in this reviewed repository release. Review the database manually."
     }
 
-    $targetedScriptSource = $targetedScript.Replace('\', '/')
-    Write-Host "Applying targeted migration script: $targetedScriptName"
-    Invoke-KcasMySql -Arguments @($Database, '-e', "source $targetedScriptSource")
+    $migrationChain = @()
+    for ($index = $currentMigrationIndex; $index -lt ($repositoryMigrations.Count - 1); $index++) {
+        $fromMigration = $repositoryMigrations[$index]
+        $toMigration = $repositoryMigrations[$index + 1]
+        $targetedScriptName = "${fromMigration}_to_${toMigration}.sql"
+        $targetedScript = Join-Path $migrationScriptsPath $targetedScriptName
+        if (-not (Test-Path -LiteralPath $targetedScript -PathType Leaf)) {
+            throw "KCAS database requires the reviewed migration chain from '$currentMigration' to '$latestMigration', but '$targetedScriptName' is missing. No migrations were applied."
+        }
+        $migrationChain += [pscustomobject]@{
+            From = $fromMigration
+            To = $toMigration
+            Name = $targetedScriptName
+            Path = $targetedScript
+        }
+    }
+
+    if ($migrationChain.Count -eq 0) {
+        throw "Could not construct a reviewed migration chain from '$currentMigration' to '$latestMigration'."
+    }
+
+    Write-Host "Validated reviewed migration chain containing $($migrationChain.Count) script(s)."
+    foreach ($migrationStep in $migrationChain) {
+        $targetedScriptSource = $migrationStep.Path.Replace('\', '/')
+        Write-Host "Applying targeted migration script: $($migrationStep.Name)"
+        Invoke-KcasMySql -Arguments @($Database, '-e', "source $targetedScriptSource")
+        $stepApplied = Invoke-KcasMySql -Arguments @('--batch', '--skip-column-names', $Database, '-e', "SELECT COUNT(*) FROM __EFMigrationsHistory WHERE MigrationId = '$($migrationStep.To)';")
+        if ($stepApplied -ne '1') {
+            throw "Migration script '$($migrationStep.Name)' completed without recording '$($migrationStep.To)'. Stop and review the database before retrying."
+        }
+    }
+
     Write-Host "KCAS database schema updated to '$latestMigration'."
     return
 }
