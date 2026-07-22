@@ -119,7 +119,7 @@ jobs:
           Expand-Archive -LiteralPath $zip.FullName -DestinationPath $inspection
           @(
             'app/KCAS.Admin.exe',
-            'tools/legacy-import/KCAS.LegacyImport.exe',
+            'tools/legacy-import/KCAS.LegacyImport.dll',
             'tools/legacy-import/Stage-KCAS-LegacySnapshot.ps1',
             'tools/legacy-import/Run-KCAS-LegacyImport.ps1',
             'Import-KCAS-Legacy.ps1',

@@ -60,7 +60,10 @@ function Set-CurrentRelease {
 }
 
 function Stop-KcasTask {
-    param([string]$TaskName)
+    param(
+        [string]$TaskName,
+        [string]$HealthUrl
+    )
 
     $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
     if ($task.State -eq 'Running') {
@@ -75,6 +78,27 @@ function Stop-KcasTask {
             throw "Scheduled Task '$TaskName' did not stop within 30 seconds."
         }
     }
+
+    $healthUri = [System.Uri]$HealthUrl
+    $listenerDeadline = [DateTime]::UtcNow.AddSeconds(30)
+    do {
+        $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $healthUri.Port -ErrorAction SilentlyContinue)
+        if ($listeners.Count -eq 0) { return }
+
+        foreach ($processId in @($listeners | Select-Object -ExpandProperty OwningProcess -Unique)) {
+            $process = Get-CimInstance Win32_Process -Filter "ProcessId = $processId" -ErrorAction SilentlyContinue
+            if ($null -eq $process) { continue }
+            $commandLine = [string]$process.CommandLine
+            if ($process.Name -ne 'KCAS.Admin.exe' -and $commandLine -notmatch 'KCAS\.Admin(?:\.dll|\.exe)') {
+                throw "Port $($healthUri.Port) remains owned by unexpected process '$($process.Name)' (PID $processId) after stopping Scheduled Task '$TaskName'."
+            }
+            Write-Host "Stopping lingering KCAS process '$($process.Name)' (PID $processId)..."
+            Stop-Process -Id $processId -Force -ErrorAction Stop
+        }
+        Start-Sleep -Milliseconds 500
+    } while ([DateTime]::UtcNow -lt $listenerDeadline)
+
+    throw "KCAS continued listening on port $($healthUri.Port) after Scheduled Task '$TaskName' was stopped."
 }
 
 function Wait-KcasHealth {
@@ -248,6 +272,21 @@ try {
     if ($manifest.gitCommit -notmatch '^[0-9a-f]{40}$' -or $manifest.latestMigration -notmatch '^\d{14}_.+$') {
         throw 'Release manifest contains an invalid Git commit or migration identifier.'
     }
+    if ($manifest.selfContained -ne $false -or $manifest.targetFramework -notmatch '^net(?<major>\d+)\.\d+$') {
+        throw 'Release manifest must describe the supported framework-dependent KCAS package.'
+    }
+
+    $dotNetHostPath = Join-Path $installRootPath 'repo\.dotnet\dotnet.exe'
+    if (-not (Test-Path -LiteralPath $dotNetHostPath -PathType Leaf)) {
+        throw "The server .NET host required by this framework-dependent release was not found at '$dotNetHostPath'."
+    }
+    $requiredDotNetMajor = $matches.major
+    $installedRuntimes = & $dotNetHostPath --list-runtimes 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Could not inspect runtimes through '$dotNetHostPath'." }
+    if (-not ($installedRuntimes | Where-Object { $_ -match "^Microsoft\.NETCore\.App $requiredDotNetMajor\." }) -or
+        -not ($installedRuntimes | Where-Object { $_ -match "^Microsoft\.AspNetCore\.App $requiredDotNetMajor\." })) {
+        throw "The server .NET host does not contain both .NET and ASP.NET Core $requiredDotNetMajor runtimes required by '$($manifest.targetFramework)'."
+    }
 
     $releasePath = Join-Path $releasesPath $manifest.gitCommit
     if (Test-Path -LiteralPath $releasePath) {
@@ -255,7 +294,7 @@ try {
     }
 
     $entryPointInExtract = Join-Path $extractPath 'app\KCAS.Admin.exe'
-    $legacyImporterInExtract = Join-Path $extractPath 'tools\legacy-import\KCAS.LegacyImport.exe'
+    $legacyImporterInExtract = Join-Path $extractPath 'tools\legacy-import\KCAS.LegacyImport.dll'
     $legacySnapshotStagerInExtract = Join-Path $extractPath 'tools\legacy-import\Stage-KCAS-LegacySnapshot.ps1'
     $legacyImportRunnerInExtract = Join-Path $extractPath 'tools\legacy-import\Run-KCAS-LegacyImport.ps1'
     $databaseDeploymentInExtract = Join-Path $extractPath 'database\Apply-KCAS-Database.ps1'
@@ -313,7 +352,7 @@ try {
     Backup-KcasDatabase -BackupPath $backupPath
 
     Write-Host "Stopping Scheduled Task '$ScheduledTaskName'..."
-    Stop-KcasTask -TaskName $ScheduledTaskName
+    Stop-KcasTask -TaskName $ScheduledTaskName -HealthUrl $DirectHealthUrl
     $taskWasStopped = $true
 
     Write-Host "Applying reviewed database migrations through '$($manifest.latestMigration)'..."
@@ -364,7 +403,7 @@ catch {
 
     if ($releaseWasSwitched) {
         try {
-            Stop-KcasTask -TaskName $ScheduledTaskName
+            Stop-KcasTask -TaskName $ScheduledTaskName -HealthUrl $DirectHealthUrl
             if ($publishWasTransitioned) {
                 Remove-KcasJunction -Path $publishPath
                 if (-not [string]::IsNullOrWhiteSpace($legacyPublishBackupPath) -and (Test-Path -LiteralPath $legacyPublishBackupPath)) {

@@ -40,7 +40,7 @@ Rewrite the legacy Yii1 `kanaanclients` application into the modern Blazor proje
 ## Deployment Direction
 
 - Use Git/GitHub for source control and collaboration.
-- GitHub Actions runs `dotnet publish` and produces the immutable, self-contained `win-x64` release; the live server does not pull source or compile.
+- GitHub Actions runs `dotnet publish` and produces the immutable, framework-dependent `win-x64` release; the live server uses its existing repository-local .NET host and does not compile.
 - GitHub remote is `https://github.com/andries-kanaan/KCAS.git`.
 - Pull requests to `main` should pass the GitHub Actions PR checks before merge.
 - The PR check workflow builds the solution and runs the test suite against an isolated MySQL service database.

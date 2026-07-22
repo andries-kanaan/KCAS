@@ -92,7 +92,7 @@ try {
         $projectPath,
         '--configuration', 'Release',
         '--runtime', 'win-x64',
-        '--self-contained', 'true',
+        '--self-contained', 'false',
         '--output', $appOutput,
         '-p:UseAppHost=true'
     )
@@ -110,7 +110,7 @@ try {
         $importerProjectPath,
         '--configuration', 'Release',
         '--runtime', 'win-x64',
-        '--self-contained', 'true',
+        '--self-contained', 'false',
         '--output', $importerOutput,
         '-p:UseAppHost=true'
     )
@@ -143,7 +143,7 @@ try {
 
     foreach ($requiredOutput in @(
         (Join-Path $appOutput 'KCAS.Admin.exe'),
-        (Join-Path $importerOutput 'KCAS.LegacyImport.exe'),
+        (Join-Path $importerOutput 'KCAS.LegacyImport.dll'),
         (Join-Path $releaseRoot 'Import-KCAS-Legacy.ps1'),
         (Join-Path $releaseRoot 'Import-KCAS-Legacy.cmd'),
         (Join-Path $importerOutput 'Stage-KCAS-LegacySnapshot.ps1'),
@@ -160,9 +160,9 @@ try {
         builtAtUtc = [DateTime]::UtcNow.ToString('O')
         targetFramework = 'net10.0'
         runtime = 'win-x64'
-        selfContained = $true
+        selfContained = $false
         entryPoint = 'app/KCAS.Admin.exe'
-        legacyImporter = 'tools/legacy-import/KCAS.LegacyImport.exe'
+        legacyImporter = 'tools/legacy-import/KCAS.LegacyImport.dll'
         legacySnapshotStager = 'tools/legacy-import/Stage-KCAS-LegacySnapshot.ps1'
         legacyImportRunner = 'tools/legacy-import/Run-KCAS-LegacyImport.ps1'
         legacyImportOperator = 'Import-KCAS-Legacy.ps1'
