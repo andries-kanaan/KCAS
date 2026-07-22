@@ -771,7 +771,7 @@ else
 
     <section class="detail-panel">
         <h2>Seed source data</h2>
-        <p class="text-muted">Development seed/import payload, shown only for mapping checks before the future final import.</p>
+        <p class="text-muted">Historical legacy source payload retained for reconciliation and audit comparison.</p>
         <details>
             <summary>Show source payload</summary>
             <pre class="legacy-json">@client.LegacySnapshots.OrderByDescending(snapshot => snapshot.ImportedAtUtc).FirstOrDefault()?.PayloadJson</pre>

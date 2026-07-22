@@ -26,6 +26,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<KycMainClassReference> KycMainClassReferences => Set<KycMainClassReference>();
     public DbSet<KycSubClassReference> KycSubClassReferences => Set<KycSubClassReference>();
     public DbSet<MarketReferenceValue> MarketReferenceValues => Set<MarketReferenceValue>();
+    public DbSet<LegacyImportRun> LegacyImportRuns => Set<LegacyImportRun>();
+    public DbSet<LegacyImportRowState> LegacyImportRowStates => Set<LegacyImportRowState>();
+    public DbSet<LegacyImportDifference> LegacyImportDifferences => Set<LegacyImportDifference>();
+    public DbSet<LegacySourceSnapshot> LegacySourceSnapshots => Set<LegacySourceSnapshot>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -83,6 +87,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.Property(client => client.SurnameOrEntityName).HasMaxLength(200);
             entity.Property(client => client.DisplayName).HasMaxLength(220);
             entity.Property(client => client.CreatedAtUtc).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
+            entity.Property(client => client.LegacyReconciliationStatus)
+                .HasMaxLength(32)
+                .HasDefaultValue(LegacyReconciliationStatuses.Unscanned);
             entity.HasIndex(client => client.LegacyClientId).IsUnique();
             entity.HasIndex(client => client.KanaanId);
             entity.HasIndex(client => client.DisplayName);
@@ -351,6 +358,55 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.HasIndex(reference => reference.LegacyMiscInfoId).IsUnique();
             entity.HasIndex(reference => reference.Name);
             entity.HasIndex(reference => reference.PriceDate);
+        });
+
+        builder.Entity<LegacyImportRun>(entity =>
+        {
+            entity.Property(run => run.Mode).HasMaxLength(32);
+            entity.Property(run => run.Status).HasMaxLength(32);
+            entity.Property(run => run.SourceLabel).HasMaxLength(256);
+            entity.Property(run => run.SourceSnapshotSha256).HasMaxLength(64);
+            entity.Property(run => run.SourceSnapshotFileName).HasMaxLength(260);
+            entity.HasIndex(run => run.StartedAtUtc);
+            entity.HasIndex(run => run.Status);
+            entity.HasIndex(run => run.SourceSnapshotSha256);
+        });
+
+        builder.Entity<LegacyImportRowState>(entity =>
+        {
+            entity.HasOne(row => row.LegacyImportRun)
+                .WithMany(run => run.Rows)
+                .HasForeignKey(row => row.LegacyImportRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(row => row.SourceTable).HasMaxLength(64);
+            entity.Property(row => row.Classification).HasMaxLength(32);
+            entity.Property(row => row.ApplyStatus).HasMaxLength(32);
+            entity.Property(row => row.TargetEntityType).HasMaxLength(128);
+            entity.Property(row => row.IncomingFingerprint).HasMaxLength(64);
+            entity.Property(row => row.BaselineFingerprint).HasMaxLength(64);
+            entity.HasIndex(row => new { row.LegacyImportRunId, row.SourceTable, row.SourceId }).IsUnique();
+            entity.HasIndex(row => new { row.LegacyImportRunId, row.Classification });
+        });
+
+        builder.Entity<LegacyImportDifference>(entity =>
+        {
+            entity.HasOne(difference => difference.LegacyImportRowState)
+                .WithMany(row => row.Differences)
+                .HasForeignKey(difference => difference.LegacyImportRowStateId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(difference => difference.FieldName).HasMaxLength(191);
+            entity.Property(difference => difference.Decision).HasMaxLength(32);
+            entity.Property(difference => difference.ReviewedBy).HasMaxLength(191);
+            entity.HasIndex(difference => new { difference.LegacyImportRowStateId, difference.FieldName }).IsUnique();
+            entity.HasIndex(difference => difference.Decision);
+        });
+
+        builder.Entity<LegacySourceSnapshot>(entity =>
+        {
+            entity.Property(snapshot => snapshot.SourceTable).HasMaxLength(64);
+            entity.Property(snapshot => snapshot.Fingerprint).HasMaxLength(64);
+            entity.HasIndex(snapshot => new { snapshot.SourceTable, snapshot.SourceId }).IsUnique();
+            entity.HasIndex(snapshot => snapshot.LastSeenAtUtc);
         });
     }
 }

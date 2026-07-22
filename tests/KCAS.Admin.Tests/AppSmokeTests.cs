@@ -8,6 +8,8 @@ public sealed class AppSmokeTests(KcasWebApplicationFactory factory)
     [Theory]
     [InlineData("/")]
     [InlineData("/Account/Login")]
+    [InlineData("/health/live")]
+    [InlineData("/health/ready")]
     public async Task Public_pages_return_success(string url)
     {
         var client = factory.CreateClient();
@@ -23,6 +25,7 @@ public sealed class AppSmokeTests(KcasWebApplicationFactory factory)
     [InlineData("/clients/1/edit")]
     [InlineData("/clients/1/notes/new")]
     [InlineData("/security")]
+    [InlineData("/imports")]
     public async Task Protected_pages_redirect_anonymous_users_to_login(string url)
     {
         var client = factory.CreateClient(new() { AllowAutoRedirect = false });

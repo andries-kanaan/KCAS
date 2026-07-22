@@ -105,7 +105,7 @@ CREATE INDEX `EmailIndex` ON `AspNetUsers` (`NormalizedEmail`);
 CREATE UNIQUE INDEX `UserNameIndex` ON `AspNetUsers` (`NormalizedUserName`);
 
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
-VALUES ('20260529223052_InitialKcasSchema', '10.0.8');
+VALUES ('20260529223052_InitialKcasSchema', '10.0.10');
 
 ALTER TABLE `AspNetUsers` ADD `ApprovedAtUtc` datetime(6) NULL;
 
@@ -122,7 +122,7 @@ ALTER TABLE `AspNetUsers` ADD `WindowsAccountName` varchar(191) NULL;
 CREATE INDEX `IX_AspNetUsers_WindowsAccountName` ON `AspNetUsers` (`WindowsAccountName`);
 
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
-VALUES ('20260531080449_AddSecurityRbac', '10.0.8');
+VALUES ('20260531080449_AddSecurityRbac', '10.0.10');
 
 ALTER TABLE `Clients` DROP COLUMN `ClientCode`;
 
@@ -272,7 +272,7 @@ CREATE INDEX `IX_ClientPersonalProfiles_SouthAfricanIdNumber` ON `ClientPersonal
 CREATE INDEX `IX_ClientRelationships_ClientId_RelationshipType` ON `ClientRelationships` (`ClientId`, `RelationshipType`);
 
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
-VALUES ('20260531130752_AddNormalizedClientImport', '10.0.8');
+VALUES ('20260531130752_AddNormalizedClientImport', '10.0.10');
 
 ALTER TABLE `ClientRelationships` ADD `EmployerPensionContributionAmount` decimal(18,2) NULL;
 
@@ -311,7 +311,7 @@ ALTER TABLE `ClientFinancialProfiles` ADD `RetirementAnnuityTax` decimal(18,2) N
 ALTER TABLE `ClientFinancialProfiles` ADD `RetirementProvisionTax` decimal(18,2) NULL;
 
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
-VALUES ('20260531132831_SurfaceLegacyClientSections', '10.0.8');
+VALUES ('20260531132831_SurfaceLegacyClientSections', '10.0.10');
 
 CREATE TABLE `ClientNotes` (
     `Id` int NOT NULL AUTO_INCREMENT,
@@ -341,7 +341,7 @@ CREATE UNIQUE INDEX `IX_ClientNotes_LegacyClientNoteId` ON `ClientNotes` (`Legac
 CREATE INDEX `IX_ClientNotes_Title` ON `ClientNotes` (`Title`);
 
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
-VALUES ('20260531135015_AddClientNotes', '10.0.8');
+VALUES ('20260531135015_AddClientNotes', '10.0.10');
 
 CREATE TABLE `ClientKycPolicies` (
     `Id` int NOT NULL AUTO_INCREMENT,
@@ -401,12 +401,12 @@ CREATE INDEX `IX_ClientKycPolicies_LegacyMainClassId_LegacySubClassId` ON `Clien
 CREATE INDEX `IX_ClientKycPolicies_PolicyNumber` ON `ClientKycPolicies` (`PolicyNumber`);
 
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
-VALUES ('20260531145538_AddClientKycPolicies', '10.0.8');
+VALUES ('20260531145538_AddClientKycPolicies', '10.0.10');
 
 ALTER TABLE `ClientNotes` MODIFY `LegacyClientNoteId` int NULL;
 
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
-VALUES ('20260531172421_MakeClientNotesOperational', '10.0.8');
+VALUES ('20260531172421_MakeClientNotesOperational', '10.0.10');
 
 CREATE TABLE `ClientInvestmentAccounts` (
     `Id` int NOT NULL AUTO_INCREMENT,
@@ -488,7 +488,7 @@ CREATE UNIQUE INDEX `IX_ClientInvestmentTransactions_LegacyInvestmentHistoryId` 
 CREATE INDEX `IX_ClientInvestmentTransactions_TransactionDate` ON `ClientInvestmentTransactions` (`TransactionDate`);
 
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
-VALUES ('20260531194916_AddClientInvestments', '10.0.8');
+VALUES ('20260531194916_AddClientInvestments', '10.0.10');
 
 CREATE TABLE `ClientFundValuations` (
     `Id` int NOT NULL AUTO_INCREMENT,
@@ -532,12 +532,12 @@ CREATE UNIQUE INDEX `IX_ClientFundValuations_LegacyFundId` ON `ClientFundValuati
 CREATE INDEX `IX_ClientFundValuations_ValuationDate` ON `ClientFundValuations` (`ValuationDate`);
 
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
-VALUES ('20260531204111_AddClientFundValuations', '10.0.8');
+VALUES ('20260531204111_AddClientFundValuations', '10.0.10');
 
 ALTER TABLE `ClientKycPolicies` MODIFY `LegacyKycId` int NULL;
 
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
-VALUES ('20260601201901_MakeKycPoliciesOperational', '10.0.8');
+VALUES ('20260601201901_MakeKycPoliciesOperational', '10.0.10');
 
 DROP INDEX IX_ClientKycPolicies_LegacyKycId ON ClientKycPolicies;
 
@@ -579,7 +579,7 @@ CREATE INDEX `IX_ClientKycRecommendations_LegacyRecommendationId` ON `ClientKycR
 CREATE INDEX `IX_ClientKycRecommendations_Status` ON `ClientKycRecommendations` (`Status`);
 
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
-VALUES ('20260602211709_CompleteOutstandingWorkflows', '10.0.8');
+VALUES ('20260602211709_CompleteOutstandingWorkflows', '10.0.10');
 
 CREATE TABLE `InvestmentAdministratorReferences` (
     `Id` int NOT NULL AUTO_INCREMENT,
@@ -701,7 +701,104 @@ CREATE INDEX `IX_MarketReferenceValues_Name` ON `MarketReferenceValues` (`Name`)
 CREATE INDEX `IX_MarketReferenceValues_PriceDate` ON `MarketReferenceValues` (`PriceDate`);
 
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
-VALUES ('20260607203500_AddReferenceDataClosure', '10.0.8');
+VALUES ('20260607203500_AddReferenceDataClosure', '10.0.10');
+
+ALTER TABLE `Clients` ADD `LegacyReconciliationStatus` varchar(32) NOT NULL DEFAULT 'Unscanned';
+
+CREATE TABLE `LegacyImportRuns` (
+    `Id` bigint NOT NULL AUTO_INCREMENT,
+    `Mode` varchar(32) NOT NULL,
+    `Status` varchar(32) NOT NULL,
+    `SourceLabel` varchar(256) NOT NULL,
+    `StartedAtUtc` datetime(6) NOT NULL,
+    `CompletedAtUtc` datetime(6) NULL,
+    `NewCount` int NOT NULL,
+    `UnchangedCount` int NOT NULL,
+    `ChangedCount` int NOT NULL,
+    `MissingCount` int NOT NULL,
+    `InvalidCount` int NOT NULL,
+    `OrphanedCount` int NOT NULL,
+    `AppliedCount` int NOT NULL,
+    `FailedCount` int NOT NULL,
+    `ErrorSummary` longtext NULL,
+    PRIMARY KEY (`Id`)
+);
+
+CREATE TABLE `LegacySourceSnapshots` (
+    `Id` bigint NOT NULL AUTO_INCREMENT,
+    `SourceTable` varchar(64) NOT NULL,
+    `SourceId` bigint NOT NULL,
+    `Fingerprint` varchar(64) NOT NULL,
+    `PayloadJson` longtext NOT NULL,
+    `AcceptedAtUtc` datetime(6) NOT NULL,
+    `AcceptedFromRunId` bigint NULL,
+    `LastSeenAtUtc` datetime(6) NOT NULL,
+    PRIMARY KEY (`Id`)
+);
+
+CREATE TABLE `LegacyImportRowStates` (
+    `Id` bigint NOT NULL AUTO_INCREMENT,
+    `LegacyImportRunId` bigint NOT NULL,
+    `SourceTable` varchar(64) NOT NULL,
+    `SourceId` bigint NOT NULL,
+    `Classification` varchar(32) NOT NULL,
+    `ApplyStatus` varchar(32) NOT NULL,
+    `TargetEntityType` varchar(128) NULL,
+    `TargetEntityId` bigint NULL,
+    `IncomingFingerprint` varchar(64) NOT NULL,
+    `BaselineFingerprint` varchar(64) NULL,
+    `IncomingPayloadJson` longtext NOT NULL,
+    `BaselinePayloadJson` longtext NULL,
+    `SourceUpdatedAt` datetime(6) NULL,
+    `Error` longtext NULL,
+    PRIMARY KEY (`Id`),
+    CONSTRAINT `FK_LegacyImportRowStates_LegacyImportRuns_LegacyImportRunId` FOREIGN KEY (`LegacyImportRunId`) REFERENCES `LegacyImportRuns` (`Id`) ON DELETE CASCADE
+);
+
+CREATE TABLE `LegacyImportDifferences` (
+    `Id` bigint NOT NULL AUTO_INCREMENT,
+    `LegacyImportRowStateId` bigint NOT NULL,
+    `FieldName` varchar(191) NOT NULL,
+    `BaselineValue` longtext NULL,
+    `IncomingValue` longtext NULL,
+    `Decision` varchar(32) NOT NULL,
+    `ResolvedValue` longtext NULL,
+    `ReviewedBy` varchar(191) NULL,
+    `ReviewedAtUtc` datetime(6) NULL,
+    `ReviewReason` longtext NULL,
+    PRIMARY KEY (`Id`),
+    CONSTRAINT `FK_LegacyImportDifferences_LegacyImportRowStates_LegacyImportRo~` FOREIGN KEY (`LegacyImportRowStateId`) REFERENCES `LegacyImportRowStates` (`Id`) ON DELETE CASCADE
+);
+
+CREATE INDEX `IX_LegacyImportDifferences_Decision` ON `LegacyImportDifferences` (`Decision`);
+
+CREATE UNIQUE INDEX `IX_LegacyImportDifferences_LegacyImportRowStateId_FieldName` ON `LegacyImportDifferences` (`LegacyImportRowStateId`, `FieldName`);
+
+CREATE INDEX `IX_LegacyImportRowStates_LegacyImportRunId_Classification` ON `LegacyImportRowStates` (`LegacyImportRunId`, `Classification`);
+
+CREATE UNIQUE INDEX `IX_LegacyImportRowStates_LegacyImportRunId_SourceTable_SourceId` ON `LegacyImportRowStates` (`LegacyImportRunId`, `SourceTable`, `SourceId`);
+
+CREATE INDEX `IX_LegacyImportRuns_StartedAtUtc` ON `LegacyImportRuns` (`StartedAtUtc`);
+
+CREATE INDEX `IX_LegacyImportRuns_Status` ON `LegacyImportRuns` (`Status`);
+
+CREATE INDEX `IX_LegacySourceSnapshots_LastSeenAtUtc` ON `LegacySourceSnapshots` (`LastSeenAtUtc`);
+
+CREATE UNIQUE INDEX `IX_LegacySourceSnapshots_SourceTable_SourceId` ON `LegacySourceSnapshots` (`SourceTable`, `SourceId`);
+
+INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
+VALUES ('20260722094552_AddIncrementalLegacyReconciliation', '10.0.10');
+
+ALTER TABLE `LegacyImportRuns` ADD `ApprovedScanRunId` bigint NULL;
+
+ALTER TABLE `LegacyImportRuns` ADD `SourceSnapshotFileName` varchar(260) NULL;
+
+ALTER TABLE `LegacyImportRuns` ADD `SourceSnapshotSha256` varchar(64) NOT NULL DEFAULT '';
+
+CREATE INDEX `IX_LegacyImportRuns_SourceSnapshotSha256` ON `LegacyImportRuns` (`SourceSnapshotSha256`);
+
+INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
+VALUES ('20260722132929_AddLegacyImportSnapshotProvenance', '10.0.10');
 
 COMMIT;
 

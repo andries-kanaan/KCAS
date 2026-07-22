@@ -2,6 +2,8 @@
 
 Modern Blazor rewrite workspace for Kanaan Client Administration System.
 
+Production releases use the immutable native Windows process documented in [docs/WINDOWS_DEPLOYMENT.md](docs/WINDOWS_DEPLOYMENT.md). GitHub builds the self-contained `win-x64` package; the live server no longer pulls source or compiles the application.
+
 ## Current Setup
 
 - .NET SDK: local SDK under `.dotnet`
@@ -81,17 +83,30 @@ $env:ASPNETCORE_ENVIRONMENT='Development'
 .\.dotnet\dotnet.exe ef database update --project src\KCAS.Admin\KCAS.Admin.csproj --startup-project src\KCAS.Admin\KCAS.Admin.csproj
 ```
 
-## Legacy Client Import
+## Incremental Legacy Reconciliation
 
-The Yii1 client import is a console tool so imports can run deliberately outside the web UI. During development, imported rows are seed data for building and validating KCAS against realistic records. They are disposable and can be cleared before the future final import from the latest `kanaanclients` data.
+The Yii1 data already in KCAS is a historical baseline. The console tool is scan-first and non-destructive: it matches records by legacy primary ID, adds no duplicates, never updates or deletes an existing business row automatically, and records field-level source differences for review.
+
+For local development, set both connection strings and identify the exact source snapshot with its SHA-256:
 
 ```powershell
-$env:KCAS_LEGACY_CONNECTION = '<legacy MySQL connection string>'
+$env:KCAS_LEGACY_CONNECTION = '<staged legacy MySQL connection string>'
 $env:KCAS_TARGET_CONNECTION = '<KCAS MySQL connection string>'
-.\.dotnet\dotnet.exe tools\KCAS.LegacyImport\bin\Debug\net10.0\KCAS.LegacyImport.dll
+$snapshotHash = (Get-FileHash '.\kanaanclients.sql' -Algorithm SHA256).Hash
+.\.dotnet\dotnet.exe tools\KCAS.LegacyImport\bin\Debug\net10.0\KCAS.LegacyImport.dll --scan --source-snapshot-sha256 $snapshotHash --source-snapshot-file-name 'kanaanclients.sql'
 ```
 
-Add `--dry-run` to validate connection and mapping without writing clients.
+After reviewing the resulting run at `/imports`, apply only the exact new IDs approved by that scan:
+
+```powershell
+.\.dotnet\dotnet.exe tools\KCAS.LegacyImport\bin\Debug\net10.0\KCAS.LegacyImport.dll --apply-new --approved-scan-run <run-id> --source-snapshot-sha256 $snapshotHash --source-snapshot-file-name 'kanaanclients.sql'
+```
+
+`--scan` is the default; the former `--dry-run` flag remains an alias. Apply mode refuses a different source database, snapshot hash, changed source fingerprint, or incomplete scan. Changed and missing rows remain pending review. Neither mode overwrites existing KCAS values, clears child collections, or deletes rows missing from the source.
+
+Legacy `tbl_fund` valuations and `tbl_kyc` policies are scan-only because their legacy replacement workflows can create new primary IDs for replacement records. They are excluded from `--apply-new` until KCAS has reviewed stable identities and merge rules.
+
+The immutable Windows package includes scripts that restore a SQL export into a checksum-bound staging database, run scans, back up KCAS before apply, and retain audit logs. See `docs/WINDOWS_DEPLOYMENT.md`.
 
 ## EF Notes
 

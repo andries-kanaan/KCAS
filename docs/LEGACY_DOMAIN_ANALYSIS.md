@@ -71,7 +71,7 @@ Important behavior:
 
 Current KCAS coverage:
 
-- KYC/policy records are imported as seed data and summarized on client detail pages.
+- KYC/policy records were imported as the initial historical baseline and are summarized on client detail pages.
 - Full KYC create/edit/transfer workflow is not rebuilt yet.
 
 ### Investments, Accounts, And History
@@ -100,8 +100,8 @@ Important behavior:
 Current KCAS coverage:
 
 - Normalized investment account and investment transaction entities exist.
-- `tbl_investmentaccount` and `tbl_investmenthistory` are imported as seed data.
-- `tbl_fund` is imported as current fund valuation seed data.
+- `tbl_investmentaccount` and `tbl_investmenthistory` form the imported historical baseline.
+- `tbl_fund` forms the imported valuation baseline.
 - Client detail pages show read-only investment account summaries, current values matched from fund valuations where available, and recent transaction history.
 - Investment editing, fuller fund summaries, fee calculations, and report exports are not rebuilt yet.
 
@@ -143,7 +143,7 @@ Current KCAS coverage:
 
 Current imports from `kanaanclients` are test and seeding data only. They are used to validate mapping, screen behavior, and realistic workflow shape while the rewrite is being built.
 
-They are not the final production dataset. Once KCAS is ready for deployment and switch-over, the current seed data can be cleared and the latest full legacy data can be imported as the final migration.
+These rows remain the historical baseline. Later legacy data is reconciled incrementally: new IDs are added, identical rows are skipped, and changed or missing rows are reviewed without clearing the existing KCAS dataset.
 
 Tables intentionally not carried forward:
 

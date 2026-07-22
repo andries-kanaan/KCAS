@@ -4,13 +4,19 @@ param(
     [string]$HostName = $(if ($env:KCAS_MYSQL_HOST) { $env:KCAS_MYSQL_HOST } else { '127.0.0.1' }),
     [string]$User = $(if ($env:KCAS_MYSQL_USER) { $env:KCAS_MYSQL_USER } else { 'root' }),
     [string]$Password = $env:KCAS_MYSQL_PASSWORD,
-    [string]$Database = $(if ($env:KCAS_DATABASE) { $env:KCAS_DATABASE } else { 'kcas_blazor' })
+    [string]$Database = $(if ($env:KCAS_DATABASE) { $env:KCAS_DATABASE } else { 'kcas_blazor' }),
+    [string]$MigrationsPath,
+    [string]$ExpectedLatestMigration
 )
 
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$migrationsPath = Join-Path $root 'src\KCAS.Admin\Data\Migrations'
+if ([string]::IsNullOrWhiteSpace($MigrationsPath)) {
+    $MigrationsPath = Join-Path $root 'src\KCAS.Admin\Data\Migrations'
+}
+
+$migrationsPath = [System.IO.Path]::GetFullPath($MigrationsPath)
 $script = (Join-Path $migrationsPath 'kcas_blazor_schema.sql').Replace('\', '/')
 $migrationScriptsPath = Join-Path $migrationsPath 'Scripts'
 
@@ -72,6 +78,10 @@ if ([string]::IsNullOrWhiteSpace($latestMigration)) {
     throw "Could not determine the latest EF migration under '$migrationsPath'."
 }
 
+if (-not [string]::IsNullOrWhiteSpace($ExpectedLatestMigration) -and $latestMigration -ne $ExpectedLatestMigration) {
+    throw "Release manifest expects migration '$ExpectedLatestMigration', but the packaged migrations end at '$latestMigration'."
+}
+
 Write-Host "Applying KCAS database updates to '$Database' on ${HostName}:$Port..."
 Write-Host "Latest repository migration: $latestMigration"
 
@@ -83,7 +93,7 @@ if ($migrationCount -eq '1') {
     $applied = Invoke-KcasMySql -Arguments @('--batch', '--skip-column-names', $Database, '-e', "SELECT COUNT(*) FROM __EFMigrationsHistory WHERE MigrationId = '$latestMigration';")
     if ($applied -eq '1') {
         Write-Host "KCAS database schema is already applied at '$latestMigration'."
-        exit 0
+        return
     }
 
     $currentMigration = Invoke-KcasMySql -Arguments @('--batch', '--skip-column-names', $Database, '-e', 'SELECT MigrationId FROM __EFMigrationsHistory ORDER BY MigrationId DESC LIMIT 1;')
@@ -101,7 +111,7 @@ if ($migrationCount -eq '1') {
     Write-Host "Applying targeted migration script: $targetedScriptName"
     Invoke-KcasMySql -Arguments @($Database, '-e', "source $targetedScriptSource")
     Write-Host "KCAS database schema updated to '$latestMigration'."
-    exit 0
+    return
 }
 
 if ([int]$tableCount -gt 0) {

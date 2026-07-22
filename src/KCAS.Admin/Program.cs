@@ -120,6 +120,12 @@ app.MapGet("/kcas.css", () =>
 app.MapGet("/kcas-bootstrap.css", () =>
     Results.Text(File.ReadAllText(Path.Combine(webRoot, "lib", "bootstrap", "dist", "css", "bootstrap.min.css")), "text/css"));
 
+app.MapGet("/health/live", () => Results.Ok(new { status = "Healthy" }));
+app.MapGet("/health/ready", async (ApplicationDbContext db, CancellationToken cancellationToken) =>
+    await db.Database.CanConnectAsync(cancellationToken)
+        ? Results.Ok(new { status = "Healthy" })
+        : Results.Json(new { status = "Unhealthy" }, statusCode: StatusCodes.Status503ServiceUnavailable));
+
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
