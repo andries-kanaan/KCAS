@@ -8,6 +8,7 @@ param(
     [long]$ApprovedScanRunId,
     [string]$InstallRoot = 'D:\Deploy\KCAS',
     [string]$ImporterPath = (Join-Path $InstallRoot 'current\tools\legacy-import\KCAS.LegacyImport.exe'),
+    [string]$DotNetPath = 'dotnet',
     [string]$MySqlBasePath = $(if ($env:KCAS_MYSQL_BASE_PATH) { $env:KCAS_MYSQL_BASE_PATH } else { 'D:\wamp64\bin\mysql\mysql9.1.0' }),
     [string]$TargetHost = $(if ($env:KCAS_MYSQL_HOST) { $env:KCAS_MYSQL_HOST } else { '127.0.0.1' }),
     [int]$TargetPort = $(if ($env:KCAS_MYSQL_PORT) { [int]$env:KCAS_MYSQL_PORT } else { 3306 }),
@@ -56,8 +57,10 @@ if ($Mode -eq 'ApplyNew') {
     }
 }
 
-$sourceConnection = "server=$($snapshot.mysqlHost);port=$($snapshot.mysqlPort);database=$($snapshot.stagedDatabase);user=$SourceUser;password=$SourcePassword;TreatTinyAsBoolean=false"
-$targetConnection = "server=$TargetHost;port=$TargetPort;database=$TargetDatabase;user=$TargetUser;password=$TargetPassword;TreatTinyAsBoolean=true"
+$sourceSsl = if ($snapshot.mysqlHost -in @('localhost','127.0.0.1','::1')) { ';SslMode=Disabled;AllowPublicKeyRetrieval=True' } else { '' }
+$targetSsl = if ($TargetHost -in @('localhost','127.0.0.1','::1')) { ';SslMode=Disabled;AllowPublicKeyRetrieval=True' } else { '' }
+$sourceConnection = "server=$($snapshot.mysqlHost);port=$($snapshot.mysqlPort);database=$($snapshot.stagedDatabase);user=$SourceUser;password=$SourcePassword;TreatTinyAsBoolean=false$sourceSsl"
+$targetConnection = "server=$TargetHost;port=$TargetPort;database=$TargetDatabase;user=$TargetUser;password=$TargetPassword;TreatTinyAsBoolean=true$targetSsl"
 $arguments = [System.Collections.Generic.List[string]]::new()
 $arguments.Add($(if ($Mode -eq 'Scan') { '--scan' } else { '--apply-new' }))
 $arguments.Add('--source-snapshot-sha256'); $arguments.Add([string]$snapshot.sha256)
@@ -67,13 +70,16 @@ if ($Mode -eq 'ApplyNew') { $arguments.Add('--approved-scan-run'); $arguments.Ad
 $stdoutPath = Join-Path $logDirectory "$timestamp-$($Mode.ToLowerInvariant()).out.log"
 $stderrPath = Join-Path $logDirectory "$timestamp-$($Mode.ToLowerInvariant()).err.log"
 $processInfo = [System.Diagnostics.ProcessStartInfo]::new()
-$processInfo.FileName = [System.IO.Path]::GetFullPath($ImporterPath)
-$processInfo.WorkingDirectory = [System.IO.Path]::GetDirectoryName($processInfo.FileName)
+$resolvedImporterPath = [System.IO.Path]::GetFullPath($ImporterPath)
+$isManagedDll = [System.IO.Path]::GetExtension($resolvedImporterPath) -eq '.dll'
+$processInfo.FileName = if ($isManagedDll) { $DotNetPath } else { $resolvedImporterPath }
+$processInfo.WorkingDirectory = [System.IO.Path]::GetDirectoryName($resolvedImporterPath)
 $processInfo.UseShellExecute = $false
 $processInfo.RedirectStandardOutput = $true
 $processInfo.RedirectStandardError = $true
 $processInfo.Environment['KCAS_LEGACY_CONNECTION'] = $sourceConnection
 $processInfo.Environment['KCAS_TARGET_CONNECTION'] = $targetConnection
+if ($isManagedDll) { $processInfo.ArgumentList.Add($resolvedImporterPath) }
 foreach ($argument in $arguments) { $processInfo.ArgumentList.Add($argument) }
 $process = [System.Diagnostics.Process]::Start($processInfo)
 $stdout = $process.StandardOutput.ReadToEnd()

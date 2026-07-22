@@ -87,6 +87,20 @@ $env:ASPNETCORE_ENVIRONMENT='Development'
 
 The Yii1 data already in KCAS is a historical baseline. The console tool is scan-first and non-destructive: it matches records by legacy primary ID, adds no duplicates, never updates or deletes an existing business row automatically, and records field-level source differences for review.
 
+For the recurring operator workflow, download a fresh `kanaanclients.sql` export and run one command:
+
+```powershell
+.\deploy\windows\Import-KCAS-Legacy.cmd "C:\path\to\kanaanclients.sql"
+```
+
+The command reads the same protected database connection configuration as KCAS; it does not ask for or display the password. Review the displayed scan at `/imports`, then apply only its safe new records with:
+
+```powershell
+.\deploy\windows\Import-KCAS-Legacy.cmd -ApplyNew <reviewed-scan-run-id>
+```
+
+The lower-level commands below are intended for development and troubleshooting.
+
 For local development, set both connection strings and identify the exact source snapshot with its SHA-256:
 
 ```powershell

@@ -18,8 +18,10 @@ $migrationsPath = Join-Path $repositoryRootPath 'src\KCAS.Admin\Data\Migrations'
 $databaseScriptPath = Join-Path $repositoryRootPath 'Apply-KCAS-Database.ps1'
 $snapshotScriptPath = Join-Path $repositoryRootPath 'deploy\windows\Stage-KCAS-LegacySnapshot.ps1'
 $importScriptPath = Join-Path $repositoryRootPath 'deploy\windows\Run-KCAS-LegacyImport.ps1'
+$operatorImportScriptPath = Join-Path $repositoryRootPath 'deploy\windows\Import-KCAS-Legacy.ps1'
+$operatorImportLauncherPath = Join-Path $repositoryRootPath 'deploy\windows\Import-KCAS-Legacy.cmd'
 
-foreach ($requiredPath in @($projectPath, $importerProjectPath, $migrationsPath, $databaseScriptPath, $snapshotScriptPath, $importScriptPath)) {
+foreach ($requiredPath in @($projectPath, $importerProjectPath, $migrationsPath, $databaseScriptPath, $snapshotScriptPath, $importScriptPath, $operatorImportScriptPath, $operatorImportLauncherPath)) {
     if (-not (Test-Path -LiteralPath $requiredPath)) {
         throw "Required release input not found: $requiredPath"
     }
@@ -136,10 +138,14 @@ try {
     Copy-Item -LiteralPath $migrationsPath -Destination (Join-Path $databaseOutput 'Migrations') -Recurse
     Copy-Item -LiteralPath $snapshotScriptPath -Destination (Join-Path $importerOutput 'Stage-KCAS-LegacySnapshot.ps1')
     Copy-Item -LiteralPath $importScriptPath -Destination (Join-Path $importerOutput 'Run-KCAS-LegacyImport.ps1')
+    Copy-Item -LiteralPath $operatorImportScriptPath -Destination (Join-Path $releaseRoot 'Import-KCAS-Legacy.ps1')
+    Copy-Item -LiteralPath $operatorImportLauncherPath -Destination (Join-Path $releaseRoot 'Import-KCAS-Legacy.cmd')
 
     foreach ($requiredOutput in @(
         (Join-Path $appOutput 'KCAS.Admin.exe'),
         (Join-Path $importerOutput 'KCAS.LegacyImport.exe'),
+        (Join-Path $releaseRoot 'Import-KCAS-Legacy.ps1'),
+        (Join-Path $releaseRoot 'Import-KCAS-Legacy.cmd'),
         (Join-Path $importerOutput 'Stage-KCAS-LegacySnapshot.ps1'),
         (Join-Path $importerOutput 'Run-KCAS-LegacyImport.ps1')
     )) {
@@ -159,6 +165,8 @@ try {
         legacyImporter = 'tools/legacy-import/KCAS.LegacyImport.exe'
         legacySnapshotStager = 'tools/legacy-import/Stage-KCAS-LegacySnapshot.ps1'
         legacyImportRunner = 'tools/legacy-import/Run-KCAS-LegacyImport.ps1'
+        legacyImportOperator = 'Import-KCAS-Legacy.ps1'
+        legacyImportLauncher = 'Import-KCAS-Legacy.cmd'
         latestMigration = $latestMigration
     }
     $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $releaseRoot 'deployment-manifest.json') -Encoding utf8NoBOM

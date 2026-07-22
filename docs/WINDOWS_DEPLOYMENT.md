@@ -205,41 +205,30 @@ After the script succeeds, manually confirm:
 
 Application deployment preserves the existing live `kcas_blazor` data. A current `kanaanclients.sql` export is a separate confidential data artifact and must never be committed or included in a release ZIP.
 
-Transfer the fresh export to a secured server location and stage it with the release-built script:
+Transfer the fresh export to a secured server location. The operator command stages the immutable snapshot and runs the comparison in one operation:
 
 ```powershell
-$env:KCAS_LEGACY_STAGE_USER = 'approved_staging_user'
-$env:KCAS_LEGACY_STAGE_PASSWORD = '<enter securely>'
-
-& 'D:\Deploy\KCAS\current\tools\legacy-import\Stage-KCAS-LegacySnapshot.ps1' `
-    -SqlExportPath 'D:\SecureTransfer\kanaanclients.sql' `
-    -SharedRoot 'D:\Deploy\KCAS\shared'
+& 'D:\Deploy\KCAS\current\Import-KCAS-Legacy.cmd' 'D:\SecureTransfer\kanaanclients.sql'
 ```
 
-The script calculates SHA-256, restores the export into `kcas_legacy_stage_<hash-prefix>`, validates required tables, and returns a snapshot manifest path. It reuses only a staging database that has the matching manifest and does not delete staging data automatically.
+If no path is supplied, the command opens a file picker. It reads the same protected `ConnectionStrings:DefaultConnection` setting as KCAS and never displays or copies the password into its state file. The configured database account must have access to `kcas_blazor` and permission to create checksum-named `kcas_legacy_stage_*` databases. Non-secret settings and the latest snapshot are remembered under `shared\legacy-import-operator`.
 
-Run a scan against live KCAS:
+The command calculates SHA-256, restores the export into `kcas_legacy_stage_<hash-prefix>`, validates the required tables, scans it against KCAS, opens `/imports`, and displays the scan run number. It reuses only a staging database that has the matching manifest and does not delete staging data automatically.
+
+If production uses an external URL, it can be saved with the first scan:
 
 ```powershell
-$env:KCAS_MYSQL_USER = 'approved_kcas_user'
-$env:KCAS_MYSQL_PASSWORD = '<enter securely>'
-$env:KCAS_DATABASE = 'kcas_blazor'
-
-& 'D:\Deploy\KCAS\current\tools\legacy-import\Run-KCAS-LegacyImport.ps1' `
-    -SnapshotManifestPath '<returned snapshot.json path>' `
-    -Mode Scan
+& 'D:\Deploy\KCAS\current\Import-KCAS-Legacy.cmd' 'D:\SecureTransfer\kanaanclients.sql' `
+    -ReviewUrl 'https://kcas.example/imports'
 ```
 
 Review the run at `/imports`. Changed, missing, invalid, and orphaned records are review-only. `tbl_fund` and `tbl_kyc` are also review-only because legacy replacement workflows can recreate their primary IDs. To add only the remaining exact new table/legacy-ID/fingerprint combinations from that scan:
 
 ```powershell
-& 'D:\Deploy\KCAS\current\tools\legacy-import\Run-KCAS-LegacyImport.ps1' `
-    -SnapshotManifestPath '<same snapshot.json path>' `
-    -Mode ApplyNew `
-    -ApprovedScanRunId <reviewed-run-id>
+& 'D:\Deploy\KCAS\current\Import-KCAS-Legacy.cmd' -ApplyNew <reviewed-run-id>
 ```
 
-Apply mode creates another database backup under `shared\database-backups`, rejects mismatched provenance, and writes output plus `imports.jsonl` under `shared\legacy-import-logs`. Remove process-level passwords afterward. The staging database is retained until an explicit, separately reviewed cleanup.
+Apply mode uses the remembered immutable snapshot, creates another database backup under `shared\database-backups`, rejects mismatched provenance, applies only the scan's safe new records, and automatically performs a verification scan. Output plus `imports.jsonl` is written under `shared\legacy-import-logs`. The staging database is retained until an explicit, separately reviewed cleanup.
 
 ## Subsequent deployments
 

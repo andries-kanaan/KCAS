@@ -120,6 +120,8 @@ jobs:
             'tools/legacy-import/KCAS.LegacyImport.exe',
             'tools/legacy-import/Stage-KCAS-LegacySnapshot.ps1',
             'tools/legacy-import/Run-KCAS-LegacyImport.ps1',
+            'Import-KCAS-Legacy.ps1',
+            'Import-KCAS-Legacy.cmd',
             'database/Apply-KCAS-Database.ps1',
             'deployment-manifest.json'
           ) | ForEach-Object {
