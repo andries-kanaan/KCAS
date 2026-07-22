@@ -48,3 +48,28 @@ jobs:
 
       - name: Test
         run: dotnet test KCAS.slnx --configuration Release --no-build --verbosity normal
+
+      - name: Validate Windows deployment scripts
+        shell: pwsh
+        run: |
+          $scripts = Get-ChildItem deploy/windows -Filter '*.ps1'
+          $failed = $false
+          foreach ($script in $scripts) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($script.FullName, [ref]$null, [ref]$errors) | Out-Null
+            foreach ($parseError in $errors) {
+              Write-Error "$($script.Name): $($parseError.Message)" -ErrorAction Continue
+              $failed = $true
+            }
+          }
+          if ($failed) { throw 'One or more Windows deployment scripts have syntax errors.' }
+          @(
+            'deploy/windows/Deploy-KCAS.bat',
+            'deploy/windows/Deploy-KCAS.ps1',
+            'deploy/windows/Deploy-KCAS-Release.ps1',
+            'deploy/windows/Install-KCAS-Deployment.bat',
+            'deploy/windows/Install-KCAS-Deployment.ps1',
+            'deploy/windows/Rollback-KCAS-Release.ps1'
+          ) | ForEach-Object {
+            if (-not (Test-Path -LiteralPath $_ -PathType Leaf)) { throw "Required deployment tool is missing: $_" }
+          }

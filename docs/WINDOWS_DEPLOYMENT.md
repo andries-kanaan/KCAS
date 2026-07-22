@@ -54,6 +54,33 @@ The manifest pins the application version, full Git commit, runtime and latest E
 
 Perform these steps in a controlled window before the first immutable deployment.
 
+For an existing server that still uses the legacy `Deploy-KCAS.bat`, use the automated handover below. The detailed preparation sections remain the reference for what the installer preserves and configures.
+
+### Automated handover from the legacy batch file
+
+Perform this once, after the final legacy deployment has pulled the installer into `D:\Deploy\KCAS\repo`:
+
+1. Install PowerShell 7 and GitHub CLI on the server if necessary.
+2. Authenticate GitHub CLI under the Windows account that performs deployments:
+
+```powershell
+gh auth login --hostname github.com --git-protocol https --web
+```
+
+3. Double-click:
+
+```text
+D:\Deploy\KCAS\repo\deploy\windows\Install-KCAS-Deployment.bat
+```
+
+The installer backs up the legacy batch and PowerShell files, preserves production configuration and Data Protection keys, installs the one-click launcher and records only non-secret settings. It does not stop or change the running application.
+
+After installation, both the first immutable transition and every later deployment start by double-clicking:
+
+```text
+D:\Deploy\KCAS\Deploy-KCAS.bat
+```
+
 ### 1. Preserve production configuration
 
 Create:
@@ -123,6 +150,8 @@ Working directory: D:\Deploy\KCAS\current\app
 ```
 
 ## Creating a release
+
+Every merge to `main` starts the `Windows release package` workflow automatically. Normally the operator does not need to open GitHub Actions or download an artifact: `Deploy-KCAS.bat` waits for the exact commit's successful package and downloads it. The manual and tagged options below remain available for exceptional or explicitly versioned releases.
 
 ### Manual reviewed release
 
@@ -231,6 +260,16 @@ Review the run at `/imports`. Changed, missing, invalid, and orphaned records ar
 Apply mode uses the remembered immutable snapshot, creates another database backup under `shared\database-backups`, rejects mismatched provenance, applies only the scan's safe new records, and automatically performs a verification scan. Output plus `imports.jsonl` is written under `shared\legacy-import-logs`. The staging database is retained until an explicit, separately reviewed cleanup.
 
 ## Subsequent deployments
+
+The normal operator procedure is one step:
+
+```text
+Double-click D:\Deploy\KCAS\Deploy-KCAS.bat
+```
+
+The launcher elevates, fast-forwards the clean server repository to reviewed `main`, finds or starts the Windows packaging workflow for that exact commit, waits for successful GitHub tests, downloads the matching artifact, verifies its checksum, backs up MySQL, applies migrations, switches the immutable release, starts KCAS and performs health checks. If that commit is already active, it exits without changing anything.
+
+The lower-level guidance below is retained for recovery and troubleshooting; it is not the normal deployment procedure.
 
 Do not pass `-UpdateScheduledTaskAction` again unless the task action has intentionally changed.
 
