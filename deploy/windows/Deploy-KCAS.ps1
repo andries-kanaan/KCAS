@@ -154,8 +154,16 @@ $deploymentArguments = @{
 }
 if (-not [string]::IsNullOrWhiteSpace($proxyHealthUrl)) { $deploymentArguments.ProxyHealthUrl = $proxyHealthUrl }
 if (-not (Test-Path -LiteralPath (Join-Path $installRootPath 'current'))) {
-    $deploymentArguments.UpdateScheduledTaskAction = $true
-    Write-Host 'First immutable deployment detected; the existing KCAS Scheduled Task action will be transitioned automatically.'
+    Write-Host 'First immutable deployment detected; the existing publish path will be transitioned without changing the Scheduled Task.'
+}
+
+$inactiveReleasePath = Join-Path $installRootPath "releases\$commit"
+if (Test-Path -LiteralPath $inactiveReleasePath -PathType Container) {
+    $failedReleaseDirectory = Join-Path $installRootPath 'shared\failed-releases'
+    New-Item -ItemType Directory -Path $failedReleaseDirectory -Force | Out-Null
+    $failedReleasePath = Join-Path $failedReleaseDirectory ("{0}-{1}" -f $commit, [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss'))
+    Move-Item -LiteralPath $inactiveReleasePath -Destination $failedReleasePath
+    Write-Host "Preserved the inactive release from an earlier failed attempt at '$failedReleasePath'."
 }
 
 Write-Host "Deploying tested commit $commit..."

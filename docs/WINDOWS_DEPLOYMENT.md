@@ -25,7 +25,7 @@ Converting the Scheduled Task to a Windows Service is a later infrastructure cha
 4. GitHub publishes a self-contained `win-x64` ZIP and its SHA-256 checksum.
 5. The server deploys that exact package into `D:\Deploy\KCAS\releases\<full-commit-sha>`.
 6. `D:\Deploy\KCAS\current` is a directory junction pointing to the active release.
-7. The Scheduled Task always starts `D:\Deploy\KCAS\current\app\KCAS.Admin.exe`.
+7. `D:\Deploy\KCAS\publish` remains the stable compatibility path used by the existing Scheduled Task and points to `D:\Deploy\KCAS\current\app`.
 
 Every successful `main` build is attached to a public, commit-specific deployment release. Tagged builds are attached to their versioned GitHub Release. Manually dispatched builds are retained as GitHub Actions artifacts for 30 days.
 
@@ -135,13 +135,7 @@ The first deployment deliberately preserves the task's existing principal, trigg
 - the existing Windows Login works before deployment;
 - Apache currently proxies to `http://127.0.0.1:5143`.
 
-The first deployment uses `-UpdateScheduledTaskAction` to replace only the task action with:
-
-```text
-Executable: D:\Deploy\KCAS\current\app\KCAS.Admin.exe
-Arguments:  --urls http://127.0.0.1:5143
-Working directory: D:\Deploy\KCAS\current\app
-```
+The existing Scheduled Task registration is never changed. On the first immutable deployment, the previous `D:\Deploy\KCAS\publish` directory is preserved under `shared\legacy-deployment-backup`, and `publish` becomes a junction to `current\app`. This keeps both the executable and DLL locations expected by the old task compatible, so no Windows account password is required.
 
 ## Creating a release
 
@@ -187,7 +181,6 @@ Set-Location D:\Deploy\KCAS
 
 .\Deploy-KCAS-Release.ps1 `
     -PackagePath 'D:\Deploy\KCAS\inbox\KCAS-<version>-win-x64.zip' `
-    -UpdateScheduledTaskAction `
     -MySqlBasePath 'D:\wamp64\bin\mysql\mysql9.1.0' `
     -ProxyHealthUrl 'https://<production-kcas-host>/health/ready'
 ```
@@ -265,7 +258,7 @@ The launcher elevates, fast-forwards the clean server repository to reviewed `ma
 
 The lower-level guidance below is retained for recovery and troubleshooting; it is not the normal deployment procedure.
 
-Do not pass `-UpdateScheduledTaskAction` again unless the task action has intentionally changed.
+The Scheduled Task continues using its original action through the stable `D:\Deploy\KCAS\publish` path.
 
 ```powershell
 .\Deploy-KCAS-Release.ps1 `
