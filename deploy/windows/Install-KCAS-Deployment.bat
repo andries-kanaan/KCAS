@@ -1,6 +1,12 @@
 @echo off
 setlocal
 
+net session >nul 2>&1
+if errorlevel 1 (
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+    exit /b
+)
+
 where pwsh.exe >nul 2>&1
 if errorlevel 1 (
     echo PowerShell 7 ^(pwsh.exe^) is required but was not found on PATH.
@@ -9,8 +15,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-set "KCAS_INSTALL_SCRIPT=%~dp0Install-KCAS-Deployment.ps1"
-pwsh.exe -NoLogo -NoProfile -Command "$process = Start-Process -FilePath 'pwsh.exe' -Verb RunAs -Wait -PassThru -ArgumentList @('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',$env:KCAS_INSTALL_SCRIPT); exit $process.ExitCode"
+pwsh.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0Install-KCAS-Deployment.ps1"
 set "KCAS_EXIT_CODE=%ERRORLEVEL%"
 
 echo.

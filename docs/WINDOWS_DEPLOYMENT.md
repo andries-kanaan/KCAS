@@ -27,7 +27,7 @@ Converting the Scheduled Task to a Windows Service is a later infrastructure cha
 6. `D:\Deploy\KCAS\current` is a directory junction pointing to the active release.
 7. The Scheduled Task always starts `D:\Deploy\KCAS\current\app\KCAS.Admin.exe`.
 
-Tagged builds are attached to a GitHub Release. Manually dispatched builds are retained as GitHub Actions artifacts for 30 days.
+Every successful `main` build is attached to a public, commit-specific deployment release. Tagged builds are attached to their versioned GitHub Release. Manually dispatched builds are retained as GitHub Actions artifacts for 30 days.
 
 ## Package contents
 
@@ -60,14 +60,8 @@ For an existing server that still uses the legacy `Deploy-KCAS.bat`, use the aut
 
 Perform this once, after the final legacy deployment has pulled the installer into `D:\Deploy\KCAS\repo`:
 
-1. Install PowerShell 7 and GitHub CLI on the server if necessary.
-2. Authenticate GitHub CLI under the Windows account that performs deployments:
-
-```powershell
-gh auth login --hostname github.com --git-protocol https --web
-```
-
-3. Double-click:
+1. Install PowerShell 7 on the server if necessary.
+2. Double-click:
 
 ```text
 D:\Deploy\KCAS\repo\deploy\windows\Install-KCAS-Deployment.bat
@@ -151,7 +145,7 @@ Working directory: D:\Deploy\KCAS\current\app
 
 ## Creating a release
 
-Every merge to `main` starts the `Windows release package` workflow automatically. Normally the operator does not need to open GitHub Actions or download an artifact: `Deploy-KCAS.bat` waits for the exact commit's successful package and downloads it. The manual and tagged options below remain available for exceptional or explicitly versioned releases.
+Every merge to `main` starts the `Windows release package` workflow automatically and publishes an immutable `deploy-<full-commit>` release after all checks pass. Normally the operator does not need to open GitHub Actions, sign in separately or download anything: `Deploy-KCAS.bat` waits for the exact public commit release and downloads it over HTTPS. The manual and tagged options below remain available for exceptional or explicitly versioned releases.
 
 ### Manual reviewed release
 
@@ -267,7 +261,7 @@ The normal operator procedure is one step:
 Double-click D:\Deploy\KCAS\Deploy-KCAS.bat
 ```
 
-The launcher elevates, fast-forwards the clean server repository to reviewed `main`, finds or starts the Windows packaging workflow for that exact commit, waits for successful GitHub tests, downloads the matching artifact, verifies its checksum, backs up MySQL, applies migrations, switches the immutable release, starts KCAS and performs health checks. If that commit is already active, it exits without changing anything.
+The launcher elevates, fast-forwards the clean server repository to reviewed `main`, waits for the public commit-specific package produced by successful GitHub tests, downloads it without a separate GitHub login, verifies its checksum, backs up MySQL, applies migrations, switches the immutable release, starts KCAS and performs health checks. If that commit is already active, it exits without changing anything.
 
 The lower-level guidance below is retained for recovery and troubleshooting; it is not the normal deployment procedure.
 

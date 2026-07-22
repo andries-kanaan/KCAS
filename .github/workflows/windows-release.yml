@@ -154,5 +154,25 @@ jobs:
             --generate-notes `
             --title "KCAS $env:GITHUB_REF_NAME"
 
+      - name: Publish immutable main deployment release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "deploy-$env:GITHUB_SHA"
+          if (gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null) {
+            Write-Host "Deployment release '$tag' already exists; preserving its immutable assets."
+            exit 0
+          }
+          $assets = Get-ChildItem artifacts/windows-release -File |
+            Where-Object { $_.Name -like '*.zip' -or $_.Name -like '*.sha256' } |
+            ForEach-Object { $_.FullName }
+          gh release create $tag @assets `
+            --repo $env:GITHUB_REPOSITORY `
+            --target $env:GITHUB_SHA `
+            --title "KCAS deployment $($env:GITHUB_SHA.Substring(0, 12))" `
+            --notes "Immutable Windows deployment package for main commit $env:GITHUB_SHA."
+
     permissions:
       contents: write
