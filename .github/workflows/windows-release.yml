@@ -1,0 +1,154 @@
+name: Windows release package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_label:
+        description: Optional release label (defaults to manual run number and commit)
+        required: false
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:9.1
+        env:
+          MYSQL_ROOT_PASSWORD: kcas_test_root
+          MYSQL_DATABASE: kcas_blazor_test
+          MYSQL_USER: kcas_blazor
+          MYSQL_PASSWORD: kcas_test_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pkcas_test_root"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      KCAS_TEST_CONNECTION_STRING: server=127.0.0.1;port=3306;database=kcas_blazor_test;user=root;password=kcas_test_root;TreatTinyAsBoolean=true
+      ConnectionStrings__DefaultConnection: server=127.0.0.1;port=3306;database=kcas_blazor_test;user=root;password=kcas_test_root;TreatTinyAsBoolean=true
+
+    steps:
+      - name: Checkout exact release commit
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore application and tools
+        run: |
+          dotnet restore KCAS.slnx
+          dotnet tool restore
+
+      - name: Build release
+        run: dotnet build KCAS.slnx --configuration Release --no-restore
+
+      - name: Test release
+        run: dotnet test KCAS.slnx --configuration Release --no-build --verbosity normal
+
+      - name: Check that the EF model has a migration
+        run: >-
+          dotnet tool run dotnet-ef migrations has-pending-model-changes
+          --project src/KCAS.Admin/KCAS.Admin.csproj
+          --startup-project src/KCAS.Admin/KCAS.Admin.csproj
+          --configuration Release
+          --no-build
+
+      - name: Audit direct and transitive packages
+        run: dotnet list KCAS.slnx package --vulnerable --include-transitive
+
+  package:
+    needs: verify
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout exact release commit
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore KCAS.slnx --runtime win-x64
+
+      - name: Create immutable Windows package
+        id: package
+        shell: pwsh
+        env:
+          REQUESTED_VERSION: ${{ inputs.version_label }}
+        run: |
+          $shortSha = $env:GITHUB_SHA.Substring(0, 12)
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $version = $env:GITHUB_REF_NAME
+          }
+          elseif (-not [string]::IsNullOrWhiteSpace($env:REQUESTED_VERSION)) {
+            $version = $env:REQUESTED_VERSION
+          }
+          else {
+            $version = "manual-$env:GITHUB_RUN_NUMBER-$shortSha"
+          }
+
+          ./deploy/windows/New-KCAS-ReleasePackage.ps1 `
+            -DotNetPath dotnet `
+            -OutputDirectory artifacts/windows-release `
+            -GitCommit $env:GITHUB_SHA `
+            -VersionLabel $version `
+            -NoRestore
+
+      - name: Verify release contains administration tools
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem artifacts/windows-release -Filter '*.zip' | Select-Object -First 1
+          $inspection = Join-Path $env:RUNNER_TEMP 'kcas-package-inspection'
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath $inspection
+          @(
+            'app/KCAS.Admin.exe',
+            'tools/legacy-import/KCAS.LegacyImport.exe',
+            'tools/legacy-import/Stage-KCAS-LegacySnapshot.ps1',
+            'tools/legacy-import/Run-KCAS-LegacyImport.ps1',
+            'database/Apply-KCAS-Database.ps1',
+            'deployment-manifest.json'
+          ) | ForEach-Object {
+            if (-not (Test-Path (Join-Path $inspection $_))) { throw "Package is missing $_" }
+          }
+
+      - name: Upload immutable release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kcas-windows-${{ github.sha }}
+          path: |
+            artifacts/windows-release/*.zip
+            artifacts/windows-release/*.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish tagged GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assets = Get-ChildItem artifacts/windows-release -File |
+            Where-Object { $_.Name -like '*.zip' -or $_.Name -like '*.sha256' } |
+            ForEach-Object { $_.FullName }
+          gh release create $env:GITHUB_REF_NAME @assets `
+            --verify-tag `
+            --generate-notes `
+            --title "KCAS $env:GITHUB_REF_NAME"
+
+    permissions:
+      contents: write

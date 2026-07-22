@@ -3,6 +3,7 @@ using System;
 using KCAS.Admin.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,13 +11,15 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace KCAS.Admin.Data.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260722094552_AddIncrementalLegacyReconciliation")]
+    partial class AddIncrementalLegacyReconciliation
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.10")
+                .HasAnnotation("ProductVersion", "10.0.8")
                 .HasAnnotation("Relational:MaxIdentifierLength", 64);
 
             modelBuilder.Entity("KCAS.Admin.Data.ApplicationUser", b =>
@@ -1548,9 +1551,6 @@ namespace KCAS.Admin.Data.Migrations
                     b.Property<int>("AppliedCount")
                         .HasColumnType("int");
 
-                    b.Property<long?>("ApprovedScanRunId")
-                        .HasColumnType("bigint");
-
                     b.Property<int>("ChangedCount")
                         .HasColumnType("int");
 
@@ -1585,15 +1585,6 @@ namespace KCAS.Admin.Data.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("varchar(256)");
 
-                    b.Property<string>("SourceSnapshotFileName")
-                        .HasMaxLength(260)
-                        .HasColumnType("varchar(260)");
-
-                    b.Property<string>("SourceSnapshotSha256")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)");
-
                     b.Property<DateTime>("StartedAtUtc")
                         .HasColumnType("datetime(6)");
 
@@ -1606,8 +1597,6 @@ namespace KCAS.Admin.Data.Migrations
                         .HasColumnType("int");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("SourceSnapshotSha256");
 
                     b.HasIndex("StartedAtUtc");
 

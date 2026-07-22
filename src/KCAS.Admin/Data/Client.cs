@@ -38,6 +38,9 @@ public class Client
 
     public DateTime? UpdatedAtUtc { get; set; }
 
+    [MaxLength(32)]
+    public string LegacyReconciliationStatus { get; set; } = LegacyReconciliationStatuses.Unscanned;
+
     public ClientPersonalProfile? PersonalProfile { get; set; }
 
     public ClientFinancialProfile? FinancialProfile { get; set; }
@@ -59,4 +62,14 @@ public class Client
     public ICollection<ClientInvestmentAccount> InvestmentAccounts { get; } = [];
 
     public ICollection<ClientFundValuation> FundValuations { get; } = [];
+}
+
+public static class LegacyReconciliationStatuses
+{
+    public const string Unscanned = "Unscanned";
+    public const string UnchangedReconciled = "UnchangedReconciled";
+    public const string NewPendingReview = "NewPendingReview";
+    public const string ChangedPendingReview = "ChangedPendingReview";
+    public const string Conflict = "Conflict";
+    public const string Reconciled = "Reconciled";
 }

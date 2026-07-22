@@ -1,0 +1,226 @@
+@page "/imports"
+@page "/imports/{RunId:long}"
+@attribute [Authorize(Policy = KcasPermissions.LegacyImportsView)]
+@using KCAS.Admin.Data
+@using Microsoft.EntityFrameworkCore
+@inject ApplicationDbContext Db
+
+<PageTitle>Legacy import reconciliation</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Administration</p>
+        <h1>Legacy import reconciliation</h1>
+        <p class="lede">Review what is new, unchanged, changed, missing, or invalid before any existing KCAS data is altered.</p>
+    </div>
+</div>
+
+@if (runs.Count == 0)
+{
+    <section class="work-area">
+        <p>No reconciliation scans have been recorded.</p>
+    </section>
+}
+else
+{
+    <section class="work-area">
+        <div class="filter-grid">
+            <label>
+                Import run
+                <select class="form-select" value="@selectedRunId" @onchange="SelectRunAsync">
+                    @foreach (var item in runs)
+                    {
+                        <option value="@item.Id">#@item.Id — @item.StartedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm") — @item.Mode — @item.Status</option>
+                    }
+                </select>
+            </label>
+            <label>
+                Classification
+                <select class="form-select" value="@classification" @onchange="FilterClassificationAsync">
+                    <option value="">All</option>
+                    @foreach (var value in classifications)
+                    {
+                        <option value="@value">@value</option>
+                    }
+                </select>
+            </label>
+            <label>
+                Source table
+                <select class="form-select" value="@sourceTable" @onchange="FilterTableAsync">
+                    <option value="">All</option>
+                    @foreach (var value in sourceTables)
+                    {
+                        <option value="@value">@value</option>
+                    }
+                </select>
+            </label>
+        </div>
+    </section>
+
+    @if (selectedRun is not null)
+    {
+        <section class="detail-panel">
+            <h2>Run #@selectedRun.Id</h2>
+            <p>
+                New @selectedRun.NewCount · Applied @selectedRun.AppliedCount · Unchanged @selectedRun.UnchangedCount ·
+                Changed @selectedRun.ChangedCount · Missing @selectedRun.MissingCount · Invalid @selectedRun.InvalidCount ·
+                Orphaned @selectedRun.OrphanedCount · Failed @selectedRun.FailedCount
+            </p>
+            <p class="text-muted mb-1">Source database: @selectedRun.SourceLabel · Snapshot SHA-256: @ShortHash(selectedRun.SourceSnapshotSha256)</p>
+            <p class="text-muted">Fund valuations and KYC policies are review-only where legacy replacement workflows create new primary IDs.</p>
+            @if (selectedRun.ApprovedScanRunId.HasValue)
+            {
+                <p class="text-muted">Approved scan: #@selectedRun.ApprovedScanRunId</p>
+            }
+            @if (!string.IsNullOrWhiteSpace(selectedRun.ErrorSummary))
+            {
+                <div class="alert alert-danger">@selectedRun.ErrorSummary</div>
+            }
+        </section>
+    }
+
+    <section class="detail-panel">
+        <h2>Reconciliation items</h2>
+        <p class="text-muted">Showing at most 200 rows. Changed and missing rows are analysis items only; they have not been merged or deleted.</p>
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead>
+                    <tr>
+                        <th>Table</th>
+                        <th>Legacy ID</th>
+                        <th>Classification</th>
+                        <th>Apply state</th>
+                        <th>Differences</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in rows)
+                    {
+                        <tr>
+                            <td>@row.SourceTable</td>
+                            <td>@row.SourceId</td>
+                            <td><span class="badge text-bg-secondary">@row.Classification</span></td>
+                            <td>@row.ApplyStatus</td>
+                            <td>
+                                @if (!string.IsNullOrWhiteSpace(row.Error))
+                                {
+                                    <p class="mb-1 text-danger">@row.Error</p>
+                                }
+                                @if (row.Differences.Count == 0)
+                                {
+                                    <span>—</span>
+                                }
+                                else
+                                {
+                                    <details>
+                                        <summary>@row.Differences.Count field(s)</summary>
+                                        <div class="table-responsive mt-2">
+                                            <table class="table table-sm">
+                                                <thead><tr><th>Field</th><th>Previous source</th><th>Incoming source</th><th>Decision</th></tr></thead>
+                                                <tbody>
+                                                    @foreach (var difference in row.Differences.OrderBy(item => item.FieldName))
+                                                    {
+                                                        <tr>
+                                                            <td>@difference.FieldName</td>
+                                                            <td class="preserve-lines">@Display(difference.BaselineValue)</td>
+                                                            <td class="preserve-lines">@Display(difference.IncomingValue)</td>
+                                                            <td>@difference.Decision</td>
+                                                        </tr>
+                                                    }
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </details>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}
+
+@code {
+    [Parameter] public long? RunId { get; set; }
+
+    private readonly string[] classifications =
+    [
+        LegacyImportClassifications.New,
+        LegacyImportClassifications.Unchanged,
+        LegacyImportClassifications.Changed,
+        LegacyImportClassifications.MissingFromSource,
+        LegacyImportClassifications.Invalid,
+        LegacyImportClassifications.Orphaned
+    ];
+    private List<LegacyImportRun> runs = [];
+    private List<LegacyImportRowState> rows = [];
+    private List<string> sourceTables = [];
+    private LegacyImportRun? selectedRun;
+    private long selectedRunId;
+    private string classification = LegacyImportClassifications.Changed;
+    private string sourceTable = string.Empty;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        runs = await Db.LegacyImportRuns.AsNoTracking().OrderByDescending(run => run.Id).Take(20).ToListAsync();
+        selectedRunId = RunId.HasValue && runs.Any(run => run.Id == RunId.Value) ? RunId.Value : runs.FirstOrDefault()?.Id ?? 0;
+        await LoadRowsAsync();
+    }
+
+    private async Task LoadRowsAsync()
+    {
+        selectedRun = runs.SingleOrDefault(run => run.Id == selectedRunId);
+        if (selectedRun is null)
+        {
+            rows = [];
+            sourceTables = [];
+            return;
+        }
+
+        sourceTables = await Db.LegacyImportRowStates.AsNoTracking()
+            .Where(row => row.LegacyImportRunId == selectedRunId)
+            .Select(row => row.SourceTable)
+            .Distinct()
+            .OrderBy(value => value)
+            .ToListAsync();
+
+        var query = Db.LegacyImportRowStates.AsNoTracking()
+            .Include(row => row.Differences)
+            .Where(row => row.LegacyImportRunId == selectedRunId);
+        if (!string.IsNullOrWhiteSpace(classification))
+        {
+            query = query.Where(row => row.Classification == classification);
+        }
+        if (!string.IsNullOrWhiteSpace(sourceTable))
+        {
+            query = query.Where(row => row.SourceTable == sourceTable);
+        }
+        rows = await query.OrderBy(row => row.SourceTable).ThenBy(row => row.SourceId).Take(200).ToListAsync();
+    }
+
+    private async Task SelectRunAsync(ChangeEventArgs args)
+    {
+        if (long.TryParse(args.Value?.ToString(), out var value))
+        {
+            selectedRunId = value;
+            sourceTable = string.Empty;
+            await LoadRowsAsync();
+        }
+    }
+
+    private async Task FilterClassificationAsync(ChangeEventArgs args)
+    {
+        classification = args.Value?.ToString() ?? string.Empty;
+        await LoadRowsAsync();
+    }
+
+    private async Task FilterTableAsync(ChangeEventArgs args)
+    {
+        sourceTable = args.Value?.ToString() ?? string.Empty;
+        await LoadRowsAsync();
+    }
+
+    private static string Display(string? value) => value is null ? "(empty)" : value;
+    private static string ShortHash(string value) => value.Length > 16 ? value[..16] + "…" : value;
+}

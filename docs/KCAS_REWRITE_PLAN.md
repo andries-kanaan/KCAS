@@ -1,6 +1,8 @@
 # KCAS Blazor Rewrite Plan
 
-Last updated: 2026-06-07
+Last updated: 2026-07-22
+
+The authoritative staged roadmap for client risk evaluation, the Business Risk Assessment, the RMCP and inspection readiness is [RMCP_BRA_IMPLEMENTATION_PLAN.md](RMCP_BRA_IMPLEMENTATION_PLAN.md).
 
 ## Current Goal
 
@@ -15,8 +17,8 @@ Rewrite the legacy Yii1 `kanaanclients` application into the modern Blazor proje
 - `tbl_feed` and `tbl_feedtopic` are intentionally excluded because they were an abandoned correspondence experiment.
 - The current product phase is acceptance review and production hardening, not another foundational rewrite slice.
 - The next functional goal is browser acceptance review of client operations, investment account/transaction workflows, fund summaries, KYC recommendations, KYC copy/transfer, and security/admin flows against the deployed production-style environment.
-- Current legacy imports remain development seed data. They help design and test KCAS against realistic records, but they are disposable.
-- The final production import will happen later, from the latest `kanaanclients` data, once KCAS is ready for switch-over. At that point current seed/imported data can be cleared and replaced.
+- Existing legacy imports are a historical data baseline, not disposable seed data.
+- Later legacy refreshes use scan-first incremental reconciliation: new legacy IDs can be added, identical rows are skipped, and changed or missing rows are staged for review without silently overwriting KCAS work.
 
 ## Local Development Setup
 
@@ -38,16 +40,17 @@ Rewrite the legacy Yii1 `kanaanclients` application into the modern Blazor proje
 ## Deployment Direction
 
 - Use Git/GitHub for source control and collaboration.
-- Use `dotnet publish` for actual deployable build output.
-- GitHub is not a replacement for `dotnet publish`; GitHub can store source and can later run CI/CD that performs `dotnet publish`.
+- GitHub Actions runs `dotnet publish` and produces the immutable, self-contained `win-x64` release; the live server does not pull source or compile.
 - GitHub remote is `https://github.com/andries-kanaan/KCAS.git`.
 - Pull requests to `main` should pass the GitHub Actions PR checks before merge.
 - The PR check workflow builds the solution and runs the test suite against an isolated MySQL service database.
 - Local integration tests use `kcas_blazor_test` and recreate it for deterministic test runs.
-- First production deployment direction is now explicit:
-  - Publish the app with `dotnet publish`.
+- Production deployment direction is explicit and documented in `docs/WINDOWS_DEPLOYMENT.md`:
+  - Deploy a checksum-verified package tied to one full Git commit.
+  - Install releases in versioned directories and switch the `current` junction only after backup and migration controls.
   - Run the published app through Kestrel.
   - Use Apache/WAMP as the reverse proxy.
+  - Preserve the existing Scheduled Task identity for the first transition, then consider Windows Service conversion separately.
   - Keep production secrets out of the repository, preferably in environment variables or non-committed production configuration.
 
 ## Legacy Yii1 App
@@ -103,9 +106,9 @@ Current decision:
 
 - Continue using MySQL locally because it fits the existing WAMP setup and the current data already lives in MySQL.
 - Design modern EF Core entities and migrations for the new app.
-- Use current legacy imports as development seed data only.
-- Migrate/import legacy data into the corrected schema through an explicit importer for testing now and for the final switch-over later.
-- Preserve only enough traceability to validate mapping and reconciliation. Do not design KCAS around preserving today's seed rows permanently.
+- Preserve existing imported data as the historical baseline and refresh it through explicit, repeatable reconciliation runs.
+- Match by stable legacy primary ID; automatically add only new IDs; require review before any changed legacy value can replace an existing KCAS value.
+- Preserve raw source snapshots, fingerprints, field-level differences and import decisions so every refresh is auditable and idempotent.
 - KCAS-owned records must use KCAS-owned identifiers. Legacy row IDs must not become KCAS primary keys or KCAS business identifiers.
 - Kanaan ID is a current internal administration identifier used to track family units. Multiple clients can intentionally share the same Kanaan ID when they belong to the same family unit.
 - Remaining non-client Yii tables are explicitly classified:
@@ -238,7 +241,7 @@ Build status:
 - Added the investments read model and seed import slice:
   - Added normalized investment account and investment transaction entities.
   - Added EF migration `20260531194916_AddClientInvestments`.
-  - Imported `tbl_investmentaccount` and `tbl_investmenthistory` as disposable development seed data.
+  - Imported `tbl_investmentaccount` and `tbl_investmenthistory` as the initial historical baseline.
   - Added read-only investment account summaries and collapsible recent transaction history to client detail pages.
   - Verified local import of 1,524 investment accounts and 6,150 investment history rows with 0 skipped and 0 failed.
 - Added the fund current-value seed import refinement:
@@ -253,7 +256,7 @@ Build status:
 - Added the native KYC policy workflow slice:
   - Made `ClientKycPolicy.LegacyKycId` nullable so KCAS-created policy rows can coexist with imported legacy seed rows.
   - Added native KYC policy create/edit/delete behavior behind `Kyc.Manage`.
-  - Allowed imported seed KYC rows to be edited during development because they are disposable test data; `LegacyKycId` remains traceability metadata only.
+  - Allowed imported KYC rows to be edited while retaining `LegacyKycId` as traceability metadata; later source changes now require reconciliation rather than unconditional replacement.
   - Added an operational KYC policy edit page and client detail actions for native rows.
   - Added focused tests for native and imported KYC policy create/edit/delete behavior.
 - Added the outstanding workflow completion slice:
@@ -332,8 +335,8 @@ Still to verify manually in browser:
    - Record refinements found during real browser use as small follow-up slices.
 
 2. Production hardening.
-   - Push and PR the database schema script fix if it has not already been pushed.
-   - Standardize the production startup model as a Windows Service or another supervised startup mechanism.
+   - Roll out and accept the immutable Windows release process in `docs/WINDOWS_DEPLOYMENT.md`.
+   - After several accepted deployments, standardize startup as a Windows Service in a separate change.
    - Keep Apache/WAMP as the reverse proxy to Kestrel.
    - Move production secrets to environment variables or protected server-local configuration.
    - Keep `Database:MigrateOnStartup` disabled for controlled production migration windows.
@@ -341,8 +344,8 @@ Still to verify manually in browser:
 
 3. Final production data switch-over.
    - Take a fresh backup/export of the latest legacy `kanaanclients` database.
-   - Clear disposable seed/imported rows from KCAS as needed.
-   - Run the final import from latest legacy data, importing reference data before client-linked operational data.
+   - Run a scan-first reconciliation against the latest legacy data.
+   - Review run totals and differences, back up KCAS, then apply new legacy IDs only; changed existing rows remain pending review.
    - Reconcile counts and spot-check representative clients, notes, KYC, investments, fund valuations, and reference choices.
 
 4. Richer domain modules.
