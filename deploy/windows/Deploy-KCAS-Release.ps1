@@ -5,8 +5,8 @@ param(
     [string]$ChecksumPath,
     [string]$InstallRoot = 'D:\Deploy\KCAS',
     [string]$ScheduledTaskName = 'KCAS',
+    # Retained as an ignored compatibility switch for the pre-fix one-click launcher.
     [switch]$UpdateScheduledTaskAction,
-    [string]$AppUrls = 'http://127.0.0.1:5143',
     [string]$DirectHealthUrl = 'http://127.0.0.1:5143/health/ready',
     [string]$ProxyHealthUrl,
     [int]$HealthTimeoutSeconds = 60,
@@ -205,6 +205,7 @@ $backupDirectory = Join-Path $sharedPath 'database-backups'
 $logsDirectory = Join-Path $sharedPath 'deployment-logs'
 $keysDirectory = Join-Path $sharedPath 'DataProtectionKeys'
 $currentPath = Join-Path $installRootPath 'current'
+$publishPath = Join-Path $installRootPath 'publish'
 $lockPath = Join-Path $installRootPath 'deployment.lock'
 
 foreach ($directory in @($installRootPath, $releasesPath, $stagingPath, $sharedPath, $backupDirectory, $logsDirectory, $keysDirectory)) {
@@ -220,7 +221,8 @@ $extractPath = Join-Path $stagingPath ([Guid]::NewGuid().ToString('N'))
 $previousReleasePath = $null
 $taskWasStopped = $false
 $releaseWasSwitched = $false
-$originalTaskActions = $null
+$legacyPublishBackupPath = $null
+$publishWasTransitioned = $false
 $manifest = $null
 $deploymentLogPath = Join-Path $logsDirectory 'deployments.jsonl'
 
@@ -282,20 +284,7 @@ try {
     Move-Item -LiteralPath $extractPath -Destination $releasePath
     $extractPath = $null
     $manifestPath = Join-Path $releasePath 'deployment-manifest.json'
-    $entryPoint = Join-Path $currentPath 'app\KCAS.Admin.exe'
-    $workingDirectory = Join-Path $currentPath 'app'
-
-    $task = Get-ScheduledTask -TaskName $ScheduledTaskName -ErrorAction Stop
-    $originalTaskActions = $task.Actions
-    if (-not $UpdateScheduledTaskAction) {
-        $matchingAction = $task.Actions | Where-Object {
-            [System.IO.Path]::IsPathRooted($_.Execute) -and
-                [System.IO.Path]::GetFullPath($_.Execute.Trim('"')) -eq [System.IO.Path]::GetFullPath($entryPoint)
-        }
-        if (-not $matchingAction) {
-            throw "Scheduled Task '$ScheduledTaskName' does not run '$entryPoint'. Use -UpdateScheduledTaskAction for the controlled first transition."
-        }
-    }
+    $null = Get-ScheduledTask -TaskName $ScheduledTaskName -ErrorAction Stop
 
     if (Test-Path -LiteralPath $currentPath) {
         $currentItem = Get-Item -LiteralPath $currentPath -Force
@@ -303,6 +292,20 @@ try {
             throw "Current release path '$currentPath' exists but is not a directory junction."
         }
         $previousReleasePath = [string]$currentItem.Target
+    }
+
+    if (Test-Path -LiteralPath $publishPath) {
+        $publishItem = Get-Item -LiteralPath $publishPath -Force
+        if ($null -ne $previousReleasePath -and $publishItem.LinkType -ne 'Junction') {
+            throw "Publish path '$publishPath' must be a directory junction after the immutable deployment transition."
+        }
+        if ($null -ne $previousReleasePath -and
+            [System.IO.Path]::GetFullPath([string]$publishItem.Target).TrimEnd('\') -ne [System.IO.Path]::GetFullPath((Join-Path $currentPath 'app')).TrimEnd('\')) {
+            throw "Publish junction '$publishPath' does not target the stable current application path."
+        }
+    }
+    elseif ($null -ne $previousReleasePath) {
+        throw "Publish compatibility path '$publishPath' is missing."
     }
 
     $backupPath = Join-Path $backupDirectory ("{0}-before-{1}.sql" -f [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss'), $manifest.gitCommit.Substring(0, 12))
@@ -327,9 +330,21 @@ try {
     Set-CurrentRelease -CurrentPath $currentPath -ReleasePath $releasePath
     $releaseWasSwitched = $true
 
-    if ($UpdateScheduledTaskAction) {
-        $newAction = New-ScheduledTaskAction -Execute $entryPoint -Argument "--urls $AppUrls" -WorkingDirectory $workingDirectory
-        Set-ScheduledTask -TaskName $ScheduledTaskName -Action $newAction | Out-Null
+    if ($null -eq $previousReleasePath) {
+        if (-not (Test-Path -LiteralPath $publishPath -PathType Container)) {
+            throw "Existing publish directory '$publishPath' was not found for the first immutable deployment."
+        }
+        $publishItem = Get-Item -LiteralPath $publishPath -Force
+        if ($publishItem.LinkType -eq 'Junction') {
+            throw "Publish path '$publishPath' is already a junction but no current release exists."
+        }
+        $legacyPublishBackupDirectory = Join-Path $sharedPath 'legacy-deployment-backup'
+        New-Item -ItemType Directory -Path $legacyPublishBackupDirectory -Force | Out-Null
+        $legacyPublishBackupPath = Join-Path $legacyPublishBackupDirectory ("publish-before-immutable-{0}" -f [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss'))
+        Move-Item -LiteralPath $publishPath -Destination $legacyPublishBackupPath
+        $publishWasTransitioned = $true
+        New-Item -ItemType Junction -Path $publishPath -Target (Join-Path $currentPath 'app') | Out-Null
+        Write-Host "Preserved the previous publish directory at '$legacyPublishBackupPath'."
     }
 
     Write-Host "Starting KCAS release '$($manifest.version)'..."
@@ -350,14 +365,17 @@ catch {
     if ($releaseWasSwitched) {
         try {
             Stop-KcasTask -TaskName $ScheduledTaskName
+            if ($publishWasTransitioned) {
+                Remove-KcasJunction -Path $publishPath
+                if (-not [string]::IsNullOrWhiteSpace($legacyPublishBackupPath) -and (Test-Path -LiteralPath $legacyPublishBackupPath)) {
+                    Move-Item -LiteralPath $legacyPublishBackupPath -Destination $publishPath
+                }
+            }
             if (-not [string]::IsNullOrWhiteSpace($previousReleasePath) -and (Test-Path -LiteralPath $previousReleasePath)) {
                 Set-CurrentRelease -CurrentPath $currentPath -ReleasePath $previousReleasePath
             }
             elseif (Test-Path -LiteralPath $currentPath) {
                 Remove-KcasJunction -Path $currentPath
-            }
-            if ($UpdateScheduledTaskAction -and $null -ne $originalTaskActions) {
-                Set-ScheduledTask -TaskName $ScheduledTaskName -Action $originalTaskActions | Out-Null
             }
             Start-ScheduledTask -TaskName $ScheduledTaskName
             if (-not [string]::IsNullOrWhiteSpace($previousReleasePath)) {
