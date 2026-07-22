@@ -81,22 +81,43 @@ function Stop-KcasWorkload {
     }
 
     $healthUri = [System.Uri]$DirectHealthUrl
+    $normalizedApplicationRoot = $installRootPath
+    $escapedApplicationRoot = [System.Text.RegularExpressions.Regex]::Escape($normalizedApplicationRoot)
     $deadline = [DateTime]::UtcNow.AddSeconds(30)
     do {
         $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $healthUri.Port -ErrorAction SilentlyContinue)
-        if ($listeners.Count -eq 0) { return }
-        foreach ($processId in @($listeners | Select-Object -ExpandProperty OwningProcess -Unique)) {
+        $listenerProcessIds = @($listeners | Select-Object -ExpandProperty OwningProcess -Unique)
+        $kcasProcesses = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+            $commandLine = [string]$_.CommandLine
+            $executablePath = [string]$_.ExecutablePath
+            ($_.Name -eq 'KCAS.Admin.exe' -or $commandLine -match 'KCAS\.Admin(?:\.dll|\.exe)') -and
+                ($listenerProcessIds -contains $_.ProcessId -or
+                    $executablePath.StartsWith($normalizedApplicationRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
+                    $commandLine -match $escapedApplicationRoot)
+        })
+        foreach ($process in $kcasProcesses) {
+            Stop-Process -Id ([int]$process.ProcessId) -Force -ErrorAction SilentlyContinue
+        }
+        foreach ($processId in $listenerProcessIds) {
+            if ($kcasProcesses.ProcessId -contains $processId) { continue }
             $process = Get-CimInstance Win32_Process -Filter "ProcessId = $processId" -ErrorAction SilentlyContinue
             if ($null -eq $process) { continue }
-            $commandLine = [string]$process.CommandLine
-            if ($process.Name -ne 'KCAS.Admin.exe' -and $commandLine -notmatch 'KCAS\.Admin(?:\.dll|\.exe)') {
-                throw "Port $($healthUri.Port) is owned by unexpected process '$($process.Name)' (PID $processId)."
-            }
-            Stop-Process -Id $processId -Force -ErrorAction Stop
+            throw "Port $($healthUri.Port) is owned by unexpected process '$($process.Name)' (PID $processId)."
         }
         Start-Sleep -Milliseconds 500
-    } while ([DateTime]::UtcNow -lt $deadline)
-    throw "KCAS continued listening on port $($healthUri.Port) after its Scheduled Task was stopped."
+    } while (($listeners.Count -gt 0 -or $kcasProcesses.Count -gt 0) -and [DateTime]::UtcNow -lt $deadline)
+
+    $remainingListeners = @(Get-NetTCPConnection -State Listen -LocalPort $healthUri.Port -ErrorAction SilentlyContinue)
+    $remainingKcasProcesses = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+        $commandLine = [string]$_.CommandLine
+        $executablePath = [string]$_.ExecutablePath
+        ($_.Name -eq 'KCAS.Admin.exe' -or $commandLine -match 'KCAS\.Admin(?:\.dll|\.exe)') -and
+            ($executablePath.StartsWith($normalizedApplicationRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
+                $commandLine -match $escapedApplicationRoot)
+    })
+    if ($remainingListeners.Count -gt 0 -or $remainingKcasProcesses.Count -gt 0) {
+        throw 'KCAS did not fully exit within 30 seconds after its Scheduled Task was stopped.'
+    }
 }
 
 Stop-KcasWorkload

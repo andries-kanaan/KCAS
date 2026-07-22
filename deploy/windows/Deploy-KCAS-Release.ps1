@@ -62,7 +62,8 @@ function Set-CurrentRelease {
 function Stop-KcasTask {
     param(
         [string]$TaskName,
-        [string]$HealthUrl
+        [string]$HealthUrl,
+        [string]$ApplicationRoot
     )
 
     $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
@@ -80,25 +81,71 @@ function Stop-KcasTask {
     }
 
     $healthUri = [System.Uri]$HealthUrl
-    $listenerDeadline = [DateTime]::UtcNow.AddSeconds(30)
+    $normalizedApplicationRoot = [System.IO.Path]::GetFullPath($ApplicationRoot).TrimEnd('\')
+    $escapedApplicationRoot = [System.Text.RegularExpressions.Regex]::Escape($normalizedApplicationRoot)
+    $processDeadline = [DateTime]::UtcNow.AddSeconds(30)
     do {
         $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $healthUri.Port -ErrorAction SilentlyContinue)
-        if ($listeners.Count -eq 0) { return }
+        $listenerProcessIds = @($listeners | Select-Object -ExpandProperty OwningProcess -Unique)
+        $kcasProcesses = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+            $commandLine = [string]$_.CommandLine
+            $executablePath = [string]$_.ExecutablePath
+            ($_.Name -eq 'KCAS.Admin.exe' -or $commandLine -match 'KCAS\.Admin(?:\.dll|\.exe)') -and
+                ($listenerProcessIds -contains $_.ProcessId -or
+                    $executablePath.StartsWith($normalizedApplicationRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
+                    $commandLine -match $escapedApplicationRoot)
+        })
 
-        foreach ($processId in @($listeners | Select-Object -ExpandProperty OwningProcess -Unique)) {
+        foreach ($process in $kcasProcesses) {
+            $processId = [int]$process.ProcessId
+            Write-Host "Stopping lingering KCAS process '$($process.Name)' (PID $processId)..."
+            Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+        }
+
+        foreach ($processId in $listenerProcessIds) {
+            if ($kcasProcesses.ProcessId -contains $processId) { continue }
             $process = Get-CimInstance Win32_Process -Filter "ProcessId = $processId" -ErrorAction SilentlyContinue
             if ($null -eq $process) { continue }
-            $commandLine = [string]$process.CommandLine
-            if ($process.Name -ne 'KCAS.Admin.exe' -and $commandLine -notmatch 'KCAS\.Admin(?:\.dll|\.exe)') {
-                throw "Port $($healthUri.Port) remains owned by unexpected process '$($process.Name)' (PID $processId) after stopping Scheduled Task '$TaskName'."
-            }
-            Write-Host "Stopping lingering KCAS process '$($process.Name)' (PID $processId)..."
-            Stop-Process -Id $processId -Force -ErrorAction Stop
+            throw "Port $($healthUri.Port) remains owned by unexpected process '$($process.Name)' (PID $processId) after stopping Scheduled Task '$TaskName'."
         }
-        Start-Sleep -Milliseconds 500
-    } while ([DateTime]::UtcNow -lt $listenerDeadline)
 
-    throw "KCAS continued listening on port $($healthUri.Port) after Scheduled Task '$TaskName' was stopped."
+        Start-Sleep -Milliseconds 500
+    } while (($listeners.Count -gt 0 -or $kcasProcesses.Count -gt 0) -and [DateTime]::UtcNow -lt $processDeadline)
+
+    $remainingListeners = @(Get-NetTCPConnection -State Listen -LocalPort $healthUri.Port -ErrorAction SilentlyContinue)
+    $remainingKcasProcesses = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+        $commandLine = [string]$_.CommandLine
+        $executablePath = [string]$_.ExecutablePath
+        ($_.Name -eq 'KCAS.Admin.exe' -or $commandLine -match 'KCAS\.Admin(?:\.dll|\.exe)') -and
+            ($executablePath.StartsWith($normalizedApplicationRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
+                $commandLine -match $escapedApplicationRoot)
+    })
+    if ($remainingListeners.Count -eq 0 -and $remainingKcasProcesses.Count -eq 0) { return }
+
+    throw "KCAS did not fully exit within 30 seconds after Scheduled Task '$TaskName' was stopped."
+}
+
+function Move-KcasDirectoryWithRetry {
+    param(
+        [string]$Source,
+        [string]$Destination,
+        [int]$TimeoutSeconds = 30
+    )
+
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $lastError = $null
+    do {
+        try {
+            Move-Item -LiteralPath $Source -Destination $Destination -ErrorAction Stop
+            return
+        }
+        catch {
+            $lastError = $_.Exception.Message
+            Start-Sleep -Seconds 1
+        }
+    } while ([DateTime]::UtcNow -lt $deadline)
+
+    throw "Could not preserve the existing publish directory '$Source' as '$Destination' within $TimeoutSeconds seconds. Last error: $lastError"
 }
 
 function Wait-KcasHealth {
@@ -352,7 +399,7 @@ try {
     Backup-KcasDatabase -BackupPath $backupPath
 
     Write-Host "Stopping Scheduled Task '$ScheduledTaskName'..."
-    Stop-KcasTask -TaskName $ScheduledTaskName -HealthUrl $DirectHealthUrl
+    Stop-KcasTask -TaskName $ScheduledTaskName -HealthUrl $DirectHealthUrl -ApplicationRoot $installRootPath
     $taskWasStopped = $true
 
     Write-Host "Applying reviewed database migrations through '$($manifest.latestMigration)'..."
@@ -380,7 +427,7 @@ try {
         $legacyPublishBackupDirectory = Join-Path $sharedPath 'legacy-deployment-backup'
         New-Item -ItemType Directory -Path $legacyPublishBackupDirectory -Force | Out-Null
         $legacyPublishBackupPath = Join-Path $legacyPublishBackupDirectory ("publish-before-immutable-{0}" -f [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss'))
-        Move-Item -LiteralPath $publishPath -Destination $legacyPublishBackupPath
+        Move-KcasDirectoryWithRetry -Source $publishPath -Destination $legacyPublishBackupPath
         $publishWasTransitioned = $true
         New-Item -ItemType Junction -Path $publishPath -Target (Join-Path $currentPath 'app') | Out-Null
         Write-Host "Preserved the previous publish directory at '$legacyPublishBackupPath'."
@@ -403,7 +450,7 @@ catch {
 
     if ($releaseWasSwitched) {
         try {
-            Stop-KcasTask -TaskName $ScheduledTaskName -HealthUrl $DirectHealthUrl
+            Stop-KcasTask -TaskName $ScheduledTaskName -HealthUrl $DirectHealthUrl -ApplicationRoot $installRootPath
             if ($publishWasTransitioned) {
                 Remove-KcasJunction -Path $publishPath
                 if (-not [string]::IsNullOrWhiteSpace($legacyPublishBackupPath) -and (Test-Path -LiteralPath $legacyPublishBackupPath)) {
