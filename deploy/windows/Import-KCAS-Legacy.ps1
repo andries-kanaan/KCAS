@@ -141,11 +141,12 @@ $runScript = Join-Path $toolsPath 'Run-KCAS-LegacyImport.ps1'
 $defaultImporterPath = if ($runningFromRepository) {
     Join-Path $repositoryRoot 'tools\KCAS.LegacyImport\bin\Release\net10.0\KCAS.LegacyImport.dll'
 } else {
-    Join-Path $toolsPath 'KCAS.LegacyImport.exe'
+    Join-Path $toolsPath 'KCAS.LegacyImport.dll'
 }
 $ImporterPath = if ([string]::IsNullOrWhiteSpace($ImporterPath)) { $defaultImporterPath } else { $ImporterPath }
-$DotNetPath = if ([string]::IsNullOrWhiteSpace($DotNetPath) -and $runningFromRepository) { Join-Path $repositoryRoot '.dotnet\dotnet.exe' } elseif ([string]::IsNullOrWhiteSpace($DotNetPath)) { 'dotnet' } else { $DotNetPath }
-foreach ($path in @($stageScript, $runScript, $ImporterPath)) {
+$defaultDotNetPath = if ($runningFromRepository) { Join-Path $repositoryRoot '.dotnet\dotnet.exe' } else { Join-Path $installRootPath 'repo\.dotnet\dotnet.exe' }
+$DotNetPath = if ([string]::IsNullOrWhiteSpace($DotNetPath)) { $defaultDotNetPath } else { $DotNetPath }
+foreach ($path in @($stageScript, $runScript, $ImporterPath,$DotNetPath)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Import component not found: $path" }
 }
 

@@ -74,11 +74,32 @@ function Wait-Healthy {
     throw "Rolled-back KCAS release did not become healthy. Last result: $lastError"
 }
 
-$task = Get-ScheduledTask -TaskName $ScheduledTaskName -ErrorAction Stop
-if ($task.State -eq 'Running') {
-    Stop-ScheduledTask -TaskName $ScheduledTaskName
-    Start-Sleep -Seconds 2
+function Stop-KcasWorkload {
+    $task = Get-ScheduledTask -TaskName $ScheduledTaskName -ErrorAction Stop
+    if ($task.State -eq 'Running') {
+        Stop-ScheduledTask -TaskName $ScheduledTaskName
+    }
+
+    $healthUri = [System.Uri]$DirectHealthUrl
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    do {
+        $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $healthUri.Port -ErrorAction SilentlyContinue)
+        if ($listeners.Count -eq 0) { return }
+        foreach ($processId in @($listeners | Select-Object -ExpandProperty OwningProcess -Unique)) {
+            $process = Get-CimInstance Win32_Process -Filter "ProcessId = $processId" -ErrorAction SilentlyContinue
+            if ($null -eq $process) { continue }
+            $commandLine = [string]$process.CommandLine
+            if ($process.Name -ne 'KCAS.Admin.exe' -and $commandLine -notmatch 'KCAS\.Admin(?:\.dll|\.exe)') {
+                throw "Port $($healthUri.Port) is owned by unexpected process '$($process.Name)' (PID $processId)."
+            }
+            Stop-Process -Id $processId -Force -ErrorAction Stop
+        }
+        Start-Sleep -Milliseconds 500
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "KCAS continued listening on port $($healthUri.Port) after its Scheduled Task was stopped."
 }
+
+Stop-KcasWorkload
 
 Remove-VerifiedJunction -Path $temporaryJunction
 New-Item -ItemType Junction -Path $temporaryJunction -Target $releasePath | Out-Null

@@ -4,7 +4,7 @@ Last updated: 2026-07-22
 
 ## Purpose
 
-KCAS is deployed as an immutable, self-contained Windows release built and tested by GitHub Actions. The production server does not pull source code or compile the application.
+KCAS is deployed as an immutable, framework-dependent Windows release built and tested by GitHub Actions. The production server does not compile the application. It uses the existing `D:\Deploy\KCAS\repo\.dotnet\dotnet.exe` host that previously built and ran the framework-dependent deployment.
 
 This deployment keeps the current architecture for the first transition:
 
@@ -22,7 +22,7 @@ Converting the Scheduled Task to a Windows Service is a later infrastructure cha
 1. A pull request is built and tested by `.github/workflows/pr-checks.yml`.
 2. After merge, run the `Windows release package` workflow against the required `main` commit, or create a reviewed `v*` tag.
 3. The workflow independently builds and tests the commit.
-4. GitHub publishes a self-contained `win-x64` ZIP and its SHA-256 checksum.
+4. GitHub publishes a framework-dependent `win-x64` ZIP and its SHA-256 checksum.
 5. The server deploys that exact package into `D:\Deploy\KCAS\releases\<full-commit-sha>`.
 6. `D:\Deploy\KCAS\current` is a directory junction pointing to the active release.
 7. `D:\Deploy\KCAS\publish` remains the stable compatibility path used by the existing Scheduled Task and points to `D:\Deploy\KCAS\current\app`.
@@ -36,13 +36,13 @@ Each ZIP contains:
 ```text
 app\
     KCAS.Admin.exe
-    ...self-contained .NET runtime and application files...
+    ...framework-dependent application files...
 database\
     Apply-KCAS-Database.ps1
     Migrations\
 tools\
     legacy-import\
-        KCAS.LegacyImport.exe
+        KCAS.LegacyImport.dll
         Stage-KCAS-LegacySnapshot.ps1
         Run-KCAS-LegacyImport.ps1
 deployment-manifest.json
@@ -201,10 +201,10 @@ The script will:
 6. copy shared production configuration when present;
 7. back up MySQL before stopping KCAS;
 8. stop only the `KCAS` Scheduled Task;
-9. apply the packaged reviewed migration script;
-10. switch the `current` junction;
-11. update the Scheduled Task action on the first deployment;
-12. start KCAS;
+9. stop a lingering KCAS child process on the configured application port if the task wrapper did not terminate it;
+10. apply the packaged reviewed migration script;
+11. switch the `current` junction while preserving the original `publish` directory on the first deployment;
+12. start KCAS through the unchanged Scheduled Task;
 13. verify direct database readiness and the optional Apache URL;
 14. record the result in `shared\deployment-logs\deployments.jsonl`.
 

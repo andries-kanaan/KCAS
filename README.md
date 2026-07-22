@@ -2,7 +2,7 @@
 
 Modern Blazor rewrite workspace for Kanaan Client Administration System.
 
-Production releases use the immutable native Windows process documented in [docs/WINDOWS_DEPLOYMENT.md](docs/WINDOWS_DEPLOYMENT.md). GitHub builds the self-contained `win-x64` package; the live server no longer pulls source or compiles the application.
+Production releases use the immutable native Windows process documented in [docs/WINDOWS_DEPLOYMENT.md](docs/WINDOWS_DEPLOYMENT.md). GitHub builds a framework-dependent `win-x64` package that uses the server's existing repository-local .NET host; the live server no longer compiles the application.
 
 ## Current Setup
 
