@@ -38,6 +38,21 @@ function Get-GitHubRepositoryName {
     throw "Could not determine the GitHub repository from remote '$RemoteUrl'."
 }
 
+function Get-GitHubWorkflowRunForCommit {
+    param(
+        [string]$Repository,
+        [string]$Commit,
+        [hashtable]$Headers
+    )
+
+    $runsApiUrl = "https://api.github.com/repos/$Repository/actions/runs?head_sha=$Commit&event=push&per_page=20"
+    $runs = Invoke-RestMethod -Uri $runsApiUrl -Headers $Headers -Method Get
+    return @($runs.workflow_runs |
+        Where-Object { $_.name -eq 'Windows release package' } |
+        Sort-Object created_at -Descending |
+        Select-Object -First 1)
+}
+
 $installRootPath = [System.IO.Path]::GetFullPath($InstallRoot).TrimEnd('\')
 $settingsPath = Join-Path $installRootPath 'shared\deployment-operator.json'
 if (-not (Test-Path -LiteralPath $settingsPath -PathType Leaf)) {
@@ -97,6 +112,8 @@ $releaseApiUrl = "https://api.github.com/repos/$githubRepository/releases/tags/$
 $requestHeaders = @{ 'User-Agent' = 'KCAS-Immutable-Deployment' }
 $release = $null
 $releaseError = $null
+$workflowError = $null
+$lastWorkflowCheckUtc = [DateTime]::MinValue
 $deadline = [DateTime]::UtcNow.AddMinutes(20)
 do {
     try {
@@ -105,11 +122,34 @@ do {
     }
     catch {
         $releaseError = $_.Exception.Message
+        if ([DateTime]::UtcNow -ge $lastWorkflowCheckUtc.AddSeconds(60)) {
+            $lastWorkflowCheckUtc = [DateTime]::UtcNow
+            try {
+                $workflowRun = Get-GitHubWorkflowRunForCommit -Repository $githubRepository -Commit $commit -Headers $requestHeaders
+                if ($workflowRun.Count -gt 0) {
+                    $run = $workflowRun[0]
+                    if ($run.status -eq 'completed' -and $run.conclusion -ne 'success') {
+                        throw "The GitHub 'Windows release package' workflow for '$commit' completed with conclusion '$($run.conclusion)' before publishing '$releaseTag'. Review $($run.html_url)"
+                    }
+
+                    if ($run.status -in @('queued','in_progress','waiting','requested')) {
+                        Write-Host "GitHub release workflow is $($run.status); waiting for '$releaseTag'. Run: $($run.html_url)"
+                    }
+                }
+            }
+            catch {
+                $workflowError = $_.Exception.Message
+                if ($workflowError -like "The GitHub 'Windows release package' workflow*") {
+                    throw $workflowError
+                }
+            }
+        }
+
         Start-Sleep -Seconds 10
     }
 } while ($null -eq $release -and [DateTime]::UtcNow -lt $deadline)
 if ($null -eq $release) {
-    throw "The tested deployment release '$releaseTag' did not become available within 20 minutes. Last GitHub result: $releaseError"
+    throw "The tested deployment release '$releaseTag' did not become available within 20 minutes. Last GitHub release result: $releaseError$(if ($workflowError) { " Last workflow result: $workflowError" })"
 }
 if ([string]$release.target_commitish -ne $commit) {
     throw "Deployment release '$releaseTag' targets '$($release.target_commitish)', not '$commit'."
