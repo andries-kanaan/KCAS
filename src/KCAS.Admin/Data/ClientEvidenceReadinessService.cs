@@ -182,6 +182,49 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         await db.SaveChangesAsync();
     }
 
+    public Task<ClientEvidenceFolderBrowserModel> BrowseServerFoldersAsync(string? requestedPath)
+    {
+        var roots = DriveInfo.GetDrives()
+            .Where(drive => drive.IsReady)
+            .Select(drive => drive.RootDirectory.FullName)
+            .OrderBy(path => path)
+            .ToList();
+
+        var requested = Normalize(requestedPath);
+        var currentPath = requested;
+        if (currentPath is null || !Directory.Exists(currentPath))
+        {
+            currentPath = roots.FirstOrDefault() ?? Path.GetPathRoot(Environment.CurrentDirectory) ?? Environment.CurrentDirectory;
+        }
+
+        var model = new ClientEvidenceFolderBrowserModel
+        {
+            CurrentPath = currentPath,
+            ParentPath = Directory.GetParent(currentPath)?.FullName,
+            Roots = roots
+        };
+
+        try
+        {
+            model.Folders = Directory.EnumerateDirectories(currentPath)
+                .Select(path => new DirectoryInfo(path))
+                .OrderBy(directory => directory.Name)
+                .Select(directory => new ClientEvidenceFolderModel
+                {
+                    Name = directory.Name,
+                    FullPath = directory.FullName
+                })
+                .ToList();
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or DirectoryNotFoundException or IOException)
+        {
+            model.ErrorMessage = ex.Message;
+            model.Folders = [];
+        }
+
+        return Task.FromResult(model);
+    }
+
     public async Task<int> RunScanAsync(string? requestedRootPath, string? userName, string reason)
     {
         RequireReason(reason);
@@ -656,6 +699,21 @@ public sealed class ClientEvidenceDashboardModel
     public int BlockedClientCount { get; set; }
     public List<ClientEvidenceClientSummaryModel> Clients { get; set; } = [];
     public List<ClientEvidenceScanFileModel> UnmatchedFiles { get; set; } = [];
+}
+
+public sealed class ClientEvidenceFolderBrowserModel
+{
+    public string CurrentPath { get; set; } = "";
+    public string? ParentPath { get; set; }
+    public List<string> Roots { get; set; } = [];
+    public List<ClientEvidenceFolderModel> Folders { get; set; } = [];
+    public string? ErrorMessage { get; set; }
+}
+
+public sealed class ClientEvidenceFolderModel
+{
+    public string Name { get; set; } = "";
+    public string FullPath { get; set; } = "";
 }
 
 public sealed class ClientEvidenceClientSummaryModel

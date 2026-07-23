@@ -55,9 +55,16 @@ else
             <input class="form-control" @bind="reason" placeholder="Required reason" disabled="@(!canManage)" />
         </div>
         <div class="row-actions mt-2">
+            <button type="button" class="btn btn-outline-secondary" @onclick="OpenFolderPicker" disabled="@(!canManage)">Browse folders</button>
             <button type="button" class="btn btn-outline-secondary" @onclick="SaveRootAsync" disabled="@(!canManage)">Save root</button>
             <button type="button" class="btn btn-primary" @onclick="RunScanAsync" disabled="@(!canManage)">Run scan</button>
         </div>
+        <ServerFolderPicker IsOpen="@isFolderPickerOpen"
+                            InitialPath="@scanRootPath"
+                            Disabled="@(!canManage)"
+                            Title="Choose scan root folder"
+                            Selected="SelectFolder"
+                            Closed="CloseFolderPicker" />
         @if (model.LatestScanRun is not null)
         {
             <div class="table-responsive mt-3">
@@ -147,6 +154,7 @@ else
     private string? currentUser;
     private bool canManage;
     private string? statusMessage;
+    private bool isFolderPickerOpen;
 
     protected override async Task OnInitializedAsync()
     {
@@ -165,6 +173,12 @@ else
     private async Task SaveRootAsync() => await ExecuteAsync(async () => await EvidenceService.SaveScanRootAsync(scanRootPath ?? "", currentUser, reason ?? ""));
 
     private async Task RunScanAsync() => await ExecuteAsync(async () => await EvidenceService.RunScanAsync(scanRootPath, currentUser, reason ?? ""));
+
+    private void SelectFolder(string path) => scanRootPath = path;
+
+    private void OpenFolderPicker() => isFolderPickerOpen = true;
+
+    private void CloseFolderPicker() => isFolderPickerOpen = false;
 
     private async Task ExecuteAsync(Func<Task> action)
     {

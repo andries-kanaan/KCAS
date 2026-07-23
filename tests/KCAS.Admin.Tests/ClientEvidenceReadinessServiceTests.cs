@@ -129,6 +129,23 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
         await Assert.ThrowsAsync<ValidationException>(() => service.SaveScanRootAsync(@"C:\definitely-not-a-kcas-folder", "admin@example.test", "Set scan root."));
     }
 
+    [Fact]
+    public async Task Folder_browser_lists_server_side_child_folders()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var root = CreateTempRoot();
+        var child = Directory.CreateDirectory(Path.Combine(root, "Client Documents"));
+
+        var browser = await service.BrowseServerFoldersAsync(root);
+        var childBrowser = await service.BrowseServerFoldersAsync(child.FullName);
+
+        Assert.Equal(root, browser.CurrentPath);
+        Assert.Contains(browser.Folders, folder => folder.Name == "Client Documents" && folder.FullPath == child.FullName);
+        Assert.Equal(child.FullName, childBrowser.CurrentPath);
+        Assert.Equal(root, childBrowser.ParentPath);
+    }
+
     private static async Task<int> CreateClientAsync(ApplicationDbContext db, string name, string kanaanId, string folder, string category = ClientCategories.NaturalPerson)
     {
         var client = new Client
