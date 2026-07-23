@@ -52,6 +52,7 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
         client.DisplayName = displayName;
         client.Language = Normalize(model.Language);
         client.ClientFolder = Normalize(model.ClientFolder);
+        client.ClientCategory = Normalize(model.ClientCategory) ?? ClientCategories.NaturalPerson;
         client.IsActive = model.IsActive;
 
         client.PersonalProfile ??= new ClientPersonalProfile { Client = client };
@@ -1148,6 +1149,7 @@ public sealed class ClientEditModel
     public string? DisplayName { get; set; }
     public string? Language { get; set; }
     public string? ClientFolder { get; set; }
+    public string ClientCategory { get; set; } = ClientCategories.NaturalPerson;
     public bool IsActive { get; set; } = true;
     public string? SouthAfricanIdNumber { get; set; }
     public string? Gender { get; set; }
@@ -1187,6 +1189,7 @@ public sealed class ClientEditModel
             DisplayName = client.DisplayName,
             Language = client.Language,
             ClientFolder = client.ClientFolder,
+            ClientCategory = client.ClientCategory,
             IsActive = client.IsActive,
             SouthAfricanIdNumber = client.PersonalProfile?.SouthAfricanIdNumber,
             Gender = client.PersonalProfile?.Gender,

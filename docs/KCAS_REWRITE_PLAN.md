@@ -299,12 +299,12 @@ $env:ASPNETCORE_ENVIRONMENT='Development'
 Start-Process -FilePath "C:\Users\andriesvt\OneDrive\KCAS\.dotnet\dotnet.exe" -ArgumentList "bin\Debug\net10.0\KCAS.Admin.dll","--urls","http://127.0.0.1:5143" -WorkingDirectory "C:\Users\andriesvt\OneDrive\KCAS\src\KCAS.Admin"
 ```
 
-Verified locally after the security, import and compliance foundation fixes:
+Verified locally after the security, import, compliance foundation and client evidence-readiness fixes:
 
 - `dotnet build` succeeds.
 - `dotnet test tests\KCAS.Admin.Tests\KCAS.Admin.Tests.csproj` passes.
 - `dotnet ef migrations has-pending-model-changes` reports no pending model changes.
-- `src\KCAS.Admin\Data\Migrations\kcas_blazor_schema.sql` applies successfully to an empty temporary MySQL database and should record latest migration `20260723084233_AddComplianceFoundation`.
+- `src\KCAS.Admin\Data\Migrations\kcas_blazor_schema.sql` applies successfully to an empty temporary MySQL database and should record latest migration `20260723130255_AddClientEvidenceCategories`.
 - Kestrel starts on `http://127.0.0.1:5143`.
 - WAMP HTTPS proxy reaches the app at `https://kcas.test:8443`.
 - `https://kcas.test:8443/clients` redirects unauthenticated users to login.
@@ -314,6 +314,7 @@ Verified locally after the security, import and compliance foundation fixes:
 - Seeder removes stale KCAS permission claims when permission names change.
 - Approved users land on `/clients` after login when they have `Clients.View`; otherwise they land on `/`.
 - Compliance foundation routes, permissions, service workflow and audit events are covered by automated tests.
+- Client evidence readiness, server-folder scanner idempotence, unmatched-file handling, evidence verification and exception logic are covered by automated tests.
 
 Still to verify manually in browser:
 
@@ -323,6 +324,8 @@ Still to verify manually in browser:
 - `/Account/WindowsLogin` works in the browser/WAMP and production reverse-proxy environments.
 - `/imports` supports scan review decisions and baseline reset only when `LegacyImport:AllowResetImportedData` is enabled.
 - `/compliance` and `/compliance/settings` support the full Phase 1 controlled configuration workflow in the deployed browser environment.
+- `/compliance/client-evidence` can configure and scan the live server client document root.
+- `/clients/{id}/evidence` supports per-client evidence readiness review.
 - Client create/edit, contact/address editing, relationship editing, note create/edit/finalize/delete.
 - Investment account create/edit/delete and transaction create/edit/finalize/delete.
 - Fund summary filtering/totals and unmatched valuation handling.
@@ -354,7 +357,7 @@ Still to verify manually in browser:
    - Reconcile counts and spot-check representative clients, notes, KYC, investments, fund valuations, and reference choices.
 
 4. Richer domain modules.
-   - Accept the Phase 1 compliance foundation workflow in browser before building client evidence readiness and risk assessments.
+   - Accept the Phase 1 compliance foundation workflow and Phase 2 client evidence readiness workflow in browser before building full client risk assessments.
    - Add reference-data administration screens only if operational users need to maintain values inside KCAS.
    - Build report/export workflows.
    - Continue administration/security refinements after acceptance review.

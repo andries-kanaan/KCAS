@@ -35,6 +35,15 @@
             <label>Display name <InputText class="form-control" @bind-Value="model.DisplayName" /></label>
             <label>Language <InputText class="form-control" @bind-Value="model.Language" /></label>
             <label>Client folder <InputText class="form-control" @bind-Value="model.ClientFolder" /></label>
+            <label>
+                Client category
+                <InputSelect class="form-control" @bind-Value="model.ClientCategory">
+                    <option value="@ClientCategories.NaturalPerson">Natural person</option>
+                    <option value="@ClientCategories.LegalPerson">Legal person</option>
+                    <option value="@ClientCategories.Trust">Trust</option>
+                    <option value="@ClientCategories.Other">Other</option>
+                </InputSelect>
+            </label>
             <label class="check-row"><InputCheckbox @bind-Value="model.IsActive" /> Active</label>
         </article>
 
