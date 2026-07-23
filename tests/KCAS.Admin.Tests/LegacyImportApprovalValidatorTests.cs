@@ -39,6 +39,38 @@ public sealed class LegacyImportApprovalValidatorTests
         Assert.Throws<InvalidOperationException>(() => LegacyImportApprovalValidator.GetApprovedNewRows(run, "stage", new string('a', 64)));
     }
 
+    [Fact]
+    public void Can_limit_approval_to_selected_new_rows()
+    {
+        var run = Scan("stage", new string('a', 64));
+        run.Rows.Add(Row("tbl_client", 1, LegacyImportClassifications.New, "one"));
+        run.Rows.Add(Row("tbl_client", 2, LegacyImportClassifications.New, "two"));
+
+        var approved = LegacyImportApprovalValidator.GetApprovedNewRows(
+            run,
+            "stage",
+            new string('a', 64),
+            new HashSet<(string Table, long Id)> { ("tbl_client", 2) });
+
+        var item = Assert.Single(approved);
+        Assert.Equal(("tbl_client", 2L), item.Key);
+        Assert.Equal("two", item.Value);
+    }
+
+    [Fact]
+    public void Rejects_selected_rows_that_are_not_eligible_for_apply()
+    {
+        var run = Scan("stage", new string('a', 64));
+        run.Rows.Add(Row("tbl_client", 1, LegacyImportClassifications.Changed, "one"));
+        run.Rows.Add(Row("tbl_kyc", 2, LegacyImportClassifications.New, "two"));
+
+        Assert.Throws<InvalidOperationException>(() => LegacyImportApprovalValidator.GetApprovedNewRows(
+            run,
+            "stage",
+            new string('a', 64),
+            new HashSet<(string Table, long Id)> { ("tbl_client", 1), ("tbl_kyc", 2) }));
+    }
+
     private static LegacyImportRun Scan(string source, string hash) => new()
     {
         Id = 7,

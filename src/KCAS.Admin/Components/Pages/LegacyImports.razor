@@ -1,9 +1,15 @@
 @page "/imports"
 @page "/imports/{RunId:long}"
+@rendermode InteractiveServer
+@implements IAsyncDisposable
 @attribute [Authorize(Policy = KcasPermissions.LegacyImportsView)]
 @using KCAS.Admin.Data
+@using KCAS.Admin.LegacyImport
 @using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.Authorization
 @inject ApplicationDbContext Db
+@inject LegacyImportWebService ImportService
+@inject AuthenticationStateProvider AuthenticationStateProvider
 
 <PageTitle>Legacy import reconciliation</PageTitle>
 
@@ -14,6 +20,81 @@
         <p class="lede">Review what is new, unchanged, changed, missing, or invalid before any existing KCAS data is altered.</p>
     </div>
 </div>
+
+<section class="work-area">
+    <div class="section-heading-row">
+        <div>
+            <h2>Import SQL export</h2>
+            <p class="section-subtitle">Upload a fresh kanaanclients SQL export to stage, scan and reconcile it from KCAS.</p>
+        </div>
+    </div>
+    <div class="import-mode-grid">
+        <label class="check-row">
+            <input class="form-check-input" type="radio" name="import-mode" checked="@IsIncrementalMode" @onchange="@(() => importMode = ImportModeIncremental)" disabled="@isBusy" />
+            <span>Incremental reconciliation</span>
+        </label>
+        <label class="check-row">
+            <input class="form-check-input" type="radio" name="import-mode" checked="@(!IsIncrementalMode)" @onchange="@(() => importMode = ImportModeLegacyBaseline)" disabled="@(isBusy || !ImportService.CanResetImportedLegacyData)" />
+            <span>Baseline import</span>
+        </label>
+    </div>
+    <div class="import-grid">
+        <label>
+            SQL export
+            <InputFile class="form-control" OnChange="SelectUpload" accept=".sql" disabled="@isBusy" />
+            @if (uploadFile is not null)
+            {
+                <span class="muted">@uploadFile.Name (@FormatBytes(uploadFile.Size))</span>
+            }
+        </label>
+        @if (IsIncrementalMode)
+        {
+            <label>
+                Table scope
+                <select class="form-select" @bind="selectedTableScope" disabled="@isBusy">
+                    @foreach (var option in LegacyImportTableScopes.Options)
+                    {
+                        <option value="@option.Value">@option.Label</option>
+                    }
+                </select>
+            </label>
+            <label class="check-row">
+            <input class="form-check-input" type="checkbox" @bind="applyAllAfterScan" disabled="@isBusy" />
+            <span>After scan, apply all eligible new records</span>
+            </label>
+        }
+        else
+        {
+            <p class="section-subtitle">Backs up KCAS, deletes previous imported legacy baseline data, then imports the mapped baseline again.</p>
+        }
+        <div class="form-actions">
+            <button type="button" class="btn btn-primary" @onclick="UploadAndScanAsync" disabled="@(isBusy || uploadFile is null)">
+                @(isBusy ? "Working..." : IsIncrementalMode ? "Upload and scan" : "Reset and import baseline")
+            </button>
+        </div>
+    </div>
+    @if (!ImportService.CanResetImportedLegacyData)
+    {
+        <p class="muted mt-2">Legacy baseline import is disabled in this environment.</p>
+    }
+    @if (activeJob is not null)
+    {
+        <div class="import-progress" role="status" aria-live="polite">
+            <div class="progress" aria-label="@activeJob.Message">
+                <div class="progress-bar progress-bar-striped @(activeJob.IsRunning ? "progress-bar-animated" : string.Empty)" style="width: @(activeJob.Percent)%"></div>
+            </div>
+            <p class="muted">@activeJob.Title: @activeJob.Message (@activeJob.Percent%)</p>
+        </div>
+    }
+    @if (!string.IsNullOrWhiteSpace(statusMessage))
+    {
+        <div class="alert alert-success mt-3">@statusMessage</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-danger mt-3">@errorMessage</div>
+    }
+</section>
 
 @if (runs.Count == 0)
 {
@@ -60,7 +141,18 @@ else
     @if (selectedRun is not null)
     {
         <section class="detail-panel">
-            <h2>Run #@selectedRun.Id</h2>
+            <div class="section-heading-row">
+                <div>
+                    <h2>Run #@selectedRun.Id</h2>
+                    <p class="section-subtitle">@selectedRun.Mode · @selectedRun.Status</p>
+                </div>
+                @if (CanApplySelectedRun)
+                {
+                    <button type="button" class="btn btn-primary" @onclick="ApplyAllAsync" disabled="@isBusy">
+                        @(isBusy ? "Working..." : $"Apply all eligible new records ({eligibleNewCount})")
+                    </button>
+                }
+            </div>
             <p>
                 New @selectedRun.NewCount · Applied @selectedRun.AppliedCount · Unchanged @selectedRun.UnchangedCount ·
                 Changed @selectedRun.ChangedCount · Missing @selectedRun.MissingCount · Invalid @selectedRun.InvalidCount ·
@@ -91,6 +183,7 @@ else
                         <th>Classification</th>
                         <th>Apply state</th>
                         <th>Differences</th>
+                        <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -133,6 +226,36 @@ else
                                     </details>
                                 }
                             </td>
+                            <td>
+                                @if (ImportService.IsEligibleForApply(row) && selectedRun is not null && selectedRun.Mode == LegacyImportModes.Scan)
+                                {
+                                    <button type="button" class="btn btn-sm btn-outline-primary" @onclick="() => ApplyRowAsync(row)" disabled="@isBusy">
+                                        Apply
+                                    </button>
+                                }
+                                else if (ImportService.CanRetainKcas(row))
+                                {
+                                    <div class="btn-group btn-group-sm" role="group" aria-label="Changed row actions">
+                                        @if (ImportService.CanApplyIncomingLegacy(row))
+                                        {
+                                            <button type="button" class="btn btn-outline-primary" @onclick="() => ApplyIncomingLegacyAsync(row)" disabled="@isBusy">
+                                                Apply incoming
+                                            </button>
+                                        }
+                                        <button type="button" class="btn btn-outline-secondary" @onclick="() => RetainKcasAsync(row)" disabled="@isBusy">
+                                            Retain KCAS
+                                        </button>
+                                    </div>
+                                }
+                                else if (LegacyImportApprovalValidator.ReviewOnlySourceTables.Contains(row.SourceTable) && row.Classification == LegacyImportClassifications.New)
+                                {
+                                    <span class="text-muted">Review only</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">—</span>
+                                }
+                            </td>
                         </tr>
                     }
                 </tbody>
@@ -160,6 +283,25 @@ else
     private long selectedRunId;
     private string classification = LegacyImportClassifications.Changed;
     private string sourceTable = string.Empty;
+    private IBrowserFile? uploadFile;
+    private const string ImportModeIncremental = "Incremental";
+    private const string ImportModeLegacyBaseline = "LegacyBaseline";
+    private string importMode = ImportModeIncremental;
+    private string selectedTableScope = LegacyImportTableScopes.AllMapped;
+    private bool applyAllAfterScan;
+    private bool isBusy;
+    private LegacyImportJobSnapshot? activeJob;
+    private CancellationTokenSource? pollingCancellation;
+    private string? statusMessage;
+    private string? errorMessage;
+    private int eligibleNewCount;
+
+    private bool CanApplySelectedRun =>
+        selectedRun is { Mode: LegacyImportModes.Scan, CompletedAtUtc: not null } &&
+        selectedRun.Status is LegacyImportRunStatuses.Completed or LegacyImportRunStatuses.AwaitingReview &&
+        eligibleNewCount > 0;
+
+    private bool IsIncrementalMode => importMode == ImportModeIncremental;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -175,6 +317,7 @@ else
         {
             rows = [];
             sourceTables = [];
+            eligibleNewCount = 0;
             return;
         }
 
@@ -184,6 +327,13 @@ else
             .Distinct()
             .OrderBy(value => value)
             .ToListAsync();
+
+        eligibleNewCount = await Db.LegacyImportRowStates.AsNoTracking()
+            .Where(row => row.LegacyImportRunId == selectedRunId)
+            .Where(row => row.Classification == LegacyImportClassifications.New)
+            .Where(row => row.ApplyStatus != LegacyImportApplyStatuses.Applied)
+            .Where(row => row.SourceTable != "tbl_fund" && row.SourceTable != "tbl_kyc")
+            .CountAsync();
 
         var query = Db.LegacyImportRowStates.AsNoTracking()
             .Include(row => row.Differences)
@@ -197,6 +347,159 @@ else
             query = query.Where(row => row.SourceTable == sourceTable);
         }
         rows = await query.OrderBy(row => row.SourceTable).ThenBy(row => row.SourceId).Take(200).ToListAsync();
+    }
+
+    private void SelectUpload(InputFileChangeEventArgs args)
+    {
+        uploadFile = args.File;
+        statusMessage = null;
+        errorMessage = null;
+    }
+
+    private async Task UploadAndScanAsync()
+    {
+        if (uploadFile is null)
+        {
+            return;
+        }
+
+        await StartJobAsync(async () => await ImportService.StartScanUploadedSqlJobAsync(
+            uploadFile,
+            applyAllAfterScan,
+            resetImportedDataFirst: !IsIncrementalMode,
+            IsIncrementalMode ? selectedTableScope : LegacyImportTableScopes.AllMapped));
+    }
+
+    private async Task ApplyAllAsync()
+    {
+        if (selectedRun is null)
+        {
+            return;
+        }
+
+        await StartJobAsync(async () => await ImportService.StartApplyAllNewRowsJobAsync(selectedRun.Id, selectedTableScope));
+    }
+
+    private async Task ApplyRowAsync(LegacyImportRowState row)
+    {
+        if (selectedRun is null)
+        {
+            return;
+        }
+
+        await StartJobAsync(async () => await ImportService.StartApplySingleNewRowJobAsync(selectedRun.Id, row.SourceTable, row.SourceId, selectedTableScope));
+    }
+
+    private async Task RetainKcasAsync(LegacyImportRowState row)
+    {
+        isBusy = true;
+        statusMessage = null;
+        errorMessage = null;
+        try
+        {
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            var reviewedBy = authState.User.Identity?.Name ?? "KCAS user";
+            await ImportService.RetainKcasForChangedRowAsync(row.Id, reviewedBy);
+            statusMessage = $"{row.SourceTable} #{row.SourceId}: KCAS values retained.";
+            runs = await Db.LegacyImportRuns.AsNoTracking().OrderByDescending(run => run.Id).Take(20).ToListAsync();
+            await LoadRowsAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.GetBaseException().Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task ApplyIncomingLegacyAsync(LegacyImportRowState row)
+    {
+        isBusy = true;
+        statusMessage = null;
+        errorMessage = null;
+        try
+        {
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            var reviewedBy = authState.User.Identity?.Name ?? "KCAS user";
+            await ImportService.ApplyIncomingLegacyForChangedRowAsync(row.Id, reviewedBy);
+            statusMessage = $"{row.SourceTable} #{row.SourceId}: incoming legacy values applied.";
+            runs = await Db.LegacyImportRuns.AsNoTracking().OrderByDescending(run => run.Id).Take(20).ToListAsync();
+            await LoadRowsAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.GetBaseException().Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task StartJobAsync(Func<Task<LegacyImportJobSnapshot>> startJob)
+    {
+        isBusy = true;
+        statusMessage = null;
+        errorMessage = null;
+        try
+        {
+            activeJob = await startJob();
+            await PollActiveJobAsync(activeJob.Id);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.GetBaseException().Message;
+            isBusy = false;
+        }
+    }
+
+    private async Task PollActiveJobAsync(Guid jobId)
+    {
+        pollingCancellation?.Cancel();
+        pollingCancellation?.Dispose();
+        pollingCancellation = new CancellationTokenSource();
+        var token = pollingCancellation.Token;
+        try
+        {
+            while (!token.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), token);
+                var snapshot = ImportService.GetJob(jobId);
+                if (snapshot is null)
+                {
+                    errorMessage = "Import job state is no longer available.";
+                    isBusy = false;
+                    return;
+                }
+
+                activeJob = snapshot;
+                await InvokeAsync(StateHasChanged);
+                if (!snapshot.IsRunning)
+                {
+                    isBusy = false;
+                    if (snapshot.IsCompleted)
+                    {
+                        statusMessage = snapshot.Message;
+                        if (snapshot.ResultRunId.HasValue)
+                        {
+                            selectedRunId = snapshot.ResultRunId.Value;
+                        }
+                        runs = await Db.LegacyImportRuns.AsNoTracking().OrderByDescending(run => run.Id).Take(20).ToListAsync();
+                        await LoadRowsAsync();
+                    }
+                    else
+                    {
+                        errorMessage = snapshot.Message;
+                    }
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     private async Task SelectRunAsync(ChangeEventArgs args)
@@ -221,6 +524,15 @@ else
         await LoadRowsAsync();
     }
 
+    public ValueTask DisposeAsync()
+    {
+        pollingCancellation?.Cancel();
+        pollingCancellation?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+
     private static string Display(string? value) => value is null ? "(empty)" : value;
     private static string ShortHash(string value) => value.Length > 16 ? value[..16] + "…" : value;
+    private static string FormatBytes(long bytes)
+        => bytes >= 1_048_576 ? $"{bytes / 1_048_576d:N1} MB" : $"{bytes / 1024d:N1} KB";
 }

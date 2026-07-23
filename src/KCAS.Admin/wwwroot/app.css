@@ -595,6 +595,36 @@ a, .btn-link {
     gap: .55rem .85rem;
 }
 
+.import-grid {
+    display: grid;
+    grid-template-columns: minmax(16rem, 1fr) minmax(14rem, .8fr) minmax(18rem, auto) auto;
+    gap: .85rem;
+    align-items: end;
+}
+
+.import-mode-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .75rem 1.25rem;
+    margin-bottom: .85rem;
+}
+
+.import-grid label:not(.check-row) {
+    display: grid;
+    gap: .3rem;
+    font-weight: 600;
+}
+
+.import-progress {
+    display: grid;
+    gap: .45rem;
+    margin-top: 1rem;
+}
+
+.import-progress .progress {
+    height: .8rem;
+}
+
 .edit-row {
     display: grid;
     grid-template-columns: minmax(8rem, 1fr) minmax(8rem, 1fr) minmax(12rem, 2fr) auto auto;
@@ -946,6 +976,7 @@ a, .btn-link {
     }
 
     .edit-row,
+    .import-grid,
     .address-edit-row,
     .relationship-edit-row-header {
         grid-template-columns: 1fr;
