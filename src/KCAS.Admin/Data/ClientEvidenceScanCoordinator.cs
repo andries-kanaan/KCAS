@@ -38,6 +38,38 @@ public sealed class ClientEvidenceScanCoordinator(IServiceScopeFactory scopeFact
         return runId;
     }
 
+    public async Task<int> StartClientScanAsync(int clientId, string? selectedClientFolder, string? userName, string reason)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var runId = await service.StartClientScanRunAsync(clientId, selectedClientFolder, userName, reason);
+        var cancellation = new CancellationTokenSource();
+        if (!runningScans.TryAdd(runId, cancellation))
+        {
+            cancellation.Dispose();
+            throw new InvalidOperationException("Unable to track the evidence scan.");
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var runScope = scopeFactory.CreateScope();
+                var runService = runScope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+                await runService.ExecuteClientScanRunAsync(runId, clientId, userName, reason, cancellation.Token);
+            }
+            finally
+            {
+                if (runningScans.TryRemove(runId, out var completedCancellation))
+                {
+                    completedCancellation.Dispose();
+                }
+            }
+        });
+
+        return runId;
+    }
+
     public async Task CancelScanAsync(int runId, string? userName, string reason)
     {
         if (runningScans.TryGetValue(runId, out var cancellation))

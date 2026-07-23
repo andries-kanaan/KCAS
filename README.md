@@ -120,6 +120,8 @@ After reviewing the resulting run at `/imports`, apply only the exact new IDs ap
 
 The `/imports` page also exposes a baseline import option only when `LegacyImport:AllowResetImportedData` is enabled. Keep this setting disabled once KCAS becomes the operational system of record. During the current pre-live acceptance period it may be enabled temporarily with `LegacyImport__AllowResetImportedData=true` so imported legacy data can still be reset deliberately.
 
+The `/compliance/client-evidence` scan links server-side client documents for review; it does not make a requirement complete by file presence alone. Readiness changes only when evidence is verified or an approved exception exists. The client evidence pages therefore show linked evidence separately from verified evidence and complete or blocked requirements. Unmatched or ambiguous scan files can be manually linked to a client and evidence type, but still require review before they count as verified evidence.
+
 After login, approved users are sent to `/clients` when their role includes `Clients.View`; users without client access fall back to `/`. KCAS no longer reuses a stale post-login return URL from a previous user session.
 
 Legacy `tbl_fund` valuations and `tbl_kyc` policies are scan-only because their legacy replacement workflows can create new primary IDs for replacement records. They are excluded from `--apply-new` until KCAS has reviewed stable identities and merge rules.

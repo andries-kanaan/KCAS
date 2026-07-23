@@ -1260,3 +1260,29 @@ h1:focus {
     height: 0.75rem;
     margin-top: 0.65rem;
 }
+
+.resolve-grid {
+    display: grid;
+    gap: 0.45rem;
+    grid-template-columns: minmax(12rem, 1fr) minmax(8rem, 0.7fr) auto;
+    min-width: 26rem;
+}
+
+.client-folder-scan-row {
+    display: grid;
+    gap: 0.45rem;
+    grid-template-columns: minmax(16rem, 1fr) auto auto;
+    min-width: 28rem;
+}
+
+.evidence-review-row {
+    align-items: flex-start;
+    display: grid;
+    gap: 0.45rem;
+    grid-template-columns: auto 1fr;
+    margin-bottom: 0.45rem;
+}
+
+.evidence-review-row .text-muted {
+    grid-column: 2;
+}
