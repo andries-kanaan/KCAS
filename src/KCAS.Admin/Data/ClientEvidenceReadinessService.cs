@@ -26,6 +26,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             {
                 ClientId = client.Id,
                 DisplayName = client.DisplayName,
+                SurnameOrEntityName = client.SurnameOrEntityName,
                 KanaanId = client.KanaanId,
                 ClientCategory = client.ClientCategory,
                 ClientFolder = client.ClientFolder
@@ -231,6 +232,28 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         return Task.FromResult(model);
     }
 
+    public async Task SaveClientEvidenceFolderAsync(int clientId, string? selectedClientFolder, string? userName, string reason)
+    {
+        RequireReason(reason);
+        var rootPath = Normalize(selectedClientFolder) ?? throw new ValidationException("Client folder path is required.");
+        if (!Directory.Exists(rootPath))
+        {
+            throw new ValidationException("Client folder path does not exist on the server.");
+        }
+
+        var client = await db.Clients.SingleOrDefaultAsync(client => client.Id == clientId)
+            ?? throw new InvalidOperationException("Client not found.");
+        client.ClientFolder = rootPath;
+        client.UpdatedAtUtc = DateTime.UtcNow;
+        await AddAuditAsync("Client", client.Id, "SetEvidenceClientFolder", new
+        {
+            client.Id,
+            client.DisplayName,
+            client.ClientFolder
+        }, userName, reason);
+        await db.SaveChangesAsync();
+    }
+
     public async Task<int> RunScanAsync(string? requestedRootPath, string? userName, string reason)
     {
         var runId = await StartScanRunAsync(requestedRootPath, userName, reason);
@@ -292,16 +315,8 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             throw new InvalidOperationException("An evidence scan is already running.");
         }
 
-        var rootPath = Normalize(selectedClientFolder) ?? throw new ValidationException("Client folder path is required.");
-        if (!Directory.Exists(rootPath))
-        {
-            throw new ValidationException("Client folder path does not exist on the server.");
-        }
-
-        var client = await db.Clients.SingleOrDefaultAsync(client => client.Id == clientId)
-            ?? throw new InvalidOperationException("Client not found.");
-        client.ClientFolder = rootPath;
-        client.UpdatedAtUtc = DateTime.UtcNow;
+        await SaveClientEvidenceFolderAsync(clientId, selectedClientFolder, userName, reason);
+        var rootPath = Normalize(selectedClientFolder)!;
 
         var run = new ClientEvidenceScanRun
         {
@@ -310,12 +325,6 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             Status = ClientEvidenceScanStatuses.Running
         };
         db.ClientEvidenceScanRuns.Add(run);
-        await AddAuditAsync("Client", client.Id, "SetEvidenceClientFolder", new
-        {
-            client.Id,
-            client.DisplayName,
-            client.ClientFolder
-        }, userName, reason);
         await db.SaveChangesAsync();
         return run.Id;
     }
@@ -1061,6 +1070,7 @@ public sealed class ClientEvidenceClientSummaryModel
 {
     public int ClientId { get; set; }
     public string DisplayName { get; set; } = "";
+    public string SurnameOrEntityName { get; set; } = "";
     public string? KanaanId { get; set; }
     public string ClientCategory { get; set; } = ClientCategories.NaturalPerson;
     public string? ClientFolder { get; set; }

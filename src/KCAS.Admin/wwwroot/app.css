@@ -459,7 +459,8 @@ a, .btn-link {
 }
 
 .table-responsive {
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: hidden;
     background: rgba(255, 255, 255, .88);
     border: 1px solid rgba(19, 25, 35, .1);
     border-radius: 8px;

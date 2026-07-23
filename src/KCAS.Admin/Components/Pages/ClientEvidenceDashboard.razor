@@ -111,13 +111,35 @@ else
 
     <section class="work-area">
         <h2>Client readiness</h2>
+        @if (IsScanRunning && model.LatestScanRun is not null)
+        {
+            <div class="scan-progress mb-3">
+                <div class="scan-progress-header">
+                    <strong>@ClientScanProgressTitle</strong>
+                    <span>@model.LatestScanRun.TotalFiles file(s) processed</span>
+                </div>
+                <div class="progress" role="progressbar" aria-label="Client evidence scan progress">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 100%"></div>
+                </div>
+                <div class="scan-progress-counts">
+                    <span>@model.LatestScanRun.LinkedFiles linked</span>
+                    <span>@model.LatestScanRun.UnmatchedFiles unmatched</span>
+                    <span>@model.LatestScanRun.AmbiguousFiles ambiguous</span>
+                    <span>@model.LatestScanRun.SkippedFiles skipped</span>
+                </div>
+            </div>
+        }
         <div class="table-responsive">
-            <table class="table align-middle">
+            <table class="table align-middle filter-table">
                 <thead>
                     <tr>
-                        <th>Client</th>
+                        <th>
+                            <button type="button" class="sort-header" @onclick='() => SetClientSort("client")'>Client @SortGlyph("client")</button>
+                        </th>
+                        <th>
+                            <button type="button" class="sort-header" @onclick='() => SetClientSort("surname")'>Surname @SortGlyph("surname")</button>
+                        </th>
                         <th>Category</th>
-                        <th>Kanaan ID</th>
                         <th>Client folder</th>
                         <th>Linked</th>
                         <th>Verified</th>
@@ -127,14 +149,19 @@ else
                         <th>Status</th>
                         <th></th>
                     </tr>
+                    <tr class="filter-row">
+                        <th><input class="form-control form-control-sm" @bind="clientSearch" @bind:event="oninput" placeholder="Search client" /></th>
+                        <th><input class="form-control form-control-sm" @bind="surnameSearch" @bind:event="oninput" placeholder="Search surname" /></th>
+                        <th colspan="9"></th>
+                    </tr>
                 </thead>
                 <tbody>
-                    @foreach (var client in model.Clients)
+                    @foreach (var client in FilteredClients)
                     {
                         <tr>
                             <td>@client.DisplayName</td>
+                            <td>@Display(client.SurnameOrEntityName)</td>
                             <td>@client.ClientCategory</td>
-                            <td>@Display(client.KanaanId)</td>
                             <td>
                                 @if (canManage)
                                 {
@@ -220,8 +247,14 @@ else
     private string? currentUser;
     private bool canManage;
     private string? statusMessage;
+    private string? clientSearch;
+    private string? surnameSearch;
+    private string clientSortColumn = "client";
+    private bool isClientSortDescending;
     private bool isFolderPickerOpen;
     private int? clientFolderPickerClientId;
+    private int? activeClientScanRunId;
+    private string? activeClientScanClientName;
     private CancellationTokenSource? pollingCancellation;
     private readonly Dictionary<int, int> resolvedClientIds = [];
     private readonly Dictionary<int, string?> resolvedEvidenceTypes = [];
@@ -234,6 +267,40 @@ else
     private string? ClientFolderPickerInitialPath => clientFolderPickerClientId is int clientId && clientFolderPaths.TryGetValue(clientId, out var path)
         ? path
         : null;
+
+    private string ClientScanProgressTitle => activeClientScanRunId == model?.LatestScanRun?.Id && !string.IsNullOrWhiteSpace(activeClientScanClientName)
+        ? $"Scanning {activeClientScanClientName}..."
+        : "Scanning client evidence...";
+
+    private IEnumerable<ClientEvidenceClientSummaryModel> FilteredClients
+    {
+        get
+        {
+            if (model is null)
+            {
+                return [];
+            }
+
+            var clients = model.Clients.AsEnumerable();
+            if (!string.IsNullOrWhiteSpace(clientSearch))
+            {
+                clients = clients.Where(client => ContainsSearch(client.DisplayName, clientSearch));
+            }
+
+            if (!string.IsNullOrWhiteSpace(surnameSearch))
+            {
+                clients = clients.Where(client => ContainsSearch(client.SurnameOrEntityName, surnameSearch));
+            }
+
+            clients = clientSortColumn == "surname"
+                ? clients.OrderBy(client => client.SurnameOrEntityName, StringComparer.CurrentCultureIgnoreCase)
+                    .ThenBy(client => client.DisplayName, StringComparer.CurrentCultureIgnoreCase)
+                : clients.OrderBy(client => client.DisplayName, StringComparer.CurrentCultureIgnoreCase)
+                    .ThenBy(client => client.SurnameOrEntityName, StringComparer.CurrentCultureIgnoreCase);
+
+            return isClientSortDescending ? clients.Reverse() : clients;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -308,11 +375,21 @@ else
 
     private void CloseFolderPicker() => isFolderPickerOpen = false;
 
-    private void SelectClientFolder(string path)
+    private async Task SelectClientFolder(string path)
     {
         if (clientFolderPickerClientId is int clientId)
         {
             clientFolderPaths[clientId] = path;
+            try
+            {
+                await EvidenceService.SaveClientEvidenceFolderAsync(clientId, path, currentUser, FolderSelectionReason);
+                statusMessage = "Client folder saved.";
+                await LoadAsync();
+            }
+            catch (Exception ex)
+            {
+                statusMessage = ex.Message;
+            }
         }
     }
 
@@ -349,7 +426,10 @@ else
 
         try
         {
-            var runId = await ScanCoordinator.StartClientScanAsync(clientId, clientFolder, currentUser, reason ?? "");
+            var clientName = model?.Clients.FirstOrDefault(client => client.ClientId == clientId)?.DisplayName;
+            var runId = await ScanCoordinator.StartClientScanAsync(clientId, clientFolder, currentUser, ClientScanReason);
+            activeClientScanRunId = runId;
+            activeClientScanClientName = clientName;
             statusMessage = $"Client evidence scan {runId} started.";
             await LoadAsync();
             StartPolling();
@@ -404,6 +484,35 @@ else
             statusMessage = ex.Message;
         }
     }
+
+    private void SetClientSort(string column)
+    {
+        if (clientSortColumn == column)
+        {
+            isClientSortDescending = !isClientSortDescending;
+            return;
+        }
+
+        clientSortColumn = column;
+        isClientSortDescending = false;
+    }
+
+    private string SortGlyph(string column) => clientSortColumn == column
+        ? isClientSortDescending ? "Down" : "Up"
+        : "";
+
+    private string FolderSelectionReason => string.IsNullOrWhiteSpace(reason)
+        ? "Select client evidence folder."
+        : reason;
+
+    private string ClientScanReason => string.IsNullOrWhiteSpace(reason)
+        ? "Run client evidence folder scan."
+        : reason;
+
+    private static bool ContainsSearch(string? value, string? search) =>
+        !string.IsNullOrWhiteSpace(value) &&
+        !string.IsNullOrWhiteSpace(search) &&
+        value.Contains(search, StringComparison.CurrentCultureIgnoreCase);
 
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
 
