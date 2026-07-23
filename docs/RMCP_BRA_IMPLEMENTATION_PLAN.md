@@ -151,8 +151,8 @@ Do not resolve a material conflict merely by choosing the newest filename. Recor
 
 | Phase | Deliverable | Status | Gate |
 |---|---|---|---|
-| 0A | Safe scan and add-new reconciliation foundation | Code complete; not deployed to the working database | Deploy and complete controlled acceptance run |
-| 0B | Reviewed field-by-field merge and reconciliation closure | Not started | Demonstrate review, approval, rejection and audit trail |
+| 0A | Safe scan and add-new reconciliation foundation | Implemented and merged; live acceptance pending | Complete controlled live scan/apply-new rehearsal |
+| 0B | Reviewed field-by-field merge and reconciliation closure | Implemented and merged; live acceptance pending | Demonstrate review, apply, rejection, deferral and audit trail |
 | 1 | Compliance foundation and controlled configuration | Not started | Configuration/versioning and permissions accepted |
 | 2 | Client profile and evidence readiness | Not started | Pilot clients pass completeness and evidence checks |
 | 3 | Client risk assessment workflow | Not started | Pilot assessments reproduce approved methodology |
@@ -161,7 +161,7 @@ Do not resolve a material conflict merely by choosing the newest filename. Recor
 | 6 | Monitoring, reviews and remediation | Not started | End-to-end review and escalation cases pass |
 | 7 | Inspection readiness, reporting and rollout | Not started | Inspection pack, security, recovery and rollout accepted |
 
-Current resume point: **Phase 0A controlled deployment and acceptance.**
+Current resume point: **Phase 0 live acceptance run and acceptance evidence.**
 
 No Phase 1 work should begin until both Phase 0A and Phase 0B have passed their gates.
 
@@ -198,6 +198,7 @@ Make repeated legacy imports safe while preserving all KCAS operational changes.
 - Classifications for new, unchanged, changed, missing, invalid and orphaned records.
 - Client reconciliation status.
 - Protected administrator reconciliation page.
+- Baseline import reset guarded by `LegacyImport:AllowResetImportedData`; this remains temporary while KCAS is not yet the operational system of record.
 - Migration and targeted deployment SQL.
 - Automated reconciliation, recorder and protected-route tests.
 - Isolated real-source rehearsal proving add-new followed by an idempotent scan.
@@ -205,8 +206,8 @@ Make repeated legacy imports safe while preserving all KCAS operational changes.
 #### Still required for acceptance
 
 1. Back up the working KCAS database.
-2. Review and approve the Phase 0 migration.
-3. Apply the migration to the working database.
+2. Confirm the latest deployed build and migrations are active on the live server.
+3. Temporarily set `LegacyImport__AllowResetImportedData=true` on live only while reset imports remain acceptable.
 4. Run `--scan` first; do not begin with `--apply-new`.
 5. Reconcile totals by source table and inspect representative clients, KYC, notes, accounts, transactions, valuations and reference data.
 6. Investigate every invalid and orphaned item.
@@ -231,21 +232,26 @@ Make repeated legacy imports safe while preserving all KCAS operational changes.
 
 Allow authorised users to resolve changed source records without sacrificing KCAS changes or auditability.
 
-#### Deliverables
+#### Implemented
 
 - Review queue grouped by run, source table, client and severity.
 - Side-by-side baseline, incoming source and current KCAS values.
-- Field decisions: keep KCAS, accept source, manually resolve, or defer.
-- Mandatory reason for manual resolution and sensitive-field decisions.
-- Record-level approval after field decisions are complete.
-- Separation between reviewer and approver where configured.
-- Optimistic concurrency so a review cannot overwrite newer KCAS work.
+- Field decisions: retain KCAS, apply incoming source, manually resolve, defer, or reject.
+- Mandatory reason for each review decision and mandatory manual resolution value/note.
 - Transactional application of approved changes.
 - New accepted source snapshot only after successful approval/application.
-- Rejection, reopening and superseded-review handling.
+- Rejection and deferral handling.
 - Missing-from-source resolution without automatic deletion.
-- Complete audit trail and reconciliation closure report.
+- Audit trail with reviewer, review time, decision and reason.
 - Permission set for viewing, reviewing, approving and administering imports.
+
+#### Still required for acceptance
+
+1. Exercise retain KCAS, apply incoming, manual, defer and reject decisions on representative live review rows.
+2. Confirm review actions are limited to authorised users and import apply/reset actions remain administrator-only.
+3. Confirm applied decisions become the next comparison baseline in a verification scan.
+4. Confirm deferred and rejected rows remain visible and traceable.
+5. Capture unresolved 0B gaps as follow-up slices before Phase 1 begins.
 
 #### Acceptance gate 0B
 
