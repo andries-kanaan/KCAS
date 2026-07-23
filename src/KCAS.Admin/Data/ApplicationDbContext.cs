@@ -42,6 +42,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<ComplianceEvidence> ComplianceEvidence => Set<ComplianceEvidence>();
     public DbSet<ComplianceApproval> ComplianceApprovals => Set<ComplianceApproval>();
     public DbSet<ComplianceAuditEvent> ComplianceAuditEvents => Set<ComplianceAuditEvent>();
+    public DbSet<ClientEvidenceRequirement> ClientEvidenceRequirements => Set<ClientEvidenceRequirement>();
+    public DbSet<ClientEvidenceItem> ClientEvidenceItems => Set<ClientEvidenceItem>();
+    public DbSet<ClientEvidenceException> ClientEvidenceExceptions => Set<ClientEvidenceException>();
+    public DbSet<ClientEvidenceScanRoot> ClientEvidenceScanRoots => Set<ClientEvidenceScanRoot>();
+    public DbSet<ClientEvidenceScanRun> ClientEvidenceScanRuns => Set<ClientEvidenceScanRun>();
+    public DbSet<ClientEvidenceScanFile> ClientEvidenceScanFiles => Set<ClientEvidenceScanFile>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -98,12 +104,16 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         {
             entity.Property(client => client.SurnameOrEntityName).HasMaxLength(200);
             entity.Property(client => client.DisplayName).HasMaxLength(220);
+            entity.Property(client => client.ClientCategory)
+                .HasMaxLength(96)
+                .HasDefaultValue(ClientCategories.NaturalPerson);
             entity.Property(client => client.CreatedAtUtc).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
             entity.Property(client => client.LegacyReconciliationStatus)
                 .HasMaxLength(32)
                 .HasDefaultValue(LegacyReconciliationStatuses.Unscanned);
             entity.HasIndex(client => client.LegacyClientId).IsUnique();
             entity.HasIndex(client => client.KanaanId);
+            entity.HasIndex(client => client.ClientCategory);
             entity.HasIndex(client => client.DisplayName);
         });
 
@@ -563,6 +573,103 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.Property(audit => audit.UserName).HasMaxLength(191);
             entity.HasIndex(audit => new { audit.EntityType, audit.EntityId });
             entity.HasIndex(audit => audit.TimestampUtc);
+        });
+
+        builder.Entity<ClientEvidenceRequirement>(entity =>
+        {
+            entity.Property(requirement => requirement.ClientCategory).HasMaxLength(96);
+            entity.Property(requirement => requirement.RequirementGroup).HasMaxLength(96);
+            entity.Property(requirement => requirement.EvidenceType).HasMaxLength(96);
+            entity.Property(requirement => requirement.Title).HasMaxLength(240);
+            entity.Property(requirement => requirement.Status).HasMaxLength(32);
+            entity.Property(requirement => requirement.UpdatedBy).HasMaxLength(191);
+            entity.HasIndex(requirement => new { requirement.ClientCategory, requirement.EvidenceType, requirement.Status });
+            entity.HasIndex(requirement => new { requirement.RequirementGroup, requirement.SortOrder });
+        });
+
+        builder.Entity<ClientEvidenceItem>(entity =>
+        {
+            entity.HasOne(item => item.Client)
+                .WithMany(client => client.EvidenceItems)
+                .HasForeignKey(item => item.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(item => item.Requirement)
+                .WithMany()
+                .HasForeignKey(item => item.ClientEvidenceRequirementId)
+                .OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne(item => item.ScanFile)
+                .WithOne(file => file.EvidenceItem)
+                .HasForeignKey<ClientEvidenceItem>(item => item.ClientEvidenceScanFileId)
+                .OnDelete(DeleteBehavior.SetNull);
+            entity.Property(item => item.EvidenceType).HasMaxLength(96);
+            entity.Property(item => item.Title).HasMaxLength(240);
+            entity.Property(item => item.SourcePath).HasMaxLength(512);
+            entity.Property(item => item.RelativePath).HasMaxLength(512);
+            entity.Property(item => item.FileName).HasMaxLength(260);
+            entity.Property(item => item.FileSha256).HasMaxLength(64);
+            entity.Property(item => item.Reviewer).HasMaxLength(191);
+            entity.Property(item => item.Status).HasMaxLength(32);
+            entity.Property(item => item.UpdatedBy).HasMaxLength(191);
+            ConfigureDateOnly(entity.Property(item => item.ReceivedDate));
+            ConfigureDateOnly(entity.Property(item => item.VerifiedDate));
+            ConfigureDateOnly(entity.Property(item => item.ExpiryDate));
+            entity.HasIndex(item => new { item.ClientId, item.EvidenceType, item.Status });
+            entity.HasIndex(item => item.FileSha256);
+            entity.HasIndex(item => item.ExpiryDate);
+        });
+
+        builder.Entity<ClientEvidenceException>(entity =>
+        {
+            entity.HasOne(exception => exception.Client)
+                .WithMany(client => client.EvidenceExceptions)
+                .HasForeignKey(exception => exception.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(exception => exception.Requirement)
+                .WithMany()
+                .HasForeignKey(exception => exception.ClientEvidenceRequirementId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(exception => exception.ApprovedBy).HasMaxLength(191);
+            ConfigureDateOnly(entity.Property(exception => exception.ReviewDate));
+            entity.HasIndex(exception => new { exception.ClientId, exception.ClientEvidenceRequirementId, exception.IsActive });
+            entity.HasIndex(exception => exception.ReviewDate);
+        });
+
+        builder.Entity<ClientEvidenceScanRoot>(entity =>
+        {
+            entity.Property(root => root.RootPath).HasMaxLength(512);
+            entity.Property(root => root.UpdatedBy).HasMaxLength(191);
+            entity.HasIndex(root => root.IsActive);
+        });
+
+        builder.Entity<ClientEvidenceScanRun>(entity =>
+        {
+            entity.Property(run => run.RootPath).HasMaxLength(512);
+            entity.Property(run => run.Status).HasMaxLength(32);
+            entity.Property(run => run.StartedBy).HasMaxLength(191);
+            entity.HasIndex(run => run.StartedAtUtc);
+            entity.HasIndex(run => run.Status);
+        });
+
+        builder.Entity<ClientEvidenceScanFile>(entity =>
+        {
+            entity.HasOne(file => file.ScanRun)
+                .WithMany(run => run.Files)
+                .HasForeignKey(file => file.ClientEvidenceScanRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(file => file.Client)
+                .WithMany()
+                .HasForeignKey(file => file.ClientId)
+                .OnDelete(DeleteBehavior.SetNull);
+            entity.Property(file => file.FullPath).HasMaxLength(512);
+            entity.Property(file => file.RelativePath).HasMaxLength(512);
+            entity.Property(file => file.FileName).HasMaxLength(260);
+            entity.Property(file => file.FileSha256).HasMaxLength(64);
+            entity.Property(file => file.MatchStatus).HasMaxLength(32);
+            entity.Property(file => file.SuggestedEvidenceType).HasMaxLength(96);
+            entity.Property(file => file.MatchReason).HasMaxLength(512);
+            entity.HasIndex(file => new { file.ClientEvidenceScanRunId, file.MatchStatus });
+            entity.HasIndex(file => file.FileSha256);
+            entity.HasIndex(file => file.ClientId);
         });
     }
 

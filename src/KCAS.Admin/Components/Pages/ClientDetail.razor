@@ -25,6 +25,7 @@ else
             <p class="text-muted mb-0">Kanaan ID: @(client.KanaanId ?? "Not captured")</p>
         </div>
         <div class="header-actions">
+            <a class="btn btn-outline-secondary" href="@($"/clients/{Id}/evidence")">Evidence readiness</a>
             <a class="btn btn-outline-secondary" href="@($"/clients/{Id}#investments")">Investments</a>
             <a class="btn btn-outline-secondary" href="@($"/clients/{Id}#notes")">Notes</a>
             <AuthorizeView Policy="@KcasPermissions.ClientsManage">
@@ -57,6 +58,8 @@ else
                 <dd>@Display(client.Language)</dd>
                 <dt>Client folder</dt>
                 <dd>@Display(client.ClientFolder)</dd>
+                <dt>Client category</dt>
+                <dd>@Display(client.ClientCategory)</dd>
             </dl>
         </article>
 

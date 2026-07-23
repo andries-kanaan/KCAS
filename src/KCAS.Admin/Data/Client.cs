@@ -32,6 +32,9 @@ public class Client
     [MaxLength(512)]
     public string? ClientFolder { get; set; }
 
+    [MaxLength(96)]
+    public string ClientCategory { get; set; } = ClientCategories.NaturalPerson;
+
     public bool IsActive { get; set; } = true;
 
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
@@ -62,6 +65,10 @@ public class Client
     public ICollection<ClientInvestmentAccount> InvestmentAccounts { get; } = [];
 
     public ICollection<ClientFundValuation> FundValuations { get; } = [];
+
+    public ICollection<ClientEvidenceItem> EvidenceItems { get; } = [];
+
+    public ICollection<ClientEvidenceException> EvidenceExceptions { get; } = [];
 }
 
 public static class LegacyReconciliationStatuses
@@ -72,4 +79,12 @@ public static class LegacyReconciliationStatuses
     public const string ChangedPendingReview = "ChangedPendingReview";
     public const string Conflict = "Conflict";
     public const string Reconciled = "Reconciled";
+}
+
+public static class ClientCategories
+{
+    public const string NaturalPerson = "NaturalPerson";
+    public const string LegalPerson = "LegalPerson";
+    public const string Trust = "Trust";
+    public const string Other = "Other";
 }

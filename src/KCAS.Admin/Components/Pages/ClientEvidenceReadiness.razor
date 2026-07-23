@@ -1,0 +1,233 @@
+@page "/clients/{ClientId:int}/evidence"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
+@using KCAS.Admin.Data
+@inject ClientEvidenceReadinessService EvidenceService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Client evidence readiness</PageTitle>
+
+@if (model is null)
+{
+    <p>Loading client evidence readiness...</p>
+}
+else
+{
+    <div class="page-header">
+        <div>
+            <p class="eyebrow">Client evidence readiness</p>
+            <h1>@model.DisplayName</h1>
+            <p class="text-muted mb-0">Kanaan ID: @(model.KanaanId ?? "Not captured") | Category: @model.ClientCategory</p>
+        </div>
+        <div class="header-actions">
+            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}")">Client detail</a>
+            <a class="btn btn-outline-secondary" href="/compliance/client-evidence">Evidence dashboard</a>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(statusMessage))
+    {
+        <div class="alert alert-info">@statusMessage</div>
+    }
+
+    <section class="summary-grid">
+        <article class="summary-card">
+            <span>Required</span>
+            <strong>@model.RequiredCount</strong>
+        </article>
+        <article class="summary-card">
+            <span>Complete</span>
+            <strong>@model.CompleteCount</strong>
+        </article>
+        <article class="summary-card">
+            <span>Exceptions</span>
+            <strong>@model.ExceptionCount</strong>
+        </article>
+        <article class="summary-card">
+            <span>Blocked</span>
+            <strong>@model.BlockedCount</strong>
+        </article>
+    </section>
+
+    <section class="work-area">
+        <h2>Readiness result</h2>
+        <p class="lead mb-0">@(model.IsReadyForRiskAssessment ? "Ready for risk assessment" : "Not ready for risk assessment")</p>
+        <p class="text-muted mb-0">Client folder: @Display(model.ClientFolder)</p>
+    </section>
+
+    <section class="work-area">
+        <h2>Action reason</h2>
+        <input class="form-control" @bind="reason" placeholder="Required reason for evidence changes" disabled="@(!canManage && !canApprove)" />
+    </section>
+
+    <section class="work-area">
+        <h2>Evidence requirements</h2>
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead>
+                    <tr>
+                        <th>Group</th>
+                        <th>Requirement</th>
+                        <th>Evidence</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var requirement in model.Requirements)
+                    {
+                        <tr>
+                            <td>@requirement.RequirementGroup</td>
+                            <td>
+                                <div>@requirement.Title</div>
+                                <div class="text-muted small">@requirement.EvidenceType</div>
+                            </td>
+                            <td>
+                                @if (requirement.Items.Count == 0)
+                                {
+                                    <span class="text-muted">No linked evidence</span>
+                                }
+                                else
+                                {
+                                    @foreach (var item in requirement.Items)
+                                    {
+                                        <div>
+                                            <strong>@item.Title</strong>
+                                            <span class="text-muted small">@Display(item.RelativePath)</span>
+                                            <span class="text-muted small">Verified: @Date(item.VerifiedDate), expires: @Date(item.ExpiryDate)</span>
+                                        </div>
+                                    }
+                                }
+                            </td>
+                            <td>
+                                @if (requirement.IsComplete)
+                                {
+                                    <span>Complete</span>
+                                }
+                                else if (requirement.IsExceptioned)
+                                {
+                                    <span>Exception</span>
+                                }
+                                else if (requirement.IsBlocked)
+                                {
+                                    <span>Blocked</span>
+                                }
+                                else
+                                {
+                                    <span>Open</span>
+                                }
+                            </td>
+                            <td>
+                                <div class="row-actions">
+                                    @if (canManage && requirement.Items.Count > 0)
+                                    {
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => VerifyAsync(requirement.Items[0].Id)">Verify first item</button>
+                                    }
+                                    @if (canManage)
+                                    {
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => CreateTaskAsync(requirement.RequirementId)">Create task</button>
+                                    }
+                                    @if (canApprove)
+                                    {
+                                        <button type="button" class="btn btn-outline-primary btn-sm" @onclick="() => ApproveExceptionAsync(requirement.RequirementId)">Approve exception</button>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="work-area">
+        <h2>Evidence details</h2>
+        @if (model.EvidenceItems.Count == 0)
+        {
+            <p class="text-muted">No evidence files are linked to this client yet.</p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead><tr><th>Type</th><th>Title</th><th>File</th><th>Status</th><th>Reviewer</th></tr></thead>
+                    <tbody>
+                        @foreach (var item in model.EvidenceItems)
+                        {
+                            <tr>
+                                <td>@item.EvidenceType</td>
+                                <td>@item.Title</td>
+                                <td>@Display(item.RelativePath)</td>
+                                <td>@item.Status</td>
+                                <td>@Display(item.Reviewer)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+}
+
+@code {
+    [Parameter]
+    public int ClientId { get; set; }
+
+    private ClientEvidenceReadinessModel? model;
+    private string? currentUser;
+    private bool canManage;
+    private bool canApprove;
+    private string? reason;
+    private string? statusMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        currentUser = authState.User.Identity?.Name;
+        canManage = authState.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage);
+        canApprove = authState.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceApprove);
+        await LoadAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (currentUser is not null)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync() => model = await EvidenceService.LoadClientReadinessAsync(ClientId);
+
+    private async Task VerifyAsync(int itemId)
+    {
+        await ExecuteAsync(async () => await EvidenceService.VerifyEvidenceAsync(itemId, DateOnly.FromDateTime(DateTime.Today), DateOnly.FromDateTime(DateTime.Today.AddYears(1)), currentUser, reason ?? ""));
+    }
+
+    private async Task ApproveExceptionAsync(int requirementId)
+    {
+        await ExecuteAsync(async () => await EvidenceService.CreateExceptionAsync(ClientId, requirementId, "Approved temporary evidence exception.", DateOnly.FromDateTime(DateTime.Today.AddMonths(3)), currentUser, reason ?? ""));
+    }
+
+    private async Task CreateTaskAsync(int requirementId)
+    {
+        await ExecuteAsync(async () => await EvidenceService.CreateTaskForRequirementAsync(ClientId, requirementId, currentUser, DateOnly.FromDateTime(DateTime.Today.AddDays(14)), currentUser, reason ?? ""));
+    }
+
+    private async Task ExecuteAsync(Func<Task> action)
+    {
+        try
+        {
+            await action();
+            statusMessage = "Client evidence readiness updated.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = ex.Message;
+        }
+    }
+
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+    private static string Date(DateOnly? value) => value is null ? "-" : value.Value.ToString("yyyy-MM-dd");
+}

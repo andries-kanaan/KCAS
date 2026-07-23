@@ -1,0 +1,184 @@
+@page "/compliance/client-evidence"
+@page "/compliance/client-evidence/scan"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
+@using KCAS.Admin.Data
+@inject ClientEvidenceReadinessService EvidenceService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Client evidence readiness</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Compliance administration</p>
+        <h1>Client evidence readiness</h1>
+        <p class="lede">Scan server-side client folders, link evidence and track readiness for client risk assessment.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="/compliance">Compliance dashboard</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(statusMessage))
+{
+    <div class="alert alert-info">@statusMessage</div>
+}
+
+@if (model is null)
+{
+    <p>Loading client evidence readiness...</p>
+}
+else
+{
+    <section class="summary-grid">
+        <article class="summary-card">
+            <span>Requirements</span>
+            <strong>@model.RequirementCount</strong>
+        </article>
+        <article class="summary-card">
+            <span>Ready clients</span>
+            <strong>@model.ReadyClientCount</strong>
+        </article>
+        <article class="summary-card">
+            <span>Blocked clients</span>
+            <strong>@model.BlockedClientCount</strong>
+        </article>
+        <article class="summary-card">
+            <span>Review files</span>
+            <strong>@model.UnmatchedFiles.Count</strong>
+        </article>
+    </section>
+
+    <section class="work-area">
+        <h2>Server document scan</h2>
+        <p class="text-muted">Use a server path that the live KCAS process can read. KCAS links metadata and paths; it does not copy client documents.</p>
+        <div class="workspace-grid">
+            <input class="form-control" @bind="scanRootPath" placeholder="Server client document root path" disabled="@(!canManage)" />
+            <input class="form-control" @bind="reason" placeholder="Required reason" disabled="@(!canManage)" />
+        </div>
+        <div class="row-actions mt-2">
+            <button type="button" class="btn btn-outline-secondary" @onclick="SaveRootAsync" disabled="@(!canManage)">Save root</button>
+            <button type="button" class="btn btn-primary" @onclick="RunScanAsync" disabled="@(!canManage)">Run scan</button>
+        </div>
+        @if (model.LatestScanRun is not null)
+        {
+            <div class="table-responsive mt-3">
+                <table class="table align-middle">
+                    <tbody>
+                        <tr><th>Latest run</th><td>@model.LatestScanRun.StartedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td></tr>
+                        <tr><th>Status</th><td>@model.LatestScanRun.Status</td></tr>
+                        <tr><th>Root</th><td>@model.LatestScanRun.RootPath</td></tr>
+                        <tr><th>Totals</th><td>@model.LatestScanRun.TotalFiles file(s), @model.LatestScanRun.LinkedFiles linked, @model.LatestScanRun.UnmatchedFiles unmatched, @model.LatestScanRun.AmbiguousFiles ambiguous, @model.LatestScanRun.SkippedFiles skipped</td></tr>
+                        @if (!string.IsNullOrWhiteSpace(model.LatestScanRun.ErrorMessage))
+                        {
+                            <tr><th>Error</th><td>@model.LatestScanRun.ErrorMessage</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    <section class="work-area">
+        <h2>Client readiness</h2>
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead>
+                    <tr>
+                        <th>Client</th>
+                        <th>Category</th>
+                        <th>Kanaan ID</th>
+                        <th>Complete</th>
+                        <th>Exceptions</th>
+                        <th>Blocked</th>
+                        <th>Status</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var client in model.Clients)
+                    {
+                        <tr>
+                            <td>@client.DisplayName</td>
+                            <td>@client.ClientCategory</td>
+                            <td>@Display(client.KanaanId)</td>
+                            <td>@client.CompleteCount / @client.RequiredCount</td>
+                            <td>@client.ExceptionCount</td>
+                            <td>@client.BlockedCount</td>
+                            <td>@(client.IsReadyForRiskAssessment ? "Ready" : "Blocked")</td>
+                            <td class="text-end"><a class="btn btn-outline-secondary btn-sm" href="@($"/clients/{client.ClientId}/evidence")">Open</a></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="work-area">
+        <h2>Unmatched or ambiguous scan files</h2>
+        @if (model.UnmatchedFiles.Count == 0)
+        {
+            <p class="text-muted">No unmatched or ambiguous files in the latest scan data.</p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead><tr><th>File</th><th>Status</th><th>Suggested type</th><th>Reason</th></tr></thead>
+                    <tbody>
+                        @foreach (var file in model.UnmatchedFiles)
+                        {
+                            <tr>
+                                <td>@file.RelativePath</td>
+                                <td>@file.MatchStatus</td>
+                                <td>@Display(file.SuggestedEvidenceType)</td>
+                                <td>@Display(file.MatchReason)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+}
+
+@code {
+    private ClientEvidenceDashboardModel? model;
+    private string? scanRootPath;
+    private string? reason;
+    private string? currentUser;
+    private bool canManage;
+    private string? statusMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        currentUser = authState.User.Identity?.Name;
+        canManage = authState.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage);
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        model = await EvidenceService.LoadDashboardAsync();
+        scanRootPath = model.ScanRootPath ?? scanRootPath;
+    }
+
+    private async Task SaveRootAsync() => await ExecuteAsync(async () => await EvidenceService.SaveScanRootAsync(scanRootPath ?? "", currentUser, reason ?? ""));
+
+    private async Task RunScanAsync() => await ExecuteAsync(async () => await EvidenceService.RunScanAsync(scanRootPath, currentUser, reason ?? ""));
+
+    private async Task ExecuteAsync(Func<Task> action)
+    {
+        try
+        {
+            await action();
+            statusMessage = "Client evidence readiness updated.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = ex.Message;
+        }
+    }
+
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+}

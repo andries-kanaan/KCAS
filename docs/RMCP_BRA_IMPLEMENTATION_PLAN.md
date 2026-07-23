@@ -153,17 +153,19 @@ Do not resolve a material conflict merely by choosing the newest filename. Recor
 |---|---|---|---|
 | 0A | Safe scan and add-new reconciliation foundation | Complete for delivery; live acceptance evidence remains operational follow-up | Controlled scan/apply-new workflow available |
 | 0B | Reviewed field-by-field merge and reconciliation closure | Complete for delivery; live acceptance evidence remains operational follow-up | Review, apply, rejection, deferral and audit trail available |
-| 1 | Compliance foundation and controlled configuration | In implementation | Configuration/versioning and permissions accepted |
-| 2 | Client profile and evidence readiness | Not started | Pilot clients pass completeness and evidence checks |
+| 1 | Compliance foundation and controlled configuration | Complete for delivery; browser acceptance evidence remains operational follow-up | Configuration/versioning and permissions accepted |
+| 2 | Client profile and evidence readiness | In implementation | Pilot clients pass completeness and evidence checks |
 | 3 | Client risk assessment workflow | Not started | Pilot assessments reproduce approved methodology |
 | 4 | Business Risk Assessment | Not started | BRA approved from traceable evidence and methodology |
 | 5 | RMCP control and approval management | Not started | Approved RMCP version links risks, controls and evidence |
 | 6 | Monitoring, reviews and remediation | Not started | End-to-end review and escalation cases pass |
 | 7 | Inspection readiness, reporting and rollout | Not started | Inspection pack, security, recovery and rollout accepted |
 
-Current resume point: **Phase 1 compliance foundation implementation and acceptance.**
+Current resume point: **Phase 2 client evidence readiness implementation and acceptance.**
 
 Phase 0 remains available for operational import acceptance and final data switch-over evidence, but it is no longer the active development blocker.
+
+Phase 1 remains available for browser acceptance and live workflow evidence, but its foundation code has been delivered and is no longer the active development blocker.
 
 ## 5. Delivery rules for every phase
 
@@ -300,6 +302,11 @@ Create the common governance structures required by all later compliance modules
 - Unauthorised users cannot change configuration or approvals.
 - Every configuration and status change is auditable.
 
+### Still required for Phase 1 acceptance evidence
+
+1. Browser-check `/compliance`, `/compliance/settings`, methodology approval/activation, compliance permissions and audit log on the deployed environment.
+2. Record any live-only defects as follow-up slices rather than reopening the foundation build.
+
 ## 8. Phase 2 — Client profile and evidence readiness
 
 ### Objective
@@ -319,6 +326,19 @@ Make KCAS the reliable evidence base from which client risk can be assessed.
 - Evidence provenance and links to the underlying client record.
 - Refresh dates and event-driven review triggers.
 
+### Implemented in current Phase 2 branch
+
+- Client evidence requirement matrix seeded from the current audit-readiness/BRA needs.
+- Per-client evidence readiness page at `/clients/{id}/evidence`.
+- Global client evidence dashboard and server-side scan workflow at `/compliance/client-evidence`.
+- Server document-root configuration for the live machine, with recursive scan runs that link metadata/path records without copying sensitive documents into KCAS.
+- Deterministic client matching from Kanaan ID, existing legacy client folder metadata, folder names and client names.
+- Unmatched and ambiguous scan files retained for review instead of being auto-linked.
+- Client evidence items with verification, expiry and reviewer metadata.
+- Approved evidence exceptions with review dates so specific blockers can be temporarily cleared with audit traceability.
+- Evidence-gap task creation through the existing compliance task model.
+- Computed “ready for risk assessment” status; it is not manually editable.
+
 ### Acceptance gate 2
 
 - Representative natural-person, company and trust profiles can be completed.
@@ -326,6 +346,8 @@ Make KCAS the reliable evidence base from which client risk can be assessed.
 - Missing and expired items are visible and actionable.
 - Relationship and beneficial-ownership information is traceable.
 - A risk assessment cannot be finalised when blocking evidence is absent unless an authorised, reasoned exception is recorded.
+- A live server client document root can be scanned without copying files, and repeated scans do not duplicate unchanged evidence links.
+- Unmatched or ambiguous files remain visible for manual review.
 
 ## 9. Phase 3 — Client risk assessment workflow
 
