@@ -29,6 +29,14 @@ Converting the Scheduled Task to a Windows Service is a later infrastructure cha
 
 Every successful `main` build is attached to a public, commit-specific deployment release. Tagged builds are attached to their versioned GitHub Release. Manually dispatched builds are retained as GitHub Actions artifacts for 30 days.
 
+The one-click deployer can download public releases without a GitHub login, but GitHub applies a low unauthenticated API limit per public IP. For reliable live deployments, create a fine-grained GitHub token with read-only access to repository contents/metadata and store it outside Git at:
+
+```text
+D:\Deploy\KCAS\shared\github-token.txt
+```
+
+Alternatively set `KCAS_GITHUB_TOKEN` for the elevated deployment process. Never commit the token or place it in `appsettings.Production.json`.
+
 ## Package contents
 
 Each ZIP contains:
@@ -266,6 +274,8 @@ Double-click D:\Deploy\KCAS\Deploy-KCAS.bat
 ```
 
 The launcher elevates, fast-forwards the clean server repository to reviewed `main`, waits for the public commit-specific package produced by successful GitHub tests, downloads it without a separate GitHub login, verifies its checksum, backs up MySQL, applies migrations, switches the immutable release, starts KCAS and performs health checks. If that commit is already active, it exits without changing anything.
+
+If the server reports a GitHub API rate limit while waiting for a package, save a read-only GitHub token at `D:\Deploy\KCAS\shared\github-token.txt` or set `KCAS_GITHUB_TOKEN`, then rerun `D:\Deploy\KCAS\Deploy-KCAS.bat`.
 
 The lower-level guidance below is retained for recovery and troubleshooting; it is not the normal deployment procedure.
 
