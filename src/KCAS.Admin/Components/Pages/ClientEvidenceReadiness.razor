@@ -269,7 +269,7 @@ else
 
         try
         {
-            var runId = await ScanCoordinator.StartClientScanAsync(ClientId, selectedClientFolder, currentUser, reason ?? "");
+            var runId = await ScanCoordinator.StartClientScanAsync(ClientId, selectedClientFolder, currentUser, ClientScanReason);
             statusMessage = $"Client evidence scan {runId} started.";
             await LoadAsync();
         }
@@ -354,4 +354,8 @@ else
 
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
     private static string Date(DateOnly? value) => value is null ? "-" : value.Value.ToString("yyyy-MM-dd");
+
+    private string ClientScanReason => string.IsNullOrWhiteSpace(reason)
+        ? "Run client evidence folder scan."
+        : reason;
 }
