@@ -53,6 +53,43 @@ function Get-GitHubWorkflowRunForCommit {
         Select-Object -First 1)
 }
 
+function Get-DeploymentGitHubToken {
+    param([object]$Settings, [string]$InstallRootPath)
+
+    if (-not [string]::IsNullOrWhiteSpace($env:KCAS_GITHUB_TOKEN)) {
+        return $env:KCAS_GITHUB_TOKEN.Trim()
+    }
+
+    $tokenPath = $null
+    if ($Settings.PSObject.Properties.Name -contains 'githubTokenPath' -and -not [string]::IsNullOrWhiteSpace([string]$Settings.githubTokenPath)) {
+        $tokenPath = [string]$Settings.githubTokenPath
+    }
+    else {
+        $tokenPath = Join-Path $InstallRootPath 'shared\github-token.txt'
+    }
+
+    if (Test-Path -LiteralPath $tokenPath -PathType Leaf) {
+        return (Get-Content -LiteralPath $tokenPath -Raw).Trim()
+    }
+
+    return $null
+}
+
+function New-GitHubRequestHeaders {
+    param([string]$Token)
+
+    $headers = @{
+        'User-Agent' = 'KCAS-Immutable-Deployment'
+        'Accept' = 'application/vnd.github+json'
+        'X-GitHub-Api-Version' = '2022-11-28'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($Token)) {
+        $headers.Authorization = "Bearer $Token"
+    }
+
+    return $headers
+}
+
 $installRootPath = [System.IO.Path]::GetFullPath($InstallRoot).TrimEnd('\')
 $settingsPath = Join-Path $installRootPath 'shared\deployment-operator.json'
 if (-not (Test-Path -LiteralPath $settingsPath -PathType Leaf)) {
@@ -109,7 +146,8 @@ if (Test-Path -LiteralPath $currentManifestPath -PathType Leaf) {
 Write-Host "Waiting for the tested Windows package for $commit..."
 $releaseTag = "$deploymentReleaseTagPrefix$commit"
 $releaseApiUrl = "https://api.github.com/repos/$githubRepository/releases/tags/$releaseTag"
-$requestHeaders = @{ 'User-Agent' = 'KCAS-Immutable-Deployment' }
+$githubToken = Get-DeploymentGitHubToken -Settings $settings -InstallRootPath $installRootPath
+$requestHeaders = New-GitHubRequestHeaders -Token $githubToken
 $release = $null
 $releaseError = $null
 $workflowError = $null
@@ -122,6 +160,10 @@ do {
     }
     catch {
         $releaseError = $_.Exception.Message
+        if ([string]::IsNullOrWhiteSpace($githubToken) -and $releaseError -like '*API rate limit exceeded*') {
+            throw "GitHub API rate limit was exceeded while waiting for '$releaseTag'. Create a fine-grained GitHub token with public repository read access and save it outside Git at '$installRootPath\shared\github-token.txt', or set KCAS_GITHUB_TOKEN for the deployment process, then retry."
+        }
+
         if ([DateTime]::UtcNow -ge $lastWorkflowCheckUtc.AddSeconds(60)) {
             $lastWorkflowCheckUtc = [DateTime]::UtcNow
             try {

@@ -8,7 +8,8 @@ param(
     [string]$MySqlBasePath = 'D:\wamp64\bin\mysql\mysql9.1.0',
     [string]$ScheduledTaskName = 'KCAS',
     [string]$DirectHealthUrl = 'http://127.0.0.1:5000/health/ready',
-    [string]$ProxyHealthUrl = ''
+    [string]$ProxyHealthUrl = '',
+    [string]$GitHubTokenPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -73,6 +74,7 @@ $settings = [ordered]@{
     schemaVersion = 1
     repositoryPath = $repositoryFullPath
     githubRepository = $githubRepository
+    githubTokenPath = if ([string]::IsNullOrWhiteSpace($GitHubTokenPath)) { Join-Path $sharedPath 'github-token.txt' } else { [System.IO.Path]::GetFullPath($GitHubTokenPath) }
     deploymentReleaseTagPrefix = 'deploy-'
     scheduledTaskName = $ScheduledTaskName
     mySqlBasePath = $MySqlBasePath
