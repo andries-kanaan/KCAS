@@ -97,6 +97,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
 
         var client = await db.Clients
             .AsNoTracking()
+            .Include(client => client.Relationships)
             .SingleOrDefaultAsync(client => client.Id == clientId)
             ?? throw new InvalidOperationException("Client not found.");
 
@@ -136,6 +137,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                 ExceptionReason = activeException?.Reason,
                 LinkedItemCount = matchedItems.Count,
                 VerifiedItemCount = matchedItems.Count(item => item.VerifiedDate is not null),
+                CanRecordReview = IsReviewOnlyEvidenceType(requirement.EvidenceType),
                 Items = matchedItems.Select(ClientEvidenceItemModel.FromItem).ToList()
             };
             })
@@ -150,6 +152,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             KanaanId = client.KanaanId,
             ClientCategory = client.ClientCategory,
             ClientFolder = client.ClientFolder,
+            ScreeningSubjects = BuildScreeningSubjects(client),
             Requirements = requirementRows,
             EvidenceItems = items.Select(ClientEvidenceItemModel.FromItem).ToList(),
             RequiredCount = requirementRows.Count,
@@ -606,6 +609,79 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         await db.SaveChangesAsync();
     }
 
+    public Task<int> RecordRequirementReviewAsync(int clientId, int requirementId, string? userName, string reason) =>
+        RecordRequirementReviewAsync(clientId, requirementId, new ClientEvidenceScreeningReviewRequest
+        {
+            SubjectType = ClientEvidenceScreeningSubjectTypes.Client,
+            SubjectName = null,
+            Outcome = ClientEvidenceScreeningOutcomes.NoMatch,
+            RiskSignal = ClientEvidenceRiskSignals.Low,
+            ReviewDate = DateOnly.FromDateTime(DateTime.Today),
+            Notes = reason
+        }, userName, reason);
+
+    public async Task<int> RecordRequirementReviewAsync(int clientId, int requirementId, ClientEvidenceScreeningReviewRequest request, string? userName, string? reason)
+    {
+        var auditReason = Normalize(reason) ?? "Record screening review.";
+        var client = await db.Clients.AsNoTracking().SingleOrDefaultAsync(client => client.Id == clientId)
+            ?? throw new InvalidOperationException("Client not found.");
+        var requirement = await db.ClientEvidenceRequirements.AsNoTracking().SingleOrDefaultAsync(requirement => requirement.Id == requirementId)
+            ?? throw new InvalidOperationException("Evidence requirement not found.");
+        if (!IsReviewOnlyEvidenceType(requirement.EvidenceType))
+        {
+            throw new ValidationException("This requirement does not support internal review recording.");
+        }
+
+        var reviewDate = request.ReviewDate ?? DateOnly.FromDateTime(DateTime.Today);
+        var subjectType = Normalize(request.SubjectType) ?? ClientEvidenceScreeningSubjectTypes.Client;
+        var subjectName = Normalize(request.SubjectName) ?? client.DisplayName;
+        var outcome = Normalize(request.Outcome) ?? throw new ValidationException("Screening outcome is required.");
+        var riskSignal = Normalize(request.RiskSignal) ?? throw new ValidationException("Risk signal is required.");
+        var notes = Normalize(request.Notes);
+        ValidateScreeningReview(requirement.EvidenceType, client.ClientCategory, subjectType, outcome, riskSignal, notes);
+        var escalationRequired = IsSanctionsEscalation(requirement.EvidenceType, outcome);
+        var item = new ClientEvidenceItem
+        {
+            ClientId = client.Id,
+            ClientEvidenceRequirementId = requirement.Id,
+            EvidenceType = requirement.EvidenceType,
+            Title = $"{requirement.Title}: {subjectName}",
+            ReceivedDate = reviewDate,
+            VerifiedDate = reviewDate,
+            Reviewer = userName,
+            Status = ClientEvidenceStatuses.Verified,
+            ScreeningReviewDate = reviewDate,
+            ScreeningSubjectType = subjectType,
+            ScreeningSubjectName = subjectName,
+            ScreeningOutcome = outcome,
+            ScreeningRiskSignal = riskSignal,
+            EscalationRequired = escalationRequired,
+            Notes = notes,
+            UpdatedAtUtc = DateTime.UtcNow,
+            UpdatedBy = userName
+        };
+        db.ClientEvidenceItems.Add(item);
+        await db.SaveChangesAsync();
+        await AddAuditAsync("ClientEvidenceItem", item.Id, "RecordReview", new
+        {
+            item.Id,
+            item.ClientId,
+            item.ClientEvidenceRequirementId,
+            item.EvidenceType,
+            item.Title,
+            item.VerifiedDate,
+            item.Reviewer,
+            item.ScreeningSubjectType,
+            item.ScreeningSubjectName,
+            item.ScreeningOutcome,
+            item.ScreeningRiskSignal,
+            item.EscalationRequired,
+            item.Notes
+        }, userName, auditReason);
+        await db.SaveChangesAsync();
+        return item.Id;
+    }
+
     public async Task CreateExceptionAsync(int clientId, int requirementId, string exceptionReason, DateOnly? reviewDate, string? userName, string reason)
     {
         RequireReason(reason);
@@ -1026,6 +1102,76 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
 
     private static bool ContainsAny(string text, params string[] values) => values.Any(value => text.Contains(NormalizeToken(value)));
 
+    private static bool IsReviewOnlyEvidenceType(string evidenceType) =>
+        evidenceType is "PepPip" or "SanctionsTfs" or "AdverseInformation";
+
+    private static List<ClientEvidenceScreeningSubjectModel> BuildScreeningSubjects(Client client)
+    {
+        var subjects = new List<ClientEvidenceScreeningSubjectModel>
+        {
+            new()
+            {
+                SubjectType = ClientEvidenceScreeningSubjectTypes.Client,
+                SubjectName = client.DisplayName
+            }
+        };
+
+        subjects.AddRange(client.Relationships
+            .Where(relationship => !string.IsNullOrWhiteSpace(relationship.Name))
+            .OrderBy(relationship => relationship.RelationshipType)
+            .ThenBy(relationship => relationship.Name)
+            .Select(relationship => new ClientEvidenceScreeningSubjectModel
+            {
+                SubjectType = MapRelationshipSubjectType(relationship.RelationshipType),
+                SubjectName = relationship.Name!.Trim()
+            }));
+
+        return subjects
+            .DistinctBy(subject => $"{subject.SubjectType}|{NormalizeToken(subject.SubjectName)}")
+            .ToList();
+    }
+
+    private static string MapRelationshipSubjectType(string? relationshipType)
+    {
+        var normalized = NormalizeToken(relationshipType);
+        if (normalized.Contains("TRUSTEE")) return ClientEvidenceScreeningSubjectTypes.Trustee;
+        if (normalized.Contains("BENEFICIARY")) return ClientEvidenceScreeningSubjectTypes.Beneficiary;
+        if (normalized.Contains("DIRECTOR")) return ClientEvidenceScreeningSubjectTypes.Director;
+        if (normalized.Contains("CONTROLLER") || normalized.Contains("OWNER")) return ClientEvidenceScreeningSubjectTypes.Controller;
+        if (normalized.Contains("AUTHORISED") || normalized.Contains("AUTHORIZED") || normalized.Contains("SIGNATORY")) return ClientEvidenceScreeningSubjectTypes.AuthorisedPerson;
+        return ClientEvidenceScreeningSubjectTypes.Other;
+    }
+
+    private static void ValidateScreeningReview(string evidenceType, string clientCategory, string subjectType, string outcome, string riskSignal, string? notes)
+    {
+        if (!ClientEvidenceScreeningSubjectTypes.All.Contains(subjectType))
+        {
+            throw new ValidationException("Screening subject type is invalid.");
+        }
+
+        if (!ClientEvidenceRiskSignals.All.Contains(riskSignal))
+        {
+            throw new ValidationException("Risk signal is invalid.");
+        }
+
+        var allowedOutcomes = ClientEvidenceScreeningOutcomes.ForEvidenceType(evidenceType);
+        if (!allowedOutcomes.Contains(outcome))
+        {
+            throw new ValidationException("Screening outcome is invalid for this requirement.");
+        }
+
+        var notesRequired = riskSignal is ClientEvidenceRiskSignals.Medium or ClientEvidenceRiskSignals.High ||
+            clientCategory is not ClientCategories.NaturalPerson ||
+            subjectType is not ClientEvidenceScreeningSubjectTypes.Client;
+        if (notesRequired && string.IsNullOrWhiteSpace(notes))
+        {
+            throw new ValidationException("Notes are required for medium or high risk, non-natural-person clients, and related-party screening.");
+        }
+    }
+
+    private static bool IsSanctionsEscalation(string evidenceType, string outcome) =>
+        evidenceType == "SanctionsTfs" && outcome == ClientEvidenceScreeningOutcomes.ConfirmedMatch;
+
     [GeneratedRegex("[^A-Z0-9]")]
     private static partial Regex NonAlphaNumericRegex();
 
@@ -1097,6 +1243,7 @@ public sealed class ClientEvidenceReadinessModel
     public int LinkedEvidenceCount { get; set; }
     public int VerifiedEvidenceCount { get; set; }
     public bool IsReadyForRiskAssessment { get; set; }
+    public List<ClientEvidenceScreeningSubjectModel> ScreeningSubjects { get; set; } = [];
     public List<ClientEvidenceRequirementStatusModel> Requirements { get; set; } = [];
     public List<ClientEvidenceItemModel> EvidenceItems { get; set; } = [];
 }
@@ -1115,6 +1262,7 @@ public sealed class ClientEvidenceRequirementStatusModel
     public bool IsBlocked { get; set; }
     public int LinkedItemCount { get; set; }
     public int VerifiedItemCount { get; set; }
+    public bool CanRecordReview { get; set; }
     public string? ExceptionReason { get; set; }
     public List<ClientEvidenceItemModel> Items { get; set; } = [];
 }
@@ -1130,7 +1278,16 @@ public sealed class ClientEvidenceItemModel
     public DateOnly? VerifiedDate { get; set; }
     public DateOnly? ExpiryDate { get; set; }
     public string? Reviewer { get; set; }
+    public DateOnly? ScreeningReviewDate { get; set; }
+    public string? ScreeningSubjectType { get; set; }
+    public string? ScreeningSubjectName { get; set; }
+    public string? ScreeningOutcome { get; set; }
+    public string? ScreeningRiskSignal { get; set; }
+    public bool EscalationRequired { get; set; }
     public string Status { get; set; } = "";
+    public bool CanOpen => !string.IsNullOrWhiteSpace(FileName) && IsOpenableFile(FileName);
+    public bool IsImage => !string.IsNullOrWhiteSpace(FileName) && IsImageFile(FileName);
+    public string FileUrl => $"/client-evidence/items/{Id}/file";
 
     public static ClientEvidenceItemModel FromItem(ClientEvidenceItem item) => new()
     {
@@ -1143,7 +1300,85 @@ public sealed class ClientEvidenceItemModel
         VerifiedDate = item.VerifiedDate,
         ExpiryDate = item.ExpiryDate,
         Reviewer = item.Reviewer,
+        ScreeningReviewDate = item.ScreeningReviewDate,
+        ScreeningSubjectType = item.ScreeningSubjectType,
+        ScreeningSubjectName = item.ScreeningSubjectName,
+        ScreeningOutcome = item.ScreeningOutcome,
+        ScreeningRiskSignal = item.ScreeningRiskSignal,
+        EscalationRequired = item.EscalationRequired,
         Status = item.Status
+    };
+
+    private static bool IsOpenableFile(string fileName)
+    {
+        var extension = Path.GetExtension(fileName).ToLowerInvariant();
+        return extension is ".pdf" or ".doc" or ".docx" or ".xls" or ".xlsx" or ".jpg" or ".jpeg" or ".png" or ".txt" or ".msg" or ".eml";
+    }
+
+    private static bool IsImageFile(string fileName)
+    {
+        var extension = Path.GetExtension(fileName).ToLowerInvariant();
+        return extension is ".jpg" or ".jpeg" or ".png";
+    }
+}
+
+public sealed class ClientEvidenceScreeningSubjectModel
+{
+    public string SubjectType { get; set; } = "";
+    public string SubjectName { get; set; } = "";
+    public string Label => $"{SubjectName} ({SubjectType})";
+}
+
+public sealed class ClientEvidenceScreeningReviewRequest
+{
+    public string? SubjectType { get; set; }
+    public string? SubjectName { get; set; }
+    public string? Outcome { get; set; }
+    public string? RiskSignal { get; set; }
+    public DateOnly? ReviewDate { get; set; }
+    public string? Notes { get; set; }
+}
+
+public static class ClientEvidenceScreeningSubjectTypes
+{
+    public const string Client = "Client";
+    public const string Trustee = "Trustee";
+    public const string Beneficiary = "Beneficiary";
+    public const string Director = "Director";
+    public const string Controller = "Controller";
+    public const string AuthorisedPerson = "AuthorisedPerson";
+    public const string Other = "Other";
+
+    public static readonly string[] All = [Client, Trustee, Beneficiary, Director, Controller, AuthorisedPerson, Other];
+}
+
+public static class ClientEvidenceRiskSignals
+{
+    public const string Low = "Low";
+    public const string Medium = "Medium";
+    public const string High = "High";
+
+    public static readonly string[] All = [Low, Medium, High];
+}
+
+public static class ClientEvidenceScreeningOutcomes
+{
+    public const string NoMatch = "NoMatch";
+    public const string PossibleMatch = "PossibleMatch";
+    public const string ConfirmedMatch = "ConfirmedMatch";
+    public const string NoneFound = "NoneFound";
+    public const string MaterialAdverseInfo = "MaterialAdverseInfo";
+
+    public static readonly string[] PepPip = [NoMatch, PossibleMatch, ConfirmedMatch];
+    public static readonly string[] SanctionsTfs = [NoMatch, PossibleMatch, ConfirmedMatch];
+    public static readonly string[] AdverseInformation = [NoneFound, PossibleMatch, MaterialAdverseInfo];
+
+    public static IReadOnlyList<string> ForEvidenceType(string evidenceType) => evidenceType switch
+    {
+        "PepPip" => PepPip,
+        "SanctionsTfs" => SanctionsTfs,
+        "AdverseInformation" => AdverseInformation,
+        _ => []
     };
 }
 
