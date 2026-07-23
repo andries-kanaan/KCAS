@@ -107,25 +107,37 @@ if ($migrationCount -eq '1') {
         throw "KCAS database reports migration '$currentMigration', which is not present in this reviewed repository release. Review the database manually."
     }
 
-    $migrationChain = @()
-    for ($index = $currentMigrationIndex; $index -lt ($repositoryMigrations.Count - 1); $index++) {
-        $fromMigration = $repositoryMigrations[$index]
-        $toMigration = $repositoryMigrations[$index + 1]
-        $targetedScriptName = "${fromMigration}_to_${toMigration}.sql"
-        $targetedScript = Join-Path $migrationScriptsPath $targetedScriptName
-        if (-not (Test-Path -LiteralPath $targetedScript -PathType Leaf)) {
-            throw "KCAS database requires the reviewed migration chain from '$currentMigration' to '$latestMigration', but '$targetedScriptName' is missing. No migrations were applied."
-        }
-        $migrationChain += [pscustomobject]@{
-            From = $fromMigration
-            To = $toMigration
-            Name = $targetedScriptName
-            Path = $targetedScript
-        }
+    $directScriptName = "${currentMigration}_to_${latestMigration}.sql"
+    $directScript = Join-Path $migrationScriptsPath $directScriptName
+    if (Test-Path -LiteralPath $directScript -PathType Leaf) {
+        $migrationChain = @([pscustomobject]@{
+            From = $currentMigration
+            To = $latestMigration
+            Name = $directScriptName
+            Path = $directScript
+        })
     }
+    else {
+        $migrationChain = @()
+        for ($index = $currentMigrationIndex; $index -lt ($repositoryMigrations.Count - 1); $index++) {
+            $fromMigration = $repositoryMigrations[$index]
+            $toMigration = $repositoryMigrations[$index + 1]
+            $targetedScriptName = "${fromMigration}_to_${toMigration}.sql"
+            $targetedScript = Join-Path $migrationScriptsPath $targetedScriptName
+            if (-not (Test-Path -LiteralPath $targetedScript -PathType Leaf)) {
+                throw "KCAS database requires either reviewed direct script '$directScriptName' or reviewed migration chain from '$currentMigration' to '$latestMigration', but '$targetedScriptName' is missing. No migrations were applied."
+            }
+            $migrationChain += [pscustomobject]@{
+                From = $fromMigration
+                To = $toMigration
+                Name = $targetedScriptName
+                Path = $targetedScript
+            }
+        }
 
-    if ($migrationChain.Count -eq 0) {
-        throw "Could not construct a reviewed migration chain from '$currentMigration' to '$latestMigration'."
+        if ($migrationChain.Count -eq 0) {
+            throw "Could not construct a reviewed migration chain from '$currentMigration' to '$latestMigration'."
+        }
     }
 
     Write-Host "Validated reviewed migration chain containing $($migrationChain.Count) script(s)."
