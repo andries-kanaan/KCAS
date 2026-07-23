@@ -9,6 +9,60 @@ namespace KCAS.Admin.Tests;
 public sealed class LegacyImportRunRecorderTests(KcasWebApplicationFactory factory)
 {
     [Fact]
+    public async Task Delete_import_history_clears_runs_rows_differences_and_source_snapshots()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        await LegacyImportWebService.DeleteImportHistoryAsync(db, CancellationToken.None);
+
+        var run = new LegacyImportRun
+        {
+            Mode = LegacyImportModes.Scan,
+            Status = LegacyImportRunStatuses.AwaitingReview,
+            SourceLabel = "seed",
+            SourceSnapshotSha256 = new string('b', 64),
+            StartedAtUtc = DateTime.UtcNow
+        };
+        var row = new LegacyImportRowState
+        {
+            LegacyImportRun = run,
+            SourceTable = "tbl_client",
+            SourceId = 123,
+            Classification = LegacyImportClassifications.Changed,
+            ApplyStatus = LegacyImportApplyStatuses.PendingReview,
+            IncomingFingerprint = new string('c', 64),
+            IncomingPayloadJson = "{\"id\":\"123\",\"name\":\"Incoming\"}",
+            BaselineFingerprint = new string('d', 64),
+            BaselinePayloadJson = "{\"id\":\"123\",\"name\":\"Baseline\"}"
+        };
+        row.Differences.Add(new LegacyImportDifference
+        {
+            FieldName = "name",
+            BaselineValue = "Baseline",
+            IncomingValue = "Incoming"
+        });
+        db.LegacyImportRuns.Add(run);
+        db.LegacyImportRowStates.Add(row);
+        db.LegacySourceSnapshots.Add(new LegacySourceSnapshot
+        {
+            SourceTable = "tbl_client",
+            SourceId = 123,
+            Fingerprint = new string('d', 64),
+            PayloadJson = "{\"id\":\"123\",\"name\":\"Baseline\"}",
+            AcceptedAtUtc = DateTime.UtcNow,
+            LastSeenAtUtc = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        await LegacyImportWebService.DeleteImportHistoryAsync(db, CancellationToken.None);
+
+        Assert.Equal(0, await db.LegacyImportRuns.CountAsync());
+        Assert.Equal(0, await db.LegacyImportRowStates.CountAsync());
+        Assert.Equal(0, await db.LegacyImportDifferences.CountAsync());
+        Assert.Equal(0, await db.LegacySourceSnapshots.CountAsync());
+    }
+
+    [Fact]
     public async Task Existing_target_without_a_source_snapshot_is_changed_not_new()
     {
         using var scope = factory.Services.CreateScope();

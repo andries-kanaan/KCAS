@@ -2,18 +2,21 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using KCAS.Admin.Data;
-using KCAS.Admin.LegacyImport;
 using Microsoft.EntityFrameworkCore;
 using MySql.Data.MySqlClient;
 
-internal sealed class IncrementalLegacyImporter(
+namespace KCAS.Admin.LegacyImport;
+
+public sealed class IncrementalLegacyImporter(
     ApplicationDbContext db,
     MySqlConnection legacyConnection,
     LegacyImportRunRecorder recorder,
-    IReadOnlyDictionary<(string Table, long Id), string>? approvedNewRows = null)
+    IReadOnlyDictionary<(string Table, long Id), string>? approvedNewRows = null,
+    IReadOnlySet<string>? tableScopes = null)
 {
     private readonly IReadOnlyDictionary<(string Table, long Id), string> approvedNewRows = approvedNewRows
         ?? new Dictionary<(string Table, long Id), string>();
+    private readonly IReadOnlySet<string> tableScopes = tableScopes ?? LegacyImportTableScopes.Normalize(LegacyImportTableScopes.AllMapped);
     private readonly HashSet<(string Table, long Id)> observedApprovedRows = [];
     private readonly Dictionary<int, int?> clientTargets = [];
     private readonly HashSet<int> sourceClientIds = [];
@@ -24,13 +27,15 @@ internal sealed class IncrementalLegacyImporter(
     public async Task<int> ExecuteAsync()
     {
         var failures = 0;
-        failures += await ImportReferenceDataAsync();
-        failures += await ImportClientsAsync();
-        failures += await ImportNotesAsync();
-        failures += await ImportKycAsync();
-        failures += await ImportInvestmentAccountsAsync();
-        failures += await ImportInvestmentTransactionsAsync();
-        failures += await ImportFundValuationsAsync();
+        if (Includes(LegacyImportTableScopes.ReferenceData)) { failures += await ImportReferenceDataAsync(); }
+        if (Includes(LegacyImportTableScopes.Clients)) { failures += await ImportClientsAsync(); }
+        if (!Includes(LegacyImportTableScopes.Clients) && NeedsClientLookup()) { await LoadExistingClientTargetsAsync(); }
+        if (Includes(LegacyImportTableScopes.Notes)) { failures += await ImportNotesAsync(); }
+        if (Includes(LegacyImportTableScopes.KycPolicies)) { failures += await ImportKycAsync(); }
+        if (Includes(LegacyImportTableScopes.InvestmentAccounts)) { failures += await ImportInvestmentAccountsAsync(); }
+        if (!Includes(LegacyImportTableScopes.InvestmentAccounts) && Includes(LegacyImportTableScopes.InvestmentTransactions)) { await LoadExistingAccountTargetsAsync(); }
+        if (Includes(LegacyImportTableScopes.InvestmentTransactions)) { failures += await ImportInvestmentTransactionsAsync(); }
+        if (Includes(LegacyImportTableScopes.FundValuations)) { failures += await ImportFundValuationsAsync(); }
         var missingApprovedRows = approvedNewRows.Keys.Except(observedApprovedRows).ToArray();
         if (missingApprovedRows.Length > 0)
         {
@@ -38,6 +43,40 @@ internal sealed class IncrementalLegacyImporter(
         }
         await db.SaveChangesAsync();
         return failures;
+    }
+
+    private bool Includes(string tableScope) => tableScopes.Contains(tableScope);
+
+    private bool NeedsClientLookup()
+        => Includes(LegacyImportTableScopes.Notes) ||
+           Includes(LegacyImportTableScopes.KycPolicies) ||
+           Includes(LegacyImportTableScopes.InvestmentAccounts) ||
+           Includes(LegacyImportTableScopes.FundValuations);
+
+    private async Task LoadExistingClientTargetsAsync()
+    {
+        var clients = await db.Clients
+            .Where(client => client.LegacyClientId.HasValue)
+            .Select(client => new { LegacyClientId = client.LegacyClientId!.Value, client.Id })
+            .ToListAsync();
+        foreach (var client in clients)
+        {
+            clientTargets[client.LegacyClientId] = client.Id;
+            sourceClientIds.Add(client.LegacyClientId);
+        }
+    }
+
+    private async Task LoadExistingAccountTargetsAsync()
+    {
+        var accounts = await db.ClientInvestmentAccounts
+            .Where(account => account.LegacyInvestmentAccountId.HasValue)
+            .Select(account => new { LegacyInvestmentAccountId = account.LegacyInvestmentAccountId!.Value, account.Id })
+            .ToListAsync();
+        foreach (var account in accounts)
+        {
+            accountTargets[account.LegacyInvestmentAccountId] = account.Id;
+            sourceAccountIds.Add(account.LegacyInvestmentAccountId);
+        }
     }
 
     private async Task<int> ImportReferenceDataAsync()

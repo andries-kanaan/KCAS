@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using KCAS.Admin.Components;
 using KCAS.Admin.Components.Account;
 using KCAS.Admin.Data;
+using KCAS.Admin.LegacyImport;
 using KCAS.Admin.Security;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -66,6 +67,7 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 builder.Services.AddScoped<ClientSearchService>();
 builder.Services.AddScoped<ClientCodeGenerator>();
 builder.Services.AddScoped<ClientOperationsService>();
+builder.Services.AddScoped<LegacyImportWebService>();
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 
 builder.Services.AddIdentityCore<ApplicationUser>(options =>
