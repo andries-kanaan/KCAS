@@ -93,7 +93,7 @@ For the recurring operator workflow, download a fresh `kanaanclients.sql` export
 .\deploy\windows\Import-KCAS-Legacy.cmd "C:\path\to\kanaanclients.sql"
 ```
 
-The command reads the same protected database connection configuration as KCAS; it does not ask for or display the password. Review the displayed scan at `/imports`, then apply only its safe new records with:
+The command reads the same protected database connection configuration as KCAS; it does not ask for or display the password. Review the displayed scan at `/imports` as an Administrator, then apply only its safe new records with:
 
 ```powershell
 .\deploy\windows\Import-KCAS-Legacy.cmd -ApplyNew <reviewed-scan-run-id>
@@ -116,7 +116,11 @@ After reviewing the resulting run at `/imports`, apply only the exact new IDs ap
 .\.dotnet\dotnet.exe tools\KCAS.LegacyImport\bin\Debug\net10.0\KCAS.LegacyImport.dll --apply-new --approved-scan-run <run-id> --source-snapshot-sha256 $snapshotHash --source-snapshot-file-name 'kanaanclients.sql'
 ```
 
-`--scan` is the default; the former `--dry-run` flag remains an alias. Apply mode refuses a different source database, snapshot hash, changed source fingerprint, or incomplete scan. Changed and missing rows remain pending review. Neither mode overwrites existing KCAS values, clears child collections, or deletes rows missing from the source.
+`--scan` is the default; the former `--dry-run` flag remains an alias. Apply mode refuses a different source database, snapshot hash, changed source fingerprint, or incomplete scan. Changed and missing rows remain pending review until an authorised user records a reasoned decision at `/imports`: retain KCAS, apply incoming source values, manually resolve, defer, or reject. Neither scan nor apply-new mode overwrites existing KCAS values, clears child collections, or deletes rows missing from the source.
+
+The `/imports` page also exposes a baseline import option only when `LegacyImport:AllowResetImportedData` is enabled. Keep this setting disabled once KCAS becomes the operational system of record. During the current pre-live acceptance period it may be enabled temporarily with `LegacyImport__AllowResetImportedData=true` so imported legacy data can still be reset deliberately.
+
+After login, approved users are sent to `/clients` when their role includes `Clients.View`; users without client access fall back to `/`. KCAS no longer reuses a stale post-login return URL from a previous user session.
 
 Legacy `tbl_fund` valuations and `tbl_kyc` policies are scan-only because their legacy replacement workflows can create new primary IDs for replacement records. They are excluded from `--apply-new` until KCAS has reviewed stable identities and merge rules.
 

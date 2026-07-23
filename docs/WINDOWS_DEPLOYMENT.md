@@ -239,13 +239,23 @@ If production uses an external URL, it can be saved with the first scan:
     -ReviewUrl 'https://kcas.example/imports'
 ```
 
-Review the run at `/imports`. Changed, missing, invalid, and orphaned records are review-only. `tbl_fund` and `tbl_kyc` are also review-only because legacy replacement workflows can recreate their primary IDs. To add only the remaining exact new table/legacy-ID/fingerprint combinations from that scan:
+Review the run at `/imports` as an Administrator. Changed, missing, invalid, and orphaned records are review-only until an authorised user records a reasoned retain, apply incoming, manual, defer, or reject decision. `tbl_fund` and `tbl_kyc` are also review-only because legacy replacement workflows can recreate their primary IDs. To add only the remaining exact new table/legacy-ID/fingerprint combinations from that scan:
 
 ```powershell
 & 'D:\Deploy\KCAS\current\Import-KCAS-Legacy.cmd' -ApplyNew <reviewed-run-id>
 ```
 
 Apply mode uses the remembered immutable snapshot, creates another database backup under `shared\database-backups`, rejects mismatched provenance, applies only the scan's safe new records, and automatically performs a verification scan. Output plus `imports.jsonl` is written under `shared\legacy-import-logs`. The staging database is retained until an explicit, separately reviewed cleanup.
+
+During the current pre-live acceptance period, baseline import reset can be enabled on the live server with:
+
+```powershell
+LegacyImport__AllowResetImportedData=true
+```
+
+The equivalent JSON setting is `LegacyImport:AllowResetImportedData`. Remove or set this to `false` before KCAS becomes the operational system of record. When disabled, the Baseline Import option at `/imports` is intentionally unavailable.
+
+After successful login, KCAS redirects approved users to `/clients` when their role includes `Clients.View`; otherwise it redirects to `/`. This avoids carrying a previous user's protected page through the login process.
 
 ## Subsequent deployments
 

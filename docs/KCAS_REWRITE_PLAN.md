@@ -304,21 +304,23 @@ Verified locally after the security seed and deployment-script fixes:
 - `dotnet build` succeeds.
 - `dotnet test tests\KCAS.Admin.Tests\KCAS.Admin.Tests.csproj` passes.
 - `dotnet ef migrations has-pending-model-changes` reports no pending model changes.
-- `src\KCAS.Admin\Data\Migrations\kcas_blazor_schema.sql` applies successfully to an empty temporary MySQL database and records latest migration `20260602211709_CompleteOutstandingWorkflows`.
+- `src\KCAS.Admin\Data\Migrations\kcas_blazor_schema.sql` applies successfully to an empty temporary MySQL database and should record latest migration `20260722132929_AddLegacyImportSnapshotProvenance`.
 - Kestrel starts on `http://127.0.0.1:5143`.
 - WAMP HTTPS proxy reaches the app at `https://kcas.test:8443`.
 - `https://kcas.test:8443/clients` redirects unauthenticated users to login.
 - Apache HTTP vhost redirects `http://kcas.test:8080/security` to HTTPS.
 - Roles and permission claims are seeded.
-- Administrator role has all 9 planned permissions.
+- Administrator role has the full current permission set, including import view/review/apply/admin permissions.
 - Seeder removes stale KCAS permission claims when permission names change.
+- Approved users land on `/clients` after login when they have `Clients.View`; otherwise they land on `/`.
 
 Still to verify manually in browser:
 
 - First local or production registered user becomes approved Administrator on a clean database.
 - Pending users see `/Account/PendingApproval`.
-- `/security` can approve users and assign roles.
+- `/security` can approve users and assign roles in the deployed browser environment.
 - `/Account/WindowsLogin` works in the browser/WAMP and production reverse-proxy environments.
+- `/imports` supports scan review decisions and baseline reset only when `LegacyImport:AllowResetImportedData` is enabled.
 - Client create/edit, contact/address editing, relationship editing, note create/edit/finalize/delete.
 - Investment account create/edit/delete and transaction create/edit/finalize/delete.
 - Fund summary filtering/totals and unmatched valuation handling.
@@ -342,10 +344,11 @@ Still to verify manually in browser:
    - Keep `Database:MigrateOnStartup` disabled for controlled production migration windows.
    - Add backup/restore procedure and a repeatable migration procedure for existing databases.
 
-3. Final production data switch-over.
+3. Phase 0 live acceptance and final production data switch-over.
    - Take a fresh backup/export of the latest legacy `kanaanclients` database.
    - Run a scan-first reconciliation against the latest legacy data.
-   - Review run totals and differences, back up KCAS, then apply new legacy IDs only; changed existing rows remain pending review.
+   - Review run totals and differences, back up KCAS, then apply new legacy IDs only.
+   - Resolve representative changed and missing rows with retain KCAS, apply incoming, manual, defer and reject actions.
    - Reconcile counts and spot-check representative clients, notes, KYC, investments, fund valuations, and reference choices.
 
 4. Richer domain modules.
@@ -359,7 +362,6 @@ Still to verify manually in browser:
 - Before continuing feature work, inspect `git status --short --branch`.
 - Start new feature work from clean, up-to-date `main` and create a feature branch first.
 - The old `feature/investment-read-model` recommendation is complete and no longer the next domain slice.
-- Current local state may be ahead of GitHub by the committed database schema script fix until it is pushed/PR'd.
 - Do not commit local secrets, logs, build output, or generated `artifacts/`.
 - Before committing feature work, run:
   - `.\.dotnet\dotnet.exe build KCAS.slnx`
