@@ -1,0 +1,114 @@
+@page "/compliance"
+@attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
+@using KCAS.Admin.Data
+@inject ComplianceService ComplianceService
+
+<PageTitle>Compliance</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Administration</p>
+        <h1>Compliance</h1>
+        <p class="lede">Controlled configuration, responsible roles, document reviews, methodology status and audit evidence.</p>
+    </div>
+    <a class="btn btn-primary" href="/compliance/settings">Manage compliance</a>
+</div>
+
+@if (dashboard is null)
+{
+    <p>Loading compliance dashboard...</p>
+}
+else
+{
+    <section class="work-area">
+        <div class="investment-summary">
+            <div>
+                <span>Profile</span>
+                <strong>@(dashboard.Profile?.Status ?? "Not captured")</strong>
+            </div>
+            <div>
+                <span>Active methodology</span>
+                <strong>@(dashboard.ActiveMethodology?.Name ?? "None")</strong>
+            </div>
+            <div>
+                <span>Pending approvals</span>
+                <strong>@dashboard.PendingApprovals</strong>
+            </div>
+            <div>
+                <span>Open tasks</span>
+                <strong>@dashboard.OpenTasks</strong>
+            </div>
+        </div>
+    </section>
+
+    <section class="work-area">
+        <h2>Upcoming document reviews</h2>
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead>
+                    <tr>
+                        <th>Document</th>
+                        <th>Owner</th>
+                        <th>Status</th>
+                        <th>Review date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var document in dashboard.UpcomingDocuments)
+                    {
+                        <tr>
+                            <td>
+                                <strong>@document.Title</strong>
+                                <div class="text-muted small">@document.DocumentType</div>
+                            </td>
+                            <td>@Display(document.Owner)</td>
+                            <td>@document.Status</td>
+                            <td>@Date(document.NextReviewDate)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="work-area">
+        <h2>Recent audit</h2>
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead>
+                    <tr>
+                        <th>When</th>
+                        <th>Entity</th>
+                        <th>Action</th>
+                        <th>User</th>
+                        <th>Reason</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var audit in dashboard.RecentAudit)
+                    {
+                        <tr>
+                            <td>@audit.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                            <td>@audit.EntityLabel</td>
+                            <td>@audit.Action</td>
+                            <td>@Display(audit.UserName)</td>
+                            <td>@audit.Reason</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}
+
+@code {
+    private ComplianceDashboardModel? dashboard;
+
+    protected override async Task OnInitializedAsync()
+    {
+        dashboard = await ComplianceService.LoadDashboardAsync();
+    }
+
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+    private static string Date(DateOnly? value) => value is null ? "-" : value.Value.ToString("yyyy-MM-dd");
+}

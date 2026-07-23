@@ -42,6 +42,24 @@ public static class KcasSecuritySeeder
             KcasPermissions.InvestmentsView,
             KcasPermissions.KycView,
             KcasPermissions.ReportsView
+        ],
+        [KcasRoles.ComplianceAdministrator] =
+        [
+            KcasPermissions.ComplianceView,
+            KcasPermissions.ComplianceManage,
+            KcasPermissions.ComplianceApprove,
+            KcasPermissions.ComplianceAudit
+        ],
+        [KcasRoles.ComplianceApprover] =
+        [
+            KcasPermissions.ComplianceView,
+            KcasPermissions.ComplianceApprove,
+            KcasPermissions.ComplianceAudit
+        ],
+        [KcasRoles.ComplianceReadOnly] =
+        [
+            KcasPermissions.ComplianceView,
+            KcasPermissions.ComplianceAudit
         ]
     };
 

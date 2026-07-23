@@ -1,0 +1,365 @@
+@page "/compliance/settings"
+@page "/compliance/profile"
+@page "/compliance/governance"
+@page "/compliance/documents"
+@page "/compliance/references"
+@page "/compliance/methodologies"
+@page "/compliance/tasks"
+@page "/compliance/evidence"
+@page "/compliance/audit"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
+@using KCAS.Admin.Data
+@inject ComplianceService ComplianceService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Compliance settings</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Compliance administration</p>
+        <h1>Controlled configuration</h1>
+        <p class="lede">Maintain Kanaan compliance records, methodology configuration, tasks, evidence and audit trail.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="/compliance">Dashboard</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(statusMessage))
+{
+    <div class="alert alert-info">@statusMessage</div>
+}
+
+@if (model is null)
+{
+    <p>Loading compliance records...</p>
+}
+else
+{
+    <section class="work-area">
+        <h2>Change reason</h2>
+        <input class="form-control" value="@reason" @onchange="args => reason = args.Value?.ToString()" placeholder="Required reason for every compliance change" disabled="@(!canManage)" />
+    </section>
+
+    <section class="work-area">
+        <h2>FSP and accountable institution profile</h2>
+        <div class="workspace-grid">
+            <input class="form-control" @bind="profile.LegalName" placeholder="Legal name" disabled="@(!canManage)" />
+            <input class="form-control" @bind="profile.TradingName" placeholder="Trading name" disabled="@(!canManage)" />
+            <input class="form-control" @bind="profile.FspNumber" placeholder="FSP number" disabled="@(!canManage)" />
+            <input class="form-control" @bind="profile.AccountableInstitutionNumber" placeholder="Accountable institution number" disabled="@(!canManage)" />
+            <input class="form-control" @bind="profile.PrimaryContactName" placeholder="Primary contact" disabled="@(!canManage)" />
+            <input class="form-control" @bind="profile.PrimaryContactEmail" placeholder="Primary contact email" disabled="@(!canManage)" />
+            <InputDate class="form-control" @bind-Value="profile.EffectiveFrom" disabled="@(!canManage)" />
+            <select class="form-select" @bind="profile.Status" disabled="@(!canManage)">
+                @foreach (var status in statuses)
+                {
+                    <option value="@status">@status</option>
+                }
+            </select>
+        </div>
+        <textarea class="form-control mt-2" @bind="profile.RegisteredAddress" placeholder="Registered address" disabled="@(!canManage)"></textarea>
+        <textarea class="form-control mt-2" @bind="profile.OperatingAddress" placeholder="Operating address" disabled="@(!canManage)"></textarea>
+        <button type="button" class="btn btn-primary mt-2" @onclick="SaveProfileAsync" disabled="@(!canManage)">Save profile</button>
+    </section>
+
+    <section class="work-area">
+        <h2>Governance roles</h2>
+        <div class="workspace-grid">
+            <input class="form-control" @bind="governance.RoleType" placeholder="Role type" disabled="@(!canManage)" />
+            <input class="form-control" @bind="governance.PersonName" placeholder="Person name" disabled="@(!canManage)" />
+            <input class="form-control" @bind="governance.Email" placeholder="Email" disabled="@(!canManage)" />
+            <InputDate class="form-control" @bind-Value="governance.StartDate" disabled="@(!canManage)" />
+        </div>
+        <textarea class="form-control mt-2" @bind="governance.ResponsibilitySummary" placeholder="Responsibility summary" disabled="@(!canManage)"></textarea>
+        <label class="form-check mt-2">
+            <InputCheckbox class="form-check-input" @bind-Value="governance.IsActive" disabled="@(!canManage)" />
+            <span class="form-check-label">Active</span>
+        </label>
+        <button type="button" class="btn btn-primary mt-2" @onclick="SaveGovernanceAsync" disabled="@(!canManage)">Save role</button>
+        @RenderSimpleTable(model.GovernanceRoles.Select(role => new[] { role.RoleType, role.PersonName, role.Email ?? "-", role.IsActive ? "Active" : "Inactive" }))
+    </section>
+
+    <section class="work-area">
+        <h2>Controlled documents</h2>
+        <div class="workspace-grid">
+            <input class="form-control" @bind="document.DocumentType" placeholder="Document type" disabled="@(!canManage)" />
+            <input class="form-control" @bind="document.Title" placeholder="Title" disabled="@(!canManage)" />
+            <input class="form-control" @bind="document.Owner" placeholder="Owner" disabled="@(!canManage)" />
+            <input class="form-control" @bind="document.VersionReference" placeholder="Version/reference" disabled="@(!canManage)" />
+            <select class="form-select" @bind="document.Status" disabled="@(!canManage)">
+                @foreach (var status in statuses)
+                {
+                    <option value="@status">@status</option>
+                }
+            </select>
+            <InputDate class="form-control" @bind-Value="document.NextReviewDate" disabled="@(!canManage)" />
+        </div>
+        <input class="form-control mt-2" @bind="document.Location" placeholder="Location or link" disabled="@(!canManage)" />
+        <textarea class="form-control mt-2" @bind="document.Notes" placeholder="Notes" disabled="@(!canManage)"></textarea>
+        <button type="button" class="btn btn-primary mt-2" @onclick="SaveDocumentAsync" disabled="@(!canManage)">Save document</button>
+        @RenderSimpleTable(model.Documents.Select(item => new[] { item.DocumentType, item.Title, item.Owner ?? "-", item.Status, Date(item.NextReviewDate) }))
+    </section>
+
+    <section class="work-area">
+        <h2>Reference values</h2>
+        <div class="workspace-grid">
+            <input class="form-control" @bind="reference.Category" placeholder="Category" disabled="@(!canManage)" />
+            <input class="form-control" @bind="reference.Code" placeholder="Code" disabled="@(!canManage)" />
+            <input class="form-control" @bind="reference.Name" placeholder="Name" disabled="@(!canManage)" />
+            <InputNumber class="form-control" @bind-Value="reference.SortOrder" disabled="@(!canManage)" />
+        </div>
+        <textarea class="form-control mt-2" @bind="reference.Description" placeholder="Description" disabled="@(!canManage)"></textarea>
+        <label class="form-check mt-2">
+            <InputCheckbox class="form-check-input" @bind-Value="reference.IsActive" disabled="@(!canManage)" />
+            <span class="form-check-label">Active</span>
+        </label>
+        <button type="button" class="btn btn-primary mt-2" @onclick="SaveReferenceAsync" disabled="@(!canManage)">Save reference</button>
+        @RenderSimpleTable(model.ReferenceValues.Select(item => new[] { item.Category, item.Code, item.Name, item.IsActive ? "Active" : "Inactive" }))
+    </section>
+
+    <section class="work-area">
+        <h2>Risk methodology</h2>
+        <div class="workspace-grid">
+            <input class="form-control" @bind="methodology.Name" placeholder="Methodology name" disabled="@(!canManage)" />
+            <input class="form-control" @bind="methodology.VersionLabel" placeholder="Version label" disabled="@(!canManage)" />
+            <InputDate class="form-control" @bind-Value="methodology.EffectiveFrom" disabled="@(!canManage)" />
+        </div>
+        <textarea class="form-control mt-2" @bind="methodology.Summary" placeholder="Methodology summary" disabled="@(!canManage)"></textarea>
+        <div class="workspace-grid mt-2">
+            <input class="form-control" @bind="factor.Code" placeholder="Factor code" disabled="@(!canManage)" />
+            <input class="form-control" @bind="factor.Name" placeholder="Factor name" disabled="@(!canManage)" />
+            <InputNumber class="form-control" @bind-Value="factor.Weight" disabled="@(!canManage)" />
+            <input class="form-control" @bind="option.Label" placeholder="Option label" disabled="@(!canManage)" />
+            <InputNumber class="form-control" @bind-Value="option.Score" disabled="@(!canManage)" />
+            <input class="form-control" @bind="band.Name" placeholder="Risk band" disabled="@(!canManage)" />
+            <InputNumber class="form-control" @bind-Value="band.MinimumScore" disabled="@(!canManage)" />
+            <InputNumber class="form-control" @bind-Value="band.MaximumScore" disabled="@(!canManage)" />
+        </div>
+        <button type="button" class="btn btn-primary mt-2" @onclick="SaveMethodologyAsync" disabled="@(!canManage)">Save methodology</button>
+        @RenderMethodologies()
+    </section>
+
+    <section class="work-area">
+        <h2>Tasks</h2>
+        <div class="workspace-grid">
+            <input class="form-control" @bind="task.Title" placeholder="Task title" disabled="@(!canManage)" />
+            <input class="form-control" @bind="task.Owner" placeholder="Owner" disabled="@(!canManage)" />
+            <InputDate class="form-control" @bind-Value="task.DueDate" disabled="@(!canManage)" />
+            <select class="form-select" @bind="task.Status" disabled="@(!canManage)">
+                @foreach (var status in statuses)
+                {
+                    <option value="@status">@status</option>
+                }
+            </select>
+        </div>
+        <textarea class="form-control mt-2" @bind="task.Description" placeholder="Description" disabled="@(!canManage)"></textarea>
+        <button type="button" class="btn btn-primary mt-2" @onclick="SaveTaskAsync" disabled="@(!canManage)">Save task</button>
+        @RenderSimpleTable(model.Tasks.Select(item => new[] { item.Title, item.Owner ?? "-", Date(item.DueDate), item.Status }))
+    </section>
+
+    <section class="work-area">
+        <h2>Evidence</h2>
+        <div class="workspace-grid">
+            <input class="form-control" @bind="evidence.EvidenceType" placeholder="Evidence type" disabled="@(!canManage)" />
+            <input class="form-control" @bind="evidence.Title" placeholder="Title" disabled="@(!canManage)" />
+            <input class="form-control" @bind="evidence.Source" placeholder="Source" disabled="@(!canManage)" />
+            <input class="form-control" @bind="evidence.Location" placeholder="Location or link" disabled="@(!canManage)" />
+            <InputDate class="form-control" @bind-Value="evidence.ReceivedDate" disabled="@(!canManage)" />
+            <InputDate class="form-control" @bind-Value="evidence.ExpiryDate" disabled="@(!canManage)" />
+        </div>
+        <textarea class="form-control mt-2" @bind="evidence.Notes" placeholder="Notes" disabled="@(!canManage)"></textarea>
+        <button type="button" class="btn btn-primary mt-2" @onclick="SaveEvidenceAsync" disabled="@(!canManage)">Save evidence</button>
+        @RenderSimpleTable(model.Evidence.Select(item => new[] { item.EvidenceType, item.Title, item.Source ?? "-", Date(item.ExpiryDate) }))
+    </section>
+
+    <section class="work-area">
+        <h2>Audit</h2>
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead><tr><th>When</th><th>Entity</th><th>Action</th><th>User</th><th>Reason</th></tr></thead>
+                <tbody>
+                    @foreach (var audit in model.AuditEvents)
+                    {
+                        <tr>
+                            <td>@audit.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                            <td>@audit.EntityLabel</td>
+                            <td>@audit.Action</td>
+                            <td>@Display(audit.UserName)</td>
+                            <td>@audit.Reason</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}
+
+@code {
+    private static readonly string[] statuses =
+    [
+        ComplianceStatuses.Draft,
+        ComplianceStatuses.Review,
+        ComplianceStatuses.Approved,
+        ComplianceStatuses.Active,
+        ComplianceStatuses.Superseded,
+        ComplianceStatuses.Rejected,
+        ComplianceStatuses.Withdrawn,
+        ComplianceStatuses.Closed
+    ];
+    private ComplianceManageModel? model;
+    private ComplianceProfileModel profile = new();
+    private GovernanceRoleModel governance = new();
+    private ControlledDocumentModel document = new();
+    private ComplianceReferenceValueModel reference = new();
+    private RiskMethodologyModel methodology = new();
+    private RiskFactorModel factor = new() { Code = "CLIENT", Name = "Client risk", Weight = 1 };
+    private RiskFactorOptionModel option = new() { Code = "LOW", Label = "Low", Score = 1 };
+    private RiskBandModel band = new() { Name = "Low", MinimumScore = 0, MaximumScore = 2 };
+    private ComplianceTaskModel task = new();
+    private ComplianceEvidenceModel evidence = new();
+    private string? reason;
+    private string? currentUser;
+    private string? statusMessage;
+    private bool canManage;
+    private bool canApprove;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        currentUser = authState.User.Identity?.Name;
+        canManage = authState.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage);
+        canApprove = authState.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceApprove);
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        model = await ComplianceService.LoadManageModelAsync();
+        profile = model.Profile;
+    }
+
+    private async Task SaveProfileAsync() => await ExecuteAsync(async () => { await ComplianceService.SaveProfileAsync(profile, currentUser, reason ?? ""); });
+    private async Task SaveGovernanceAsync() => await ExecuteAsync(async () => { await ComplianceService.SaveGovernanceRoleAsync(governance, currentUser, reason ?? ""); governance = new(); });
+    private async Task SaveDocumentAsync() => await ExecuteAsync(async () => { await ComplianceService.SaveDocumentAsync(document, currentUser, reason ?? ""); document = new(); });
+    private async Task SaveReferenceAsync() => await ExecuteAsync(async () => { await ComplianceService.SaveReferenceValueAsync(reference, currentUser, reason ?? ""); reference = new(); });
+    private async Task SaveTaskAsync() => await ExecuteAsync(async () => { await ComplianceService.SaveTaskAsync(task, currentUser, reason ?? ""); task = new(); });
+    private async Task SaveEvidenceAsync() => await ExecuteAsync(async () => { await ComplianceService.SaveEvidenceAsync(evidence, currentUser, reason ?? ""); evidence = new(); });
+    private async Task SaveMethodologyAsync()
+        => await ExecuteAsync(async () =>
+        {
+            factor.Options = [option];
+            methodology.Factors = [factor];
+            methodology.Bands = [band];
+            await ComplianceService.SaveMethodologyAsync(methodology, currentUser, reason ?? "");
+            methodology = new();
+            factor = new() { Code = "CLIENT", Name = "Client risk", Weight = 1 };
+            option = new() { Code = "LOW", Label = "Low", Score = 1 };
+            band = new() { Name = "Low", MinimumScore = 0, MaximumScore = 2 };
+        });
+
+    private async Task SubmitMethodologyAsync(int id) => await ExecuteAsync(async () => await ComplianceService.SubmitMethodologyAsync(id, currentUser, reason ?? ""));
+    private async Task ApproveMethodologyAsync(int id) => await ExecuteAsync(async () => await ComplianceService.ApproveMethodologyAsync(id, currentUser, reason ?? ""));
+    private async Task RejectMethodologyAsync(int id) => await ExecuteAsync(async () => await ComplianceService.RejectMethodologyAsync(id, currentUser, reason ?? ""));
+    private async Task ActivateMethodologyAsync(int id) => await ExecuteAsync(async () => await ComplianceService.ActivateMethodologyAsync(id, currentUser, reason ?? ""));
+
+    private async Task ExecuteAsync(Func<Task> action)
+    {
+        try
+        {
+            await action();
+            statusMessage = "Compliance record saved.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = ex.Message;
+        }
+    }
+
+    private RenderFragment RenderSimpleTable(IEnumerable<string[]> rows) => builder =>
+    {
+        var index = 0;
+        builder.OpenElement(index++, "div");
+        builder.AddAttribute(index++, "class", "table-responsive mt-3");
+        builder.OpenElement(index++, "table");
+        builder.AddAttribute(index++, "class", "table align-middle");
+        builder.OpenElement(index++, "tbody");
+        foreach (var row in rows)
+        {
+            builder.OpenElement(index++, "tr");
+            foreach (var cell in row)
+            {
+                builder.OpenElement(index++, "td");
+                builder.AddContent(index++, cell);
+                builder.CloseElement();
+            }
+            builder.CloseElement();
+        }
+        builder.CloseElement();
+        builder.CloseElement();
+        builder.CloseElement();
+    };
+
+    private RenderFragment RenderMethodologies() => builder =>
+    {
+        if (model is null) { return; }
+        var index = 0;
+        builder.OpenElement(index++, "div");
+        builder.AddAttribute(index++, "class", "table-responsive mt-3");
+        builder.OpenElement(index++, "table");
+        builder.AddAttribute(index++, "class", "table align-middle");
+        builder.OpenElement(index++, "tbody");
+        foreach (var item in model.Methodologies)
+        {
+            builder.OpenElement(index++, "tr");
+            builder.OpenElement(index++, "td");
+            builder.AddContent(index++, item.Name);
+            builder.CloseElement();
+            builder.OpenElement(index++, "td");
+            builder.AddContent(index++, item.Status);
+            builder.CloseElement();
+            builder.OpenElement(index++, "td");
+            builder.AddContent(index++, $"{item.Factors.Count} factor(s), {item.Bands.Count} band(s)");
+            builder.CloseElement();
+            builder.OpenElement(index++, "td");
+            builder.AddAttribute(index++, "class", "text-end");
+            if (canManage && item.Status == ComplianceStatuses.Draft)
+            {
+                builder.OpenElement(index++, "button");
+                builder.AddAttribute(index++, "class", "btn btn-sm btn-outline-primary");
+                builder.AddAttribute(index++, "onclick", EventCallback.Factory.Create(this, () => SubmitMethodologyAsync(item.Id)));
+                builder.AddContent(index++, "Submit");
+                builder.CloseElement();
+            }
+            if (canApprove && item.Status == ComplianceStatuses.Review)
+            {
+                builder.OpenElement(index++, "button");
+                builder.AddAttribute(index++, "class", "btn btn-sm btn-outline-primary ms-1");
+                builder.AddAttribute(index++, "onclick", EventCallback.Factory.Create(this, () => ApproveMethodologyAsync(item.Id)));
+                builder.AddContent(index++, "Approve");
+                builder.CloseElement();
+                builder.OpenElement(index++, "button");
+                builder.AddAttribute(index++, "class", "btn btn-sm btn-outline-danger ms-1");
+                builder.AddAttribute(index++, "onclick", EventCallback.Factory.Create(this, () => RejectMethodologyAsync(item.Id)));
+                builder.AddContent(index++, "Reject");
+                builder.CloseElement();
+            }
+            if (canApprove && item.Status == ComplianceStatuses.Approved)
+            {
+                builder.OpenElement(index++, "button");
+                builder.AddAttribute(index++, "class", "btn btn-sm btn-outline-success ms-1");
+                builder.AddAttribute(index++, "onclick", EventCallback.Factory.Create(this, () => ActivateMethodologyAsync(item.Id)));
+                builder.AddContent(index++, "Activate");
+                builder.CloseElement();
+            }
+            builder.CloseElement();
+            builder.CloseElement();
+        }
+        builder.CloseElement();
+        builder.CloseElement();
+        builder.CloseElement();
+    };
+
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+    private static string Date(DateOnly? value) => value is null ? "-" : value.Value.ToString("yyyy-MM-dd");
+}

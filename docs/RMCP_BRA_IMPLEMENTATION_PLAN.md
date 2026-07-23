@@ -151,9 +151,9 @@ Do not resolve a material conflict merely by choosing the newest filename. Recor
 
 | Phase | Deliverable | Status | Gate |
 |---|---|---|---|
-| 0A | Safe scan and add-new reconciliation foundation | Implemented and merged; live acceptance pending | Complete controlled live scan/apply-new rehearsal |
-| 0B | Reviewed field-by-field merge and reconciliation closure | Implemented and merged; live acceptance pending | Demonstrate review, apply, rejection, deferral and audit trail |
-| 1 | Compliance foundation and controlled configuration | Not started | Configuration/versioning and permissions accepted |
+| 0A | Safe scan and add-new reconciliation foundation | Complete for delivery; live acceptance evidence remains operational follow-up | Controlled scan/apply-new workflow available |
+| 0B | Reviewed field-by-field merge and reconciliation closure | Complete for delivery; live acceptance evidence remains operational follow-up | Review, apply, rejection, deferral and audit trail available |
+| 1 | Compliance foundation and controlled configuration | In implementation | Configuration/versioning and permissions accepted |
 | 2 | Client profile and evidence readiness | Not started | Pilot clients pass completeness and evidence checks |
 | 3 | Client risk assessment workflow | Not started | Pilot assessments reproduce approved methodology |
 | 4 | Business Risk Assessment | Not started | BRA approved from traceable evidence and methodology |
@@ -161,9 +161,9 @@ Do not resolve a material conflict merely by choosing the newest filename. Recor
 | 6 | Monitoring, reviews and remediation | Not started | End-to-end review and escalation cases pass |
 | 7 | Inspection readiness, reporting and rollout | Not started | Inspection pack, security, recovery and rollout accepted |
 
-Current resume point: **Phase 0 live acceptance run and acceptance evidence.**
+Current resume point: **Phase 1 compliance foundation implementation and acceptance.**
 
-No Phase 1 work should begin until both Phase 0A and Phase 0B have passed their gates.
+Phase 0 remains available for operational import acceptance and final data switch-over evidence, but it is no longer the active development blocker.
 
 ## 5. Delivery rules for every phase
 
@@ -281,6 +281,17 @@ Create the common governance structures required by all later compliance modules
 - Immutable audit-event service covering old value, new value, user, timestamp and reason.
 - Permissions for preparer, reviewer, approver, compliance administrator, read-only inspector and system administrator.
 - Effective-date handling so historical assessments retain the methodology used at the time.
+
+### Implemented in current Phase 1 branch
+
+- Compliance dashboard and management routes for profile, governance, documents, references, methodologies, tasks, evidence and audit.
+- FSP/accountable-institution profile, governance role assignments and controlled document register.
+- Compliance reference values for controlled categories such as client types, products/services, delivery channels, geographies, evidence types and task categories.
+- Versioned risk methodology records with factors, options, risk bands and status transitions.
+- Compliance tasks, evidence records, approvals and immutable audit events.
+- Reason-required service layer for compliance mutations.
+- Methodology submit, approve, reject, activate and supersede workflow.
+- Compliance view/manage/approve/audit permissions.
 
 ### Acceptance gate 1
 
