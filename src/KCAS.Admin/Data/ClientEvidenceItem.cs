@@ -45,6 +45,22 @@ public sealed class ClientEvidenceItem
     [MaxLength(191)]
     public string? Reviewer { get; set; }
 
+    public DateOnly? ScreeningReviewDate { get; set; }
+
+    [MaxLength(96)]
+    public string? ScreeningSubjectType { get; set; }
+
+    [MaxLength(240)]
+    public string? ScreeningSubjectName { get; set; }
+
+    [MaxLength(96)]
+    public string? ScreeningOutcome { get; set; }
+
+    [MaxLength(32)]
+    public string? ScreeningRiskSignal { get; set; }
+
+    public bool EscalationRequired { get; set; }
+
     [MaxLength(32)]
     public string Status { get; set; } = ClientEvidenceStatuses.Linked;
 

@@ -220,6 +220,71 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
     }
 
     [Fact]
+    public async Task Record_review_creates_verified_evidence_for_screening_requirements()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var clientId = await CreateClientAsync(db, "Screening Review Client", "SCREEN-001", @"z:\Kanaan Trust\Clients\Screening Review Client");
+        var requirementId = await EnsureRequirementIdAsync(service, db, "PepPip");
+
+        var itemId = await service.RecordRequirementReviewAsync(clientId, requirementId, "reviewer@example.test", "PEP/PIP screening completed with no match.");
+        var readiness = await service.LoadClientReadinessAsync(clientId);
+
+        var item = await db.ClientEvidenceItems.SingleAsync(item => item.Id == itemId);
+        Assert.Equal(ClientEvidenceStatuses.Verified, item.Status);
+        Assert.Equal("reviewer@example.test", item.Reviewer);
+        Assert.NotNull(item.VerifiedDate);
+        Assert.Equal(ClientEvidenceRiskSignals.Low, item.ScreeningRiskSignal);
+        Assert.Equal(ClientEvidenceScreeningOutcomes.NoMatch, item.ScreeningOutcome);
+        Assert.Contains(readiness.Requirements, requirement => requirement.EvidenceType == "PepPip" && requirement.IsComplete);
+    }
+
+    [Fact]
+    public async Task Screening_review_requires_notes_for_higher_risk_or_layered_clients()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var clientId = await CreateClientAsync(db, "Layered Trust", "TRUST-REV-001", @"z:\Kanaan Trust\Clients\Layered Trust", ClientCategories.Trust);
+        var requirementId = await EnsureRequirementIdAsync(service, db, "PepPip");
+
+        await Assert.ThrowsAsync<ValidationException>(() => service.RecordRequirementReviewAsync(clientId, requirementId, new ClientEvidenceScreeningReviewRequest
+        {
+            SubjectType = ClientEvidenceScreeningSubjectTypes.Trustee,
+            SubjectName = "Trustee One",
+            Outcome = ClientEvidenceScreeningOutcomes.NoMatch,
+            RiskSignal = ClientEvidenceRiskSignals.Low,
+            ReviewDate = DateOnly.FromDateTime(DateTime.Today)
+        }, "reviewer@example.test", null));
+    }
+
+    [Fact]
+    public async Task Sanctions_confirmed_match_records_escalation_signal()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var clientId = await CreateClientAsync(db, "Sanctions Review Client", "SAN-001", @"z:\Kanaan Trust\Clients\Sanctions Review Client");
+        var requirementId = await EnsureRequirementIdAsync(service, db, "SanctionsTfs");
+
+        var itemId = await service.RecordRequirementReviewAsync(clientId, requirementId, new ClientEvidenceScreeningReviewRequest
+        {
+            SubjectType = ClientEvidenceScreeningSubjectTypes.Client,
+            SubjectName = "Sanctions Review Client",
+            Outcome = ClientEvidenceScreeningOutcomes.ConfirmedMatch,
+            RiskSignal = ClientEvidenceRiskSignals.High,
+            ReviewDate = DateOnly.FromDateTime(DateTime.Today),
+            Notes = "Confirmed sanctions match escalated for formal handling."
+        }, "reviewer@example.test", null);
+
+        var item = await db.ClientEvidenceItems.SingleAsync(item => item.Id == itemId);
+        Assert.True(item.EscalationRequired);
+        Assert.Equal(ClientEvidenceRiskSignals.High, item.ScreeningRiskSignal);
+        Assert.Contains((await service.LoadClientReadinessAsync(clientId)).Requirements, requirement => requirement.EvidenceType == "SanctionsTfs" && requirement.IsComplete);
+    }
+
+    [Fact]
     public async Task Manual_scan_file_resolution_links_without_verifying()
     {
         using var scope = factory.Services.CreateScope();

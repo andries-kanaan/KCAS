@@ -144,7 +144,26 @@ else
                                             }
                                             <strong>@item.Title</strong>
                                             <span class="text-muted small">@Display(item.RelativePath)</span>
+                                            @if (!string.IsNullOrWhiteSpace(item.ScreeningRiskSignal))
+                                            {
+                                                <span class="small">Review: @DisplayOutcome(item.ScreeningOutcome), @item.ScreeningRiskSignal risk</span>
+                                                <span class="text-muted small">Subject: @Display(item.ScreeningSubjectName), reviewed: @Date(item.ScreeningReviewDate)</span>
+                                            }
+                                            @if (item.EscalationRequired)
+                                            {
+                                                <span class="badge text-bg-warning">Escalation required</span>
+                                            }
                                             <span class="text-muted small">Verified: @Date(item.VerifiedDate), expires: @Date(item.ExpiryDate)</span>
+                                            @if (item.CanOpen)
+                                            {
+                                                <span class="row-actions">
+                                                    <a class="btn btn-outline-secondary btn-sm" href="@item.FileUrl" target="_blank" rel="noopener">Open</a>
+                                                    @if (item.IsImage)
+                                                    {
+                                                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => PreviewImage(item)">Preview</button>
+                                                    }
+                                                </span>
+                                            }
                                         </div>
                                     }
                                 }
@@ -173,9 +192,9 @@ else
                                     {
                                         <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => VerifyAsync(requirement.Items[0].Id)">Verify first item</button>
                                     }
-                                    @if (canManage)
+                                    @if (canManage && requirement.CanRecordReview)
                                     {
-                                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => CreateTaskAsync(requirement.RequirementId)">Create task</button>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => OpenReviewModal(requirement)">Record review...</button>
                                     }
                                     @if (canApprove)
                                     {
@@ -200,7 +219,7 @@ else
         {
             <div class="table-responsive">
                 <table class="table align-middle">
-                    <thead><tr><th>Type</th><th>Title</th><th>File</th><th>Status</th><th>Reviewer</th></tr></thead>
+                    <thead><tr><th>Type</th><th>Title</th><th>File</th><th>Status</th><th>Reviewer</th><th>Actions</th></tr></thead>
                     <tbody>
                         @foreach (var item in model.EvidenceItems)
                         {
@@ -210,6 +229,27 @@ else
                                 <td>@Display(item.RelativePath)</td>
                                 <td>@item.Status</td>
                                 <td>@Display(item.Reviewer)</td>
+                                <td>
+                                    @if (!string.IsNullOrWhiteSpace(item.ScreeningRiskSignal))
+                                    {
+                                        <div class="small">@DisplayOutcome(item.ScreeningOutcome), @item.ScreeningRiskSignal risk</div>
+                                        <div class="text-muted small">@Display(item.ScreeningSubjectName)</div>
+                                        @if (item.EscalationRequired)
+                                        {
+                                            <span class="badge text-bg-warning">Escalation required</span>
+                                        }
+                                    }
+                                    @if (item.CanOpen)
+                                    {
+                                        <div class="row-actions">
+                                            <a class="btn btn-outline-secondary btn-sm" href="@item.FileUrl" target="_blank" rel="noopener">Open</a>
+                                            @if (item.IsImage)
+                                            {
+                                                <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => PreviewImage(item)">Preview</button>
+                                            }
+                                        </div>
+                                    }
+                                </td>
                             </tr>
                         }
                     </tbody>
@@ -217,6 +257,108 @@ else
             </div>
         }
     </section>
+
+    @if (previewImageItem is not null)
+    {
+        <div class="modal fade show d-block" tabindex="-1" role="dialog" aria-modal="true">
+            <div class="modal-dialog modal-xl modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 class="modal-title h5">@previewImageItem.Title</h2>
+                        <button type="button" class="btn-close" aria-label="Close" @onclick="ClosePreview"></button>
+                    </div>
+                    <div class="modal-body">
+                        <img class="evidence-image-preview" src="@previewImageItem.FileUrl" alt="@previewImageItem.Title" />
+                    </div>
+                    <div class="modal-footer">
+                        <a class="btn btn-outline-secondary" href="@previewImageItem.FileUrl" target="_blank" rel="noopener">Open</a>
+                        <button type="button" class="btn btn-primary" @onclick="ClosePreview">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-backdrop fade show"></div>
+    }
+
+    @if (activeReviewRequirement is not null)
+    {
+        <div class="modal fade show d-block" tabindex="-1" role="dialog" aria-modal="true">
+            <div class="modal-dialog modal-lg modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 class="modal-title h5">Record screening review</h2>
+                        <button type="button" class="btn-close" aria-label="Close" @onclick="CloseReviewModal"></button>
+                    </div>
+                    <EditForm Model="@reviewForm" OnValidSubmit="SaveReviewAsync">
+                        <div class="modal-body">
+                            <div class="mb-3">
+                                <label class="form-label">Requirement</label>
+                                <input class="form-control" value="@activeReviewRequirement.Title" disabled />
+                            </div>
+                            <div class="workspace-grid">
+                                <div>
+                                    <label class="form-label">Subject</label>
+                                    <select class="form-select" value="@selectedReviewSubjectKey" @onchange="ChangeReviewSubject">
+                                        @foreach (var subject in model.ScreeningSubjects)
+                                        {
+                                            <option value="@SubjectKey(subject)">@subject.Label</option>
+                                        }
+                                        <option value="@ManualSubjectKey">Manual subject</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="form-label">Subject type</label>
+                                    <select class="form-select" @bind="reviewForm.SubjectType" disabled="@(selectedReviewSubjectKey != ManualSubjectKey)">
+                                        @foreach (var subjectType in ClientEvidenceScreeningSubjectTypes.All)
+                                        {
+                                            <option value="@subjectType">@DisplaySubjectType(subjectType)</option>
+                                        }
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="mt-3">
+                                <label class="form-label">Subject name</label>
+                                <input class="form-control" @bind="reviewForm.SubjectName" disabled="@(selectedReviewSubjectKey != ManualSubjectKey)" />
+                            </div>
+                            <div class="workspace-grid mt-3">
+                                <div>
+                                    <label class="form-label">Outcome</label>
+                                    <select class="form-select" @bind="reviewForm.Outcome">
+                                        @foreach (var outcome in ClientEvidenceScreeningOutcomes.ForEvidenceType(activeReviewRequirement.EvidenceType))
+                                        {
+                                            <option value="@outcome">@DisplayOutcome(outcome)</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="form-label">Risk signal</label>
+                                    <select class="form-select" @bind="reviewForm.RiskSignal">
+                                        @foreach (var riskSignal in ClientEvidenceRiskSignals.All)
+                                        {
+                                            <option value="@riskSignal">@riskSignal</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="form-label">Review date</label>
+                                    <input class="form-control" type="date" @bind="reviewForm.ReviewDate" />
+                                </div>
+                            </div>
+                            <div class="mt-3">
+                                <label class="form-label">Notes</label>
+                                <textarea class="form-control" rows="4" @bind="reviewForm.Notes"></textarea>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-outline-secondary" @onclick="CloseReviewModal">Cancel</button>
+                            <button type="submit" class="btn btn-primary">Save review</button>
+                        </div>
+                    </EditForm>
+                </div>
+            </div>
+        </div>
+        <div class="modal-backdrop fade show"></div>
+    }
 }
 
 @code {
@@ -231,9 +373,14 @@ else
     private string? statusMessage;
     private string? selectedClientFolder;
     private bool isClientFolderPickerOpen;
+    private ClientEvidenceItemModel? previewImageItem;
+    private ClientEvidenceRequirementStatusModel? activeReviewRequirement;
+    private ClientEvidenceScreeningReviewRequest reviewForm = new();
+    private string selectedReviewSubjectKey = "";
     private readonly HashSet<int> selectedEvidenceItemIds = [];
     private DateOnly? batchReceivedDate = DateOnly.FromDateTime(DateTime.Today);
     private DateOnly? batchExpiryDate = DateOnly.FromDateTime(DateTime.Today.AddYears(1));
+    private const string ManualSubjectKey = "__manual__";
 
     protected override async Task OnInitializedAsync()
     {
@@ -333,9 +480,47 @@ else
         await ExecuteAsync(async () => await EvidenceService.CreateExceptionAsync(ClientId, requirementId, "Approved temporary evidence exception.", DateOnly.FromDateTime(DateTime.Today.AddMonths(3)), currentUser, reason ?? ""));
     }
 
-    private async Task CreateTaskAsync(int requirementId)
+    private void OpenReviewModal(ClientEvidenceRequirementStatusModel requirement)
     {
-        await ExecuteAsync(async () => await EvidenceService.CreateTaskForRequirementAsync(ClientId, requirementId, currentUser, DateOnly.FromDateTime(DateTime.Today.AddDays(14)), currentUser, reason ?? ""));
+        if (model is null)
+        {
+            return;
+        }
+
+        activeReviewRequirement = requirement;
+        var subject = model.ScreeningSubjects.FirstOrDefault();
+        selectedReviewSubjectKey = subject is null ? ManualSubjectKey : SubjectKey(subject);
+        reviewForm = new ClientEvidenceScreeningReviewRequest
+        {
+            SubjectType = subject?.SubjectType ?? ClientEvidenceScreeningSubjectTypes.Client,
+            SubjectName = subject?.SubjectName ?? model.DisplayName,
+            Outcome = ClientEvidenceScreeningOutcomes.ForEvidenceType(requirement.EvidenceType).FirstOrDefault(),
+            RiskSignal = ClientEvidenceRiskSignals.Low,
+            ReviewDate = DateOnly.FromDateTime(DateTime.Today)
+        };
+    }
+
+    private void CloseReviewModal() => activeReviewRequirement = null;
+
+    private async Task SaveReviewAsync()
+    {
+        if (activeReviewRequirement is null || model is null)
+        {
+            return;
+        }
+
+        ApplySelectedReviewSubject();
+        try
+        {
+            await EvidenceService.RecordRequirementReviewAsync(ClientId, activeReviewRequirement.RequirementId, reviewForm, currentUser, ReviewReason);
+            activeReviewRequirement = null;
+            statusMessage = "Client evidence readiness updated.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = ex.Message;
+        }
     }
 
     private async Task ExecuteAsync(Func<Task> action)
@@ -355,7 +540,54 @@ else
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
     private static string Date(DateOnly? value) => value is null ? "-" : value.Value.ToString("yyyy-MM-dd");
 
+    private static string SubjectKey(ClientEvidenceScreeningSubjectModel subject) => $"{subject.SubjectType}|{subject.SubjectName}";
+
+    private static string DisplaySubjectType(string? value) => value switch
+    {
+        ClientEvidenceScreeningSubjectTypes.AuthorisedPerson => "Authorised person",
+        _ => DisplayOutcome(value)
+    };
+
+    private static string DisplayOutcome(string? value) => value switch
+    {
+        ClientEvidenceScreeningOutcomes.NoMatch => "No match",
+        ClientEvidenceScreeningOutcomes.PossibleMatch => "Possible match",
+        ClientEvidenceScreeningOutcomes.ConfirmedMatch => "Confirmed match",
+        ClientEvidenceScreeningOutcomes.NoneFound => "None found",
+        ClientEvidenceScreeningOutcomes.MaterialAdverseInfo => "Material adverse info",
+        _ => string.IsNullOrWhiteSpace(value) ? "-" : value
+    };
+
+    private void ChangeReviewSubject(ChangeEventArgs eventArgs)
+    {
+        selectedReviewSubjectKey = eventArgs.Value?.ToString() ?? ManualSubjectKey;
+        ApplySelectedReviewSubject();
+    }
+
+    private void ApplySelectedReviewSubject()
+    {
+        if (model is null || selectedReviewSubjectKey == ManualSubjectKey)
+        {
+            return;
+        }
+
+        var subject = model.ScreeningSubjects.FirstOrDefault(subject => SubjectKey(subject) == selectedReviewSubjectKey);
+        if (subject is not null)
+        {
+            reviewForm.SubjectType = subject.SubjectType;
+            reviewForm.SubjectName = subject.SubjectName;
+        }
+    }
+
+    private void PreviewImage(ClientEvidenceItemModel item) => previewImageItem = item;
+
+    private void ClosePreview() => previewImageItem = null;
+
     private string ClientScanReason => string.IsNullOrWhiteSpace(reason)
         ? "Run client evidence folder scan."
+        : reason;
+
+    private string ReviewReason => string.IsNullOrWhiteSpace(reason)
+        ? "Record screening review completed."
         : reason;
 }

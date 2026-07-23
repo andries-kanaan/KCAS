@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
 using KCAS.Admin.Components;
 using KCAS.Admin.Components.Account;
@@ -130,6 +131,23 @@ app.MapGet("/health/ready", async (ApplicationDbContext db, CancellationToken ca
     await db.Database.CanConnectAsync(cancellationToken)
         ? Results.Ok(new { status = "Healthy" })
         : Results.Json(new { status = "Unhealthy" }, statusCode: StatusCodes.Status503ServiceUnavailable));
+
+app.MapGet("/client-evidence/items/{id:int}/file", async Task<IResult> (int id, ApplicationDbContext db, CancellationToken cancellationToken) =>
+{
+    var item = await db.ClientEvidenceItems.AsNoTracking().SingleOrDefaultAsync(item => item.Id == id, cancellationToken);
+    if (item is null || string.IsNullOrWhiteSpace(item.SourcePath) || !File.Exists(item.SourcePath))
+    {
+        return Results.NotFound();
+    }
+
+    var contentTypeProvider = new FileExtensionContentTypeProvider();
+    if (!contentTypeProvider.TryGetContentType(item.SourcePath, out var contentType))
+    {
+        contentType = "application/octet-stream";
+    }
+
+    return Results.File(File.OpenRead(item.SourcePath), contentType, enableRangeProcessing: true);
+}).RequireAuthorization(KcasPermissions.ComplianceView);
 
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
