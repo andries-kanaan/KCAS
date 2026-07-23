@@ -3,6 +3,7 @@
 @attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
 @using KCAS.Admin.Data
 @inject ClientEvidenceReadinessService EvidenceService
+@inject ClientEvidenceScanCoordinator ScanCoordinator
 @inject AuthenticationStateProvider AuthenticationStateProvider
 
 <PageTitle>Client evidence readiness</PageTitle>
@@ -40,6 +41,14 @@ else
             <strong>@model.CompleteCount</strong>
         </article>
         <article class="summary-card">
+            <span>Linked evidence</span>
+            <strong>@model.LinkedEvidenceCount</strong>
+        </article>
+        <article class="summary-card">
+            <span>Verified evidence</span>
+            <strong>@model.VerifiedEvidenceCount</strong>
+        </article>
+        <article class="summary-card">
             <span>Exceptions</span>
             <strong>@model.ExceptionCount</strong>
         </article>
@@ -59,6 +68,42 @@ else
         <h2>Action reason</h2>
         <input class="form-control" @bind="reason" placeholder="Required reason for evidence changes" disabled="@(!canManage && !canApprove)" />
     </section>
+
+    @if (canManage)
+    {
+        <section class="work-area">
+            <h2>Client folder scan</h2>
+            <p class="text-muted">Select the server folder for this client and scan only that folder. Files are linked for review and do not complete requirements until verified.</p>
+            <div class="workspace-grid">
+                <input class="form-control" @bind="selectedClientFolder" placeholder="Client folder path" />
+                <button type="button" class="btn btn-outline-secondary" @onclick="OpenClientFolderPicker">Browse folders</button>
+                <button type="button" class="btn btn-primary" @onclick="RunClientScanAsync">Scan this client</button>
+            </div>
+            <ServerFolderPicker IsOpen="@isClientFolderPickerOpen"
+                                InitialPath="@selectedClientFolder"
+                                Disabled="@(!canManage)"
+                                Title="Choose client folder"
+                                Selected="SelectClientFolder"
+                                Closed="CloseClientFolderPicker" />
+        </section>
+    }
+
+    @if (canManage && model.EvidenceItems.Any(item => item.VerifiedDate is null))
+    {
+        <section class="work-area">
+            <h2>Verify linked evidence</h2>
+            <p class="text-muted">Scanned files are linked for review first. Select the items you have reviewed and verify them with one reason.</p>
+            <div class="workspace-grid">
+                <input class="form-control" type="date" @bind="batchReceivedDate" />
+                <input class="form-control" type="date" @bind="batchExpiryDate" />
+            </div>
+            <div class="row-actions mt-2">
+                <button type="button" class="btn btn-outline-secondary" @onclick="SelectAllUnverified">Select all unverified</button>
+                <button type="button" class="btn btn-outline-secondary" @onclick="ClearSelectedEvidence">Clear</button>
+                <button type="button" class="btn btn-primary" @onclick="VerifySelectedAsync" disabled="@(selectedEvidenceItemIds.Count == 0)">Verify selected (@selectedEvidenceItemIds.Count)</button>
+            </div>
+        </section>
+    }
 
     <section class="work-area">
         <h2>Evidence requirements</h2>
@@ -81,6 +126,7 @@ else
                             <td>
                                 <div>@requirement.Title</div>
                                 <div class="text-muted small">@requirement.EvidenceType</div>
+                                <div class="text-muted small">@requirement.LinkedItemCount linked, @requirement.VerifiedItemCount verified</div>
                             </td>
                             <td>
                                 @if (requirement.Items.Count == 0)
@@ -91,7 +137,11 @@ else
                                 {
                                     @foreach (var item in requirement.Items)
                                     {
-                                        <div>
+                                        <div class="evidence-review-row">
+                                            @if (canManage && item.VerifiedDate is null)
+                                            {
+                                                <input type="checkbox" checked="@selectedEvidenceItemIds.Contains(item.Id)" @onchange="eventArgs => ToggleEvidenceSelection(item.Id, eventArgs)" />
+                                            }
                                             <strong>@item.Title</strong>
                                             <span class="text-muted small">@Display(item.RelativePath)</span>
                                             <span class="text-muted small">Verified: @Date(item.VerifiedDate), expires: @Date(item.ExpiryDate)</span>
@@ -179,6 +229,11 @@ else
     private bool canApprove;
     private string? reason;
     private string? statusMessage;
+    private string? selectedClientFolder;
+    private bool isClientFolderPickerOpen;
+    private readonly HashSet<int> selectedEvidenceItemIds = [];
+    private DateOnly? batchReceivedDate = DateOnly.FromDateTime(DateTime.Today);
+    private DateOnly? batchExpiryDate = DateOnly.FromDateTime(DateTime.Today.AddYears(1));
 
     protected override async Task OnInitializedAsync()
     {
@@ -197,11 +252,80 @@ else
         }
     }
 
-    private async Task LoadAsync() => model = await EvidenceService.LoadClientReadinessAsync(ClientId);
+    private async Task LoadAsync()
+    {
+        model = await EvidenceService.LoadClientReadinessAsync(ClientId);
+        selectedClientFolder ??= model.ClientFolder;
+        selectedEvidenceItemIds.RemoveWhere(id => model.EvidenceItems.All(item => item.Id != id || item.VerifiedDate is not null));
+    }
+
+    private async Task RunClientScanAsync()
+    {
+        if (string.IsNullOrWhiteSpace(selectedClientFolder))
+        {
+            statusMessage = "Select a client folder before running the client scan.";
+            return;
+        }
+
+        try
+        {
+            var runId = await ScanCoordinator.StartClientScanAsync(ClientId, selectedClientFolder, currentUser, reason ?? "");
+            statusMessage = $"Client evidence scan {runId} started.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = ex.Message;
+        }
+    }
+
+    private void OpenClientFolderPicker() => isClientFolderPickerOpen = true;
+
+    private void SelectClientFolder(string path) => selectedClientFolder = path;
+
+    private void CloseClientFolderPicker() => isClientFolderPickerOpen = false;
 
     private async Task VerifyAsync(int itemId)
     {
         await ExecuteAsync(async () => await EvidenceService.VerifyEvidenceAsync(itemId, DateOnly.FromDateTime(DateTime.Today), DateOnly.FromDateTime(DateTime.Today.AddYears(1)), currentUser, reason ?? ""));
+    }
+
+    private async Task VerifySelectedAsync()
+    {
+        await ExecuteAsync(async () =>
+        {
+            var verifiedCount = await EvidenceService.VerifyEvidenceBatchAsync(ClientId, selectedEvidenceItemIds.ToList(), batchReceivedDate, batchExpiryDate, currentUser, reason ?? "");
+            selectedEvidenceItemIds.Clear();
+            statusMessage = $"{verifiedCount} evidence item(s) verified.";
+        });
+    }
+
+    private void SelectAllUnverified()
+    {
+        if (model is null)
+        {
+            return;
+        }
+
+        selectedEvidenceItemIds.Clear();
+        foreach (var item in model.EvidenceItems.Where(item => item.VerifiedDate is null))
+        {
+            selectedEvidenceItemIds.Add(item.Id);
+        }
+    }
+
+    private void ClearSelectedEvidence() => selectedEvidenceItemIds.Clear();
+
+    private void ToggleEvidenceSelection(int itemId, ChangeEventArgs eventArgs)
+    {
+        if (eventArgs.Value is bool isSelected && isSelected)
+        {
+            selectedEvidenceItemIds.Add(itemId);
+        }
+        else
+        {
+            selectedEvidenceItemIds.Remove(itemId);
+        }
     }
 
     private async Task ApproveExceptionAsync(int requirementId)

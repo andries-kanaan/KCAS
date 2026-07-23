@@ -44,6 +44,8 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             client.CompleteCount = readiness.CompleteCount;
             client.BlockedCount = readiness.BlockedCount;
             client.ExceptionCount = readiness.ExceptionCount;
+            client.LinkedEvidenceCount = items.Count(item => item.ClientId == client.ClientId);
+            client.VerifiedEvidenceCount = items.Count(item => item.ClientId == client.ClientId && item.VerifiedDate is not null);
             client.IsReadyForRiskAssessment = readiness.IsReadyForRiskAssessment;
         }
 
@@ -127,12 +129,14 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                     IsBlocking = requirement.IsBlocking,
                     RequiresVerification = requirement.RequiresVerification,
                     RequiresExpiryDate = requirement.RequiresExpiryDate,
-                    IsComplete = isComplete,
-                    IsExceptioned = activeException is not null,
-                    IsBlocked = requirement.IsBlocking && !isComplete && activeException is null,
-                    ExceptionReason = activeException?.Reason,
-                    Items = matchedItems.Select(ClientEvidenceItemModel.FromItem).ToList()
-                };
+                IsComplete = isComplete,
+                IsExceptioned = activeException is not null,
+                IsBlocked = requirement.IsBlocking && !isComplete && activeException is null,
+                ExceptionReason = activeException?.Reason,
+                LinkedItemCount = matchedItems.Count,
+                VerifiedItemCount = matchedItems.Count(item => item.VerifiedDate is not null),
+                Items = matchedItems.Select(ClientEvidenceItemModel.FromItem).ToList()
+            };
             })
             .OrderBy(row => row.RequirementGroup)
             .ThenBy(row => row.Title)
@@ -151,6 +155,8 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             CompleteCount = requirementRows.Count(row => row.IsComplete),
             ExceptionCount = requirementRows.Count(row => row.IsExceptioned),
             BlockedCount = requirementRows.Count(row => row.IsBlocked),
+            LinkedEvidenceCount = items.Count,
+            VerifiedEvidenceCount = items.Count(item => item.VerifiedDate is not null),
             IsReadyForRiskAssessment = requirementRows.All(row => !row.IsBlocked)
         };
     }
@@ -232,6 +238,13 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         return runId;
     }
 
+    public async Task<int> RunClientFolderScanAsync(int clientId, string? selectedClientFolder, string? userName, string reason)
+    {
+        var runId = await StartClientScanRunAsync(clientId, selectedClientFolder, userName, reason);
+        await ExecuteClientScanRunAsync(runId, clientId, userName, reason, CancellationToken.None);
+        return runId;
+    }
+
     public async Task<int> StartScanRunAsync(string? requestedRootPath, string? userName, string reason)
     {
         RequireReason(reason);
@@ -269,7 +282,55 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         return run.Id;
     }
 
+    public async Task<int> StartClientScanRunAsync(int clientId, string? selectedClientFolder, string? userName, string reason)
+    {
+        RequireReason(reason);
+        if (await db.ClientEvidenceScanRuns.AnyAsync(run =>
+            run.Status == ClientEvidenceScanStatuses.Running ||
+            run.Status == ClientEvidenceScanStatuses.Cancelling))
+        {
+            throw new InvalidOperationException("An evidence scan is already running.");
+        }
+
+        var rootPath = Normalize(selectedClientFolder) ?? throw new ValidationException("Client folder path is required.");
+        if (!Directory.Exists(rootPath))
+        {
+            throw new ValidationException("Client folder path does not exist on the server.");
+        }
+
+        var client = await db.Clients.SingleOrDefaultAsync(client => client.Id == clientId)
+            ?? throw new InvalidOperationException("Client not found.");
+        client.ClientFolder = rootPath;
+        client.UpdatedAtUtc = DateTime.UtcNow;
+
+        var run = new ClientEvidenceScanRun
+        {
+            RootPath = rootPath,
+            StartedBy = userName,
+            Status = ClientEvidenceScanStatuses.Running
+        };
+        db.ClientEvidenceScanRuns.Add(run);
+        await AddAuditAsync("Client", client.Id, "SetEvidenceClientFolder", new
+        {
+            client.Id,
+            client.DisplayName,
+            client.ClientFolder
+        }, userName, reason);
+        await db.SaveChangesAsync();
+        return run.Id;
+    }
+
     public async Task ExecuteScanRunAsync(int runId, string? userName, string reason, CancellationToken cancellationToken)
+    {
+        await ExecuteScanRunAsync(runId, forcedClientId: null, userName, reason, cancellationToken);
+    }
+
+    public async Task ExecuteClientScanRunAsync(int runId, int clientId, string? userName, string reason, CancellationToken cancellationToken)
+    {
+        await ExecuteScanRunAsync(runId, clientId, userName, reason, cancellationToken);
+    }
+
+    private async Task ExecuteScanRunAsync(int runId, int? forcedClientId, string? userName, string reason, CancellationToken cancellationToken)
     {
         var run = await db.ClientEvidenceScanRuns.SingleOrDefaultAsync(run => run.Id == runId, cancellationToken)
             ?? throw new InvalidOperationException("Evidence scan run not found.");
@@ -277,6 +338,9 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         {
             var clients = await db.Clients.AsNoTracking().ToListAsync(cancellationToken);
             var requirements = await LoadActiveRequirementsAsync(cancellationToken);
+            var forcedClient = forcedClientId.HasValue
+                ? clients.SingleOrDefault(client => client.Id == forcedClientId.Value) ?? throw new InvalidOperationException("Client not found.")
+                : null;
             foreach (var path in Directory.EnumerateFiles(run.RootPath, "*.*", SearchOption.AllDirectories))
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -307,7 +371,9 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                     continue;
                 }
 
-                var match = MatchClient(relativePath, clients);
+                var match = forcedClient is not null
+                    ? new ClientEvidenceMatchResult(forcedClient, 1, "Client-specific folder scan.")
+                    : MatchClient(relativePath, clients);
                 scanFile.CandidateCount = match.CandidateCount;
                 scanFile.MatchReason = match.Reason;
                 if (match.Client is null)
@@ -330,6 +396,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                 scanFile.ClientId = match.Client.Id;
                 scanFile.MatchStatus = ClientEvidenceScanFileStatuses.Linked;
                 db.ClientEvidenceScanFiles.Add(scanFile);
+                await ResolvePriorScanFilesForPathAsync(scanFile, match.Client.Id, cancellationToken);
 
                 var evidenceType = scanFile.SuggestedEvidenceType ?? "General";
                 var requirement = requirements.FirstOrDefault(requirement => requirement.EvidenceType == evidenceType);
@@ -368,6 +435,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             await AddAuditAsync("ClientEvidenceScanRun", run.Id, "RunScan", new
             {
                 run.RootPath,
+                ForcedClientId = forcedClientId,
                 run.TotalFiles,
                 run.LinkedFiles,
                 run.UnmatchedFiles,
@@ -447,14 +515,85 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         RequireReason(reason);
         var item = await db.ClientEvidenceItems.SingleOrDefaultAsync(item => item.Id == evidenceItemId)
             ?? throw new InvalidOperationException("Evidence item not found.");
-        item.ReceivedDate = receivedDate;
-        item.VerifiedDate = DateOnly.FromDateTime(DateTime.Today);
-        item.ExpiryDate = expiryDate;
-        item.Reviewer = userName;
-        item.Status = ClientEvidenceStatuses.Verified;
-        item.UpdatedAtUtc = DateTime.UtcNow;
-        item.UpdatedBy = userName;
-        await AddAuditAsync("ClientEvidenceItem", item.Id, "Verify", item, userName, reason);
+        await VerifyEvidenceItemAsync(item, receivedDate, expiryDate, userName, reason);
+        await db.SaveChangesAsync();
+    }
+
+    public async Task<int> VerifyEvidenceBatchAsync(int clientId, IReadOnlyCollection<int> evidenceItemIds, DateOnly? receivedDate, DateOnly? expiryDate, string? userName, string reason)
+    {
+        RequireReason(reason);
+        if (evidenceItemIds.Count == 0)
+        {
+            throw new ValidationException("Select at least one evidence item to verify.");
+        }
+
+        var selectedIds = evidenceItemIds.Distinct().ToList();
+        var items = await db.ClientEvidenceItems
+            .Where(item => item.ClientId == clientId && selectedIds.Contains(item.Id))
+            .ToListAsync();
+        if (items.Count != selectedIds.Count)
+        {
+            throw new InvalidOperationException("One or more selected evidence items could not be found for this client.");
+        }
+
+        foreach (var item in items)
+        {
+            await VerifyEvidenceItemAsync(item, receivedDate, expiryDate, userName, reason);
+        }
+
+        await db.SaveChangesAsync();
+        return items.Count;
+    }
+
+    public async Task ResolveScanFileAsync(int scanFileId, int clientId, string? evidenceType, string? userName, string reason)
+    {
+        RequireReason(reason);
+        var scanFile = await db.ClientEvidenceScanFiles.SingleOrDefaultAsync(file => file.Id == scanFileId)
+            ?? throw new InvalidOperationException("Scan file not found.");
+        var client = await db.Clients.AsNoTracking().SingleOrDefaultAsync(client => client.Id == clientId)
+            ?? throw new InvalidOperationException("Client not found.");
+
+        var normalizedType = Normalize(evidenceType) ?? scanFile.SuggestedEvidenceType ?? "General";
+        var requirement = await db.ClientEvidenceRequirements
+            .AsNoTracking()
+            .FirstOrDefaultAsync(requirement => requirement.EvidenceType == normalizedType && requirement.Status == ClientEvidenceRequirementStatuses.Active);
+        var existingItem = await db.ClientEvidenceItems.FirstOrDefaultAsync(item =>
+            item.ClientId == client.Id &&
+            item.FileSha256 == scanFile.FileSha256 &&
+            item.RelativePath == scanFile.RelativePath);
+
+        scanFile.ClientId = client.Id;
+        scanFile.MatchStatus = ClientEvidenceScanFileStatuses.Linked;
+        scanFile.MatchReason = "Manually linked by reviewer.";
+        scanFile.SuggestedEvidenceType = normalizedType;
+        scanFile.CandidateCount = 1;
+
+        if (existingItem is null)
+        {
+            db.ClientEvidenceItems.Add(new ClientEvidenceItem
+            {
+                ClientId = client.Id,
+                ClientEvidenceRequirementId = requirement?.Id,
+                EvidenceType = normalizedType,
+                Title = Path.GetFileNameWithoutExtension(scanFile.FileName),
+                SourcePath = scanFile.FullPath,
+                RelativePath = scanFile.RelativePath,
+                FileName = scanFile.FileName,
+                FileSha256 = scanFile.FileSha256,
+                FileSizeBytes = scanFile.FileSizeBytes,
+                FileLastWriteTimeUtc = scanFile.FileLastWriteTimeUtc,
+                Status = ClientEvidenceStatuses.Linked,
+                ScanFile = scanFile,
+                UpdatedBy = userName
+            });
+        }
+
+        await AddAuditAsync("ClientEvidenceScanFile", scanFile.Id, "ResolveScanFile", new
+        {
+            scanFile.RelativePath,
+            ClientId = client.Id,
+            EvidenceType = normalizedType
+        }, userName, reason);
         await db.SaveChangesAsync();
     }
 
@@ -641,6 +780,27 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
 
     private static ClientEvidenceMatchResult MatchClient(string relativePath, IReadOnlyList<Client> clients)
     {
+        var firstSegment = FirstPathSegment(relativePath);
+        var normalizedFirstSegment = NormalizeClientAlias(firstSegment);
+        if (!string.IsNullOrWhiteSpace(normalizedFirstSegment))
+        {
+            var exactFolderMatches = clients
+                .SelectMany(client => ClientAliases(client).Select(alias => new { Client = client, Alias = alias }))
+                .Where(match => match.Alias == normalizedFirstSegment)
+                .Select(match => match.Client)
+                .DistinctBy(client => client.Id)
+                .ToList();
+            if (exactFolderMatches.Count == 1)
+            {
+                return new(exactFolderMatches[0], 1, "Client folder segment match.");
+            }
+
+            if (exactFolderMatches.Count > 1)
+            {
+                return new(null, exactFolderMatches.Count, "Multiple clients matched the folder segment.");
+            }
+        }
+
         var normalizedPath = NormalizeToken(relativePath);
         var matches = new List<(Client Client, int Score, string Reason)>();
         foreach (var client in clients)
@@ -653,23 +813,14 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                 reason = "Kanaan ID match.";
             }
 
-            var folderName = LastPathSegment(client.ClientFolder);
-            if (!string.IsNullOrWhiteSpace(folderName) && normalizedPath.Contains(NormalizeToken(folderName)))
+            foreach (var alias in ClientAliases(client))
             {
-                score += 30;
-                reason = "Client folder name match.";
-            }
-
-            if (!string.IsNullOrWhiteSpace(client.DisplayName) && normalizedPath.Contains(NormalizeToken(client.DisplayName)))
-            {
-                score += 20;
-                reason = "Display name match.";
-            }
-
-            if (!string.IsNullOrWhiteSpace(client.SurnameOrEntityName) && normalizedPath.Contains(NormalizeToken(client.SurnameOrEntityName)))
-            {
-                score += 10;
-                reason = "Surname/entity name match.";
+                if (alias.Length >= 4 && normalizedPath.Contains(alias))
+                {
+                    score += 25;
+                    reason = "Client alias match.";
+                    break;
+                }
             }
 
             if (score > 0)
@@ -693,19 +844,57 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
     private static string? SuggestEvidenceType(string relativePath)
     {
         var text = NormalizeToken(relativePath);
-        if (ContainsAny(text, "id", "identity", "passport", "registration", "trustdeed", "trustakte")) return "Identity";
-        if (ContainsAny(text, "address", "proofresidence", "utility", "municipal", "residence")) return "Address";
-        if (ContainsAny(text, "tax", "sars", "residency")) return "TaxResidency";
-        if (ContainsAny(text, "sourcefund", "funds", "bankstatement", "deposit")) return "SourceOfFunds";
+        var folderText = NormalizeToken(Path.GetDirectoryName(relativePath));
+        if (ContainsAny(text, "beneficiary", "beneficiaries", "beneficial", "ownership", "director", "trustee")) return "BeneficialOwnership";
+        if (ContainsAny(text, "trustdeed", "trustakte")) return "TrustDeed";
+        if (ContainsAny(text, "proofaddress", "proofofaddress", "address", "adres", "proofresidence", "utility", "municipal", "residence")) return "Address";
+        if (ContainsAny(folderText, "fica", "kyc") || ContainsAny(text, "identity", "identitydocument", "passport", "registration")) return "Identity";
+        if (ContainsAny(folderText, "tax") || ContainsAny(text, "tax", "sars", "residency")) return "TaxResidency";
+        if (ContainsAny(text, "bop", "forex", "foreignexchange", "dealing", "dealconfirmation", "dealsettlement", "bankconfirmation", "bankstatement", "proofpayment", "proofofpayment", "sourcefund", "funds", "deposit")) return "SourceOfFunds";
         if (ContainsAny(text, "sourcewealth", "wealth", "inheritance", "salary", "income")) return "SourceOfWealth";
-        if (ContainsAny(text, "beneficial", "ownership", "director", "trustee", "beneficiary")) return "BeneficialOwnership";
         if (ContainsAny(text, "pep", "pip", "prominent")) return "PepPip";
         if (ContainsAny(text, "sanction", "tfs", "goaml", "screening")) return "SanctionsTfs";
         if (ContainsAny(text, "adverse", "media")) return "AdverseInformation";
-        if (ContainsAny(text, "policy", "product", "investment", "mandate")) return "ProductService";
-        if (ContainsAny(text, "remote", "emailinstruction", "callback", "delivery")) return "DeliveryChannel";
-        if (ContainsAny(text, "country", "offshore", "geography", "jurisdiction")) return "Geography";
+        if (ContainsAny(text, "remote", "emailinstruction", "callback", "clientconsent", "consent")) return "DeliveryChannel";
+        if (ContainsAny(text, "offshore", "country", "geography", "jurisdiction")) return "Geography";
+        if (ContainsAny(text, "policy", "policies", "product", "investment", "mandate", "applicationform", "applicationforms", "portfolio", "unittrust", "hedgefund", "annuity")) return "ProductService";
         return null;
+    }
+
+    private async Task VerifyEvidenceItemAsync(ClientEvidenceItem item, DateOnly? receivedDate, DateOnly? expiryDate, string? userName, string reason)
+    {
+        item.ReceivedDate = receivedDate;
+        item.VerifiedDate = DateOnly.FromDateTime(DateTime.Today);
+        item.ExpiryDate = expiryDate;
+        item.Reviewer = userName;
+        item.Status = ClientEvidenceStatuses.Verified;
+        item.UpdatedAtUtc = DateTime.UtcNow;
+        item.UpdatedBy = userName;
+        await AddAuditAsync("ClientEvidenceItem", item.Id, "Verify", item, userName, reason);
+    }
+
+    private async Task ResolvePriorScanFilesForPathAsync(ClientEvidenceScanFile scanFile, int clientId, CancellationToken cancellationToken)
+    {
+        var priorFiles = await db.ClientEvidenceScanFiles
+            .Where(file =>
+                file.Id != scanFile.Id &&
+                file.FullPath == scanFile.FullPath &&
+                file.FileSha256 == scanFile.FileSha256 &&
+                (file.MatchStatus == ClientEvidenceScanFileStatuses.Unmatched ||
+                    file.MatchStatus == ClientEvidenceScanFileStatuses.Ambiguous))
+            .ToListAsync(cancellationToken);
+
+        foreach (var priorFile in priorFiles)
+        {
+            priorFile.ClientId = clientId;
+            priorFile.MatchStatus = ClientEvidenceScanFileStatuses.Linked;
+            priorFile.MatchReason = "Resolved by client-specific folder scan.";
+            priorFile.CandidateCount = 1;
+            if (string.IsNullOrWhiteSpace(priorFile.SuggestedEvidenceType))
+            {
+                priorFile.SuggestedEvidenceType = scanFile.SuggestedEvidenceType;
+            }
+        }
     }
 
     private static async Task<string> ComputeSha256Async(string path, CancellationToken cancellationToken = default)
@@ -764,10 +953,75 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         return parts.LastOrDefault();
     }
 
+    private static string? FirstPathSegment(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        return path.Replace('/', '\\').Split('\\', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+    }
+
+    private static IEnumerable<string> ClientAliases(Client client)
+    {
+        var aliases = new HashSet<string>();
+        AddAlias(aliases, LastPathSegment(client.ClientFolder));
+        AddAlias(aliases, client.DisplayName);
+        AddAlias(aliases, client.FullName);
+        if (!string.IsNullOrWhiteSpace(client.SurnameOrEntityName) && !string.IsNullOrWhiteSpace(client.Initials))
+        {
+            AddAlias(aliases, $"{client.SurnameOrEntityName} {client.Initials}");
+            AddAlias(aliases, $"{client.Initials} {client.SurnameOrEntityName}");
+        }
+
+        var fullNameInitials = InitialsFromName(client.FullName);
+        if (!string.IsNullOrWhiteSpace(client.SurnameOrEntityName) && !string.IsNullOrWhiteSpace(fullNameInitials))
+        {
+            AddAlias(aliases, $"{client.SurnameOrEntityName} {fullNameInitials}");
+            AddAlias(aliases, $"{fullNameInitials} {client.SurnameOrEntityName}");
+        }
+
+        return aliases;
+    }
+
+    private static void AddAlias(HashSet<string> aliases, string? value)
+    {
+        var alias = NormalizeClientAlias(value);
+        if (!string.IsNullOrWhiteSpace(alias) && alias.Length >= 4)
+        {
+            aliases.Add(alias);
+        }
+    }
+
+    private static string NormalizeClientAlias(string? value)
+    {
+        var token = NormalizeToken(value);
+        return token is "KANAAN" or "CLIENT" or "CLIENTS" ? "" : token;
+    }
+
+    private static string InitialsFromName(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "";
+        }
+
+        var words = NonAlphaNumericSpaceRegex()
+            .Replace(value.ToUpperInvariant(), " ")
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(word => word.Length > 1 && word is not ("MR" or "MRS" or "MS" or "DR" or "PROF" or "TRUST"))
+            .ToList();
+        return string.Concat(words.Select(word => word[0]));
+    }
+
     private static bool ContainsAny(string text, params string[] values) => values.Any(value => text.Contains(NormalizeToken(value)));
 
     [GeneratedRegex("[^A-Z0-9]")]
     private static partial Regex NonAlphaNumericRegex();
+
+    [GeneratedRegex("[^A-Z0-9]+")]
+    private static partial Regex NonAlphaNumericSpaceRegex();
 
     private sealed record ClientEvidenceReadinessCounts(int RequiredCount, int CompleteCount, int ExceptionCount, int BlockedCount)
     {
@@ -814,6 +1068,8 @@ public sealed class ClientEvidenceClientSummaryModel
     public int CompleteCount { get; set; }
     public int ExceptionCount { get; set; }
     public int BlockedCount { get; set; }
+    public int LinkedEvidenceCount { get; set; }
+    public int VerifiedEvidenceCount { get; set; }
     public bool IsReadyForRiskAssessment { get; set; }
 }
 
@@ -828,6 +1084,8 @@ public sealed class ClientEvidenceReadinessModel
     public int CompleteCount { get; set; }
     public int ExceptionCount { get; set; }
     public int BlockedCount { get; set; }
+    public int LinkedEvidenceCount { get; set; }
+    public int VerifiedEvidenceCount { get; set; }
     public bool IsReadyForRiskAssessment { get; set; }
     public List<ClientEvidenceRequirementStatusModel> Requirements { get; set; } = [];
     public List<ClientEvidenceItemModel> EvidenceItems { get; set; } = [];
@@ -845,6 +1103,8 @@ public sealed class ClientEvidenceRequirementStatusModel
     public bool IsComplete { get; set; }
     public bool IsExceptioned { get; set; }
     public bool IsBlocked { get; set; }
+    public int LinkedItemCount { get; set; }
+    public int VerifiedItemCount { get; set; }
     public string? ExceptionReason { get; set; }
     public List<ClientEvidenceItemModel> Items { get; set; } = [];
 }

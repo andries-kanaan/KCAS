@@ -102,6 +102,154 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
     }
 
     [Fact]
+    public async Task Scan_uses_client_folder_segment_to_avoid_family_name_ambiguity()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var agId = await CreateClientAsync(db, "Arie Gysbert", "264", @"z:\Kanaan Trust\Clients\Clients\Fourie AG", initials: "AG", fullName: "Arie Gysbert", surnameOrEntityName: "Fourie");
+        await CreateClientAsync(db, "Petrus Johannes", "030", @"z:\Kanaan Trust\Clients\Clients\Fourie PJ", initials: "PJ", fullName: "Petrus Johannes", surnameOrEntityName: "Fourie");
+        await CreateClientAsync(db, "Anneke", "131", @"z:\Kanaan Trust\Clients\Clients\Fourie A", initials: "A", fullName: "Anneke", surnameOrEntityName: "Fourie");
+        var root = CreateTempRoot();
+        var folder = Directory.CreateDirectory(Path.Combine(root, "FOURIE AG", "Storage Data", "Application Forms", "Unit Trust"));
+        await File.WriteAllTextAsync(Path.Combine(folder.FullName, "Kanaan BCI Withdrawal Form (Fourie AG).pdf"), "withdrawal");
+
+        await service.RunScanAsync(root, "scanner@example.test", "Scan Fourie folders.");
+
+        var scanFile = await db.ClientEvidenceScanFiles.SingleAsync(file => file.FileName == "Kanaan BCI Withdrawal Form (Fourie AG).pdf");
+        Assert.Equal(ClientEvidenceScanFileStatuses.Linked, scanFile.MatchStatus);
+        Assert.Equal(agId, scanFile.ClientId);
+        Assert.Equal(1, scanFile.CandidateCount);
+    }
+
+    [Fact]
+    public async Task Client_folder_scan_forces_selected_client_and_resolves_prior_ambiguity()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var selectedClientId = await CreateClientAsync(db, "John Smith", "SMITH-001", @"z:\Kanaan Trust\Clients\Old Smith J", initials: "J", fullName: "John", surnameOrEntityName: "Smith");
+        await CreateClientAsync(db, "Jane Smith", "SMITH-002", @"z:\Kanaan Trust\Clients\Smith J", initials: "J", fullName: "Jane", surnameOrEntityName: "Smith");
+        var root = CreateTempRoot();
+        var selectedFolder = Directory.CreateDirectory(Path.Combine(root, "Smith J", "Storage Data", "FICA"));
+        var evidencePath = Path.Combine(selectedFolder.FullName, "identity document.pdf");
+        await File.WriteAllTextAsync(evidencePath, "identity");
+
+        await service.RunScanAsync(root, "scanner@example.test", "Scan ambiguous family folder.");
+        var ambiguousFile = await db.ClientEvidenceScanFiles.SingleAsync(file => file.FullPath == evidencePath);
+        Assert.Equal(ClientEvidenceScanFileStatuses.Ambiguous, ambiguousFile.MatchStatus);
+        Assert.Null(ambiguousFile.ClientId);
+
+        await service.RunClientFolderScanAsync(selectedClientId, Path.Combine(root, "Smith J"), "scanner@example.test", "Resolve selected client folder.");
+
+        var client = await db.Clients.SingleAsync(client => client.Id == selectedClientId);
+        Assert.Equal(Path.Combine(root, "Smith J"), client.ClientFolder);
+        Assert.Equal(1, await db.ClientEvidenceItems.CountAsync(item => item.ClientId == selectedClientId));
+        var resolvedPriorFile = await db.ClientEvidenceScanFiles.SingleAsync(file => file.Id == ambiguousFile.Id);
+        Assert.Equal(ClientEvidenceScanFileStatuses.Linked, resolvedPriorFile.MatchStatus);
+        Assert.Equal(selectedClientId, resolvedPriorFile.ClientId);
+    }
+
+    [Fact]
+    public async Task Scan_suggests_evidence_types_from_sample_folder_patterns()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var clientId = await CreateClientAsync(db, "Philip Nel", "354", @"z:\Kanaan Trust\Clients\Clients\Badenhorst PN", initials: "PN", fullName: "Philip Nel", surnameOrEntityName: "Badenhorst");
+        var root = CreateTempRoot();
+        await WriteFileAsync(root, "BADENHORST PN", "Storage Data", "FICA", "Individual", "Proof of address PN Badenhorst.pdf");
+        await WriteFileAsync(root, "BADENHORST PN", "Storage Data", "Tax", "2025", "SARS tax certificate.pdf");
+        await WriteFileAsync(root, "BADENHORST PN", "Storage Data", "Application Forms", "Offshore", "Bidvest", "BOP.pdf");
+        await WriteFileAsync(root, "BADENHORST PN", "Storage Data", "Application Forms", "Unit Trust", "AIMS", "Beneficiaries", "Beneficiary Nomination.pdf");
+
+        await service.RunScanAsync(root, "scanner@example.test", "Scan sampled evidence types.");
+
+        var files = await db.ClientEvidenceScanFiles.Where(file => file.ClientId == clientId).ToListAsync();
+        Assert.Contains(files, file => file.FileName == "Proof of address PN Badenhorst.pdf" && file.SuggestedEvidenceType == "Address");
+        Assert.Contains(files, file => file.FileName == "SARS tax certificate.pdf" && file.SuggestedEvidenceType == "TaxResidency");
+        Assert.Contains(files, file => file.FileName == "BOP.pdf" && file.SuggestedEvidenceType == "SourceOfFunds");
+        Assert.Contains(files, file => file.FileName == "Beneficiary Nomination.pdf" && file.SuggestedEvidenceType == "BeneficialOwnership");
+    }
+
+    [Fact]
+    public async Task Scan_linked_evidence_does_not_complete_requirements_until_verified()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var clientId = await CreateClientAsync(db, "Linked Review Client", "LINK-001", @"z:\Kanaan Trust\Clients\Linked Review Client");
+        var root = CreateTempRoot();
+        var clientFolder = Directory.CreateDirectory(Path.Combine(root, "Linked Review Client"));
+        await File.WriteAllTextAsync(Path.Combine(clientFolder.FullName, "identity document.pdf"), "identity");
+
+        await service.RunScanAsync(root, "scanner@example.test", "Scan linked evidence.");
+        var readiness = await service.LoadClientReadinessAsync(clientId);
+
+        Assert.True(readiness.LinkedEvidenceCount > 0);
+        Assert.Equal(0, readiness.VerifiedEvidenceCount);
+        Assert.Equal(0, readiness.CompleteCount);
+        Assert.True(readiness.BlockedCount > 0);
+    }
+
+    [Fact]
+    public async Task Batch_verification_updates_verified_and_readiness_counts()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var clientId = await CreateClientAsync(db, "Batch Verify Client", "BATCH-001", @"z:\Kanaan Trust\Clients\Batch Verify Client");
+        var requirementId = await EnsureRequirementIdAsync(service, db, "TaxResidency");
+        db.ClientEvidenceItems.Add(new ClientEvidenceItem
+        {
+            ClientId = clientId,
+            ClientEvidenceRequirementId = requirementId,
+            EvidenceType = "TaxResidency",
+            Title = "Tax evidence",
+            Status = ClientEvidenceStatuses.Linked
+        });
+        await db.SaveChangesAsync();
+        var itemId = await db.ClientEvidenceItems.Where(item => item.ClientId == clientId).Select(item => item.Id).SingleAsync();
+
+        var verifiedCount = await service.VerifyEvidenceBatchAsync(clientId, [itemId], DateOnly.FromDateTime(DateTime.Today), null, "reviewer@example.test", "Verify batch evidence.");
+        var readiness = await service.LoadClientReadinessAsync(clientId);
+
+        Assert.Equal(1, verifiedCount);
+        Assert.Equal(1, readiness.VerifiedEvidenceCount);
+        Assert.Contains(readiness.Requirements, requirement => requirement.EvidenceType == "TaxResidency" && requirement.IsComplete);
+    }
+
+    [Fact]
+    public async Task Manual_scan_file_resolution_links_without_verifying()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var clientId = await CreateClientAsync(db, "Manual Resolve Client", "MAN-001", @"z:\Kanaan Trust\Clients\Manual Resolve Client");
+        var run = new ClientEvidenceScanRun { RootPath = CreateTempRoot(), Status = ClientEvidenceScanStatuses.Completed };
+        var scanFile = new ClientEvidenceScanFile
+        {
+            ScanRun = run,
+            FullPath = Path.Combine(run.RootPath, "unknown passport.pdf"),
+            RelativePath = "unknown passport.pdf",
+            FileName = "unknown passport.pdf",
+            FileSha256 = "abc",
+            MatchStatus = ClientEvidenceScanFileStatuses.Unmatched,
+            SuggestedEvidenceType = "Identity"
+        };
+        db.ClientEvidenceScanRuns.Add(run);
+        db.ClientEvidenceScanFiles.Add(scanFile);
+        await db.SaveChangesAsync();
+
+        await service.ResolveScanFileAsync(scanFile.Id, clientId, "Identity", "reviewer@example.test", "Resolve scan file.");
+
+        var item = await db.ClientEvidenceItems.SingleAsync(item => item.ClientId == clientId);
+        Assert.Equal(ClientEvidenceStatuses.Linked, item.Status);
+        Assert.Null(item.VerifiedDate);
+        Assert.Equal(ClientEvidenceScanFileStatuses.Linked, (await db.ClientEvidenceScanFiles.SingleAsync(file => file.Id == scanFile.Id)).MatchStatus);
+    }
+
+    [Fact]
     public async Task Scan_keeps_unmatched_files_for_review()
     {
         using var scope = factory.Services.CreateScope();
@@ -162,12 +310,22 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
         Assert.Equal(root, childBrowser.ParentPath);
     }
 
-    private static async Task<int> CreateClientAsync(ApplicationDbContext db, string name, string kanaanId, string folder, string category = ClientCategories.NaturalPerson)
+    private static async Task<int> CreateClientAsync(
+        ApplicationDbContext db,
+        string name,
+        string kanaanId,
+        string folder,
+        string category = ClientCategories.NaturalPerson,
+        string? initials = null,
+        string? fullName = null,
+        string? surnameOrEntityName = null)
     {
         var client = new Client
         {
             DisplayName = name,
-            SurnameOrEntityName = name,
+            Initials = initials,
+            FullName = fullName,
+            SurnameOrEntityName = surnameOrEntityName ?? name,
             KanaanId = kanaanId,
             ClientFolder = folder,
             ClientCategory = category
@@ -182,5 +340,21 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
         var root = Path.Combine(Path.GetTempPath(), "kcas-evidence-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         return root;
+    }
+
+    private static async Task WriteFileAsync(string root, params string[] parts)
+    {
+        var path = Path.Combine([root, .. parts]);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await File.WriteAllTextAsync(path, Path.GetFileName(path));
+    }
+
+    private static async Task<int> EnsureRequirementIdAsync(ClientEvidenceReadinessService service, ApplicationDbContext db, string evidenceType)
+    {
+        await service.LoadDashboardAsync();
+        return await db.ClientEvidenceRequirements
+            .Where(requirement => requirement.EvidenceType == evidenceType)
+            .Select(requirement => requirement.Id)
+            .SingleAsync();
     }
 }

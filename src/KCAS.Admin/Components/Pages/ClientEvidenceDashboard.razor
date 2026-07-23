@@ -52,6 +52,7 @@ else
     <section class="work-area">
         <h2>Server document scan</h2>
         <p class="text-muted">Use a server path that the live KCAS process can read. KCAS links metadata and paths; it does not copy client documents.</p>
+        <p class="text-muted">A scan links files for review. It does not mark evidence complete; verification or an approved exception changes readiness.</p>
         <div class="workspace-grid">
             <input class="form-control" @bind="scanRootPath" placeholder="Server client document root path" disabled="@(!canManage)" />
             <input class="form-control" @bind="reason" placeholder="Required reason" disabled="@(!canManage)" />
@@ -117,6 +118,9 @@ else
                         <th>Client</th>
                         <th>Category</th>
                         <th>Kanaan ID</th>
+                        <th>Client folder</th>
+                        <th>Linked</th>
+                        <th>Verified</th>
                         <th>Complete</th>
                         <th>Exceptions</th>
                         <th>Blocked</th>
@@ -131,6 +135,22 @@ else
                             <td>@client.DisplayName</td>
                             <td>@client.ClientCategory</td>
                             <td>@Display(client.KanaanId)</td>
+                            <td>
+                                @if (canManage)
+                                {
+                                    <div class="client-folder-scan-row">
+                                        <input class="form-control form-control-sm" @bind="clientFolderPaths[client.ClientId]" placeholder="Select client folder" />
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => OpenClientFolderPicker(client.ClientId)">Browse</button>
+                                        <button type="button" class="btn btn-outline-primary btn-sm" @onclick="() => RunClientScanAsync(client.ClientId)" disabled="@IsScanRunning">Scan</button>
+                                    </div>
+                                }
+                                else
+                                {
+                                    @Display(client.ClientFolder)
+                                }
+                            </td>
+                            <td>@client.LinkedEvidenceCount</td>
+                            <td>@client.VerifiedEvidenceCount</td>
                             <td>@client.CompleteCount / @client.RequiredCount</td>
                             <td>@client.ExceptionCount</td>
                             <td>@client.BlockedCount</td>
@@ -141,6 +161,12 @@ else
                 </tbody>
             </table>
         </div>
+        <ServerFolderPicker IsOpen="@(clientFolderPickerClientId is not null)"
+                            InitialPath="@ClientFolderPickerInitialPath"
+                            Disabled="@(!canManage)"
+                            Title="Choose client folder"
+                            Selected="SelectClientFolder"
+                            Closed="CloseClientFolderPicker" />
     </section>
 
     <section class="work-area">
@@ -153,7 +179,7 @@ else
         {
             <div class="table-responsive">
                 <table class="table align-middle">
-                    <thead><tr><th>File</th><th>Status</th><th>Suggested type</th><th>Reason</th></tr></thead>
+                    <thead><tr><th>File</th><th>Status</th><th>Suggested type</th><th>Reason</th><th>Resolve</th></tr></thead>
                     <tbody>
                         @foreach (var file in model.UnmatchedFiles)
                         {
@@ -162,6 +188,22 @@ else
                                 <td>@file.MatchStatus</td>
                                 <td>@Display(file.SuggestedEvidenceType)</td>
                                 <td>@Display(file.MatchReason)</td>
+                                <td>
+                                    @if (canManage)
+                                    {
+                                        <div class="resolve-grid">
+                                            <select class="form-select form-select-sm" @bind="resolvedClientIds[file.Id]">
+                                                <option value="0">Select client</option>
+                                                @foreach (var client in model.Clients)
+                                                {
+                                                    <option value="@client.ClientId">@client.DisplayName</option>
+                                                }
+                                            </select>
+                                            <input class="form-control form-control-sm" @bind="resolvedEvidenceTypes[file.Id]" placeholder="Evidence type" />
+                                            <button type="button" class="btn btn-outline-primary btn-sm" @onclick="() => ResolveScanFileAsync(file.Id)">Link</button>
+                                        </div>
+                                    }
+                                </td>
                             </tr>
                         }
                     </tbody>
@@ -179,11 +221,19 @@ else
     private bool canManage;
     private string? statusMessage;
     private bool isFolderPickerOpen;
+    private int? clientFolderPickerClientId;
     private CancellationTokenSource? pollingCancellation;
+    private readonly Dictionary<int, int> resolvedClientIds = [];
+    private readonly Dictionary<int, string?> resolvedEvidenceTypes = [];
+    private readonly Dictionary<int, string?> clientFolderPaths = [];
 
     private bool IsScanRunning => model?.LatestScanRun?.Status is ClientEvidenceScanStatuses.Running or ClientEvidenceScanStatuses.Cancelling;
 
     private bool CanCancelScan => canManage && model?.LatestScanRun?.Status == ClientEvidenceScanStatuses.Running;
+
+    private string? ClientFolderPickerInitialPath => clientFolderPickerClientId is int clientId && clientFolderPaths.TryGetValue(clientId, out var path)
+        ? path
+        : null;
 
     protected override async Task OnInitializedAsync()
     {
@@ -201,6 +251,16 @@ else
     {
         model = await EvidenceService.LoadDashboardAsync();
         scanRootPath = model.ScanRootPath ?? scanRootPath;
+        foreach (var client in model.Clients)
+        {
+            clientFolderPaths.TryAdd(client.ClientId, client.ClientFolder);
+        }
+
+        foreach (var file in model.UnmatchedFiles)
+        {
+            resolvedClientIds.TryAdd(file.Id, 0);
+            resolvedEvidenceTypes.TryAdd(file.Id, file.SuggestedEvidenceType);
+        }
     }
 
     private async Task SaveRootAsync() => await ExecuteAsync(async () => await EvidenceService.SaveScanRootAsync(scanRootPath ?? "", currentUser, reason ?? ""));
@@ -244,7 +304,61 @@ else
 
     private void OpenFolderPicker() => isFolderPickerOpen = true;
 
+    private void OpenClientFolderPicker(int clientId) => clientFolderPickerClientId = clientId;
+
     private void CloseFolderPicker() => isFolderPickerOpen = false;
+
+    private void SelectClientFolder(string path)
+    {
+        if (clientFolderPickerClientId is int clientId)
+        {
+            clientFolderPaths[clientId] = path;
+        }
+    }
+
+    private void CloseClientFolderPicker() => clientFolderPickerClientId = null;
+
+    private async Task ResolveScanFileAsync(int scanFileId)
+    {
+        if (!resolvedClientIds.TryGetValue(scanFileId, out var clientId) || clientId <= 0)
+        {
+            statusMessage = "Select a client before linking the scan file.";
+            return;
+        }
+
+        try
+        {
+            resolvedEvidenceTypes.TryGetValue(scanFileId, out var evidenceType);
+            await EvidenceService.ResolveScanFileAsync(scanFileId, clientId, evidenceType, currentUser, reason ?? "");
+            statusMessage = "Scan file linked for review.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = ex.Message;
+        }
+    }
+
+    private async Task RunClientScanAsync(int clientId)
+    {
+        if (!clientFolderPaths.TryGetValue(clientId, out var clientFolder) || string.IsNullOrWhiteSpace(clientFolder))
+        {
+            statusMessage = "Select a client folder before running the client scan.";
+            return;
+        }
+
+        try
+        {
+            var runId = await ScanCoordinator.StartClientScanAsync(clientId, clientFolder, currentUser, reason ?? "");
+            statusMessage = $"Client evidence scan {runId} started.";
+            await LoadAsync();
+            StartPolling();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = ex.Message;
+        }
+    }
 
     private void StartPolling()
     {
