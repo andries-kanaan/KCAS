@@ -76,3 +76,38 @@ jobs:
           ) | ForEach-Object {
             if (-not (Test-Path -LiteralPath $_ -PathType Leaf)) { throw "Required deployment tool is missing: $_" }
           }
+
+      - name: Validate deployment migration SQL
+        shell: pwsh
+        run: |
+          $migrationsPath = 'src/KCAS.Admin/Data/Migrations'
+          $schemaPath = Join-Path $migrationsPath 'kcas_blazor_schema.sql'
+          $scriptsPath = Join-Path $migrationsPath 'Scripts'
+          $migrations = @(Get-ChildItem -LiteralPath $migrationsPath -Filter '*.cs' |
+            Where-Object { $_.Name -notlike '*.Designer.cs' -and $_.Name -match '^\d{14}_.+\.cs$' } |
+            Sort-Object Name |
+            Select-Object -ExpandProperty BaseName)
+
+          if ($migrations.Count -eq 0) {
+            throw "No EF migrations found under '$migrationsPath'."
+          }
+          if (-not (Test-Path -LiteralPath $schemaPath -PathType Leaf)) {
+            throw "Fresh database schema script is missing: $schemaPath"
+          }
+
+          $latestMigration = $migrations[-1]
+          if (-not (Select-String -LiteralPath $schemaPath -SimpleMatch "VALUES ('$latestMigration'" -Quiet)) {
+            throw "Fresh database schema '$schemaPath' does not record latest migration '$latestMigration'. Regenerate and review it before merging."
+          }
+
+          if ($migrations.Count -gt 1) {
+            $previousMigration = $migrations[-2]
+            $directScriptName = "${previousMigration}_to_${latestMigration}.sql"
+            $directScriptPath = Join-Path $scriptsPath $directScriptName
+            if (-not (Test-Path -LiteralPath $directScriptPath -PathType Leaf)) {
+              throw "Reviewed targeted migration script is missing: $directScriptPath"
+            }
+            if (-not (Select-String -LiteralPath $directScriptPath -SimpleMatch "VALUES ('$latestMigration'" -Quiet)) {
+              throw "Targeted migration script '$directScriptPath' does not record latest migration '$latestMigration'."
+            }
+          }
