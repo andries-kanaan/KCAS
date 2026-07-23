@@ -120,6 +120,22 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
     }
 
     [Fact]
+    public async Task Stale_running_scan_can_be_cancelled()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var root = CreateTempRoot();
+
+        var runId = await service.StartScanRunAsync(root, "scanner@example.test", "Start cancellable scan.");
+        await service.CancelUntrackedScanAsync(runId, "scanner@example.test", "Cancel stale scan.");
+
+        var run = await db.ClientEvidenceScanRuns.SingleAsync(run => run.Id == runId);
+        Assert.Equal(ClientEvidenceScanStatuses.Cancelled, run.Status);
+        Assert.NotNull(run.FinishedAtUtc);
+    }
+
+    [Fact]
     public async Task Scan_root_requires_existing_server_path_and_reason()
     {
         using var scope = factory.Services.CreateScope();
