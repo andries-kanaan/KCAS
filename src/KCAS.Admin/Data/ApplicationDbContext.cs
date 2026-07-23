@@ -30,6 +30,18 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<LegacyImportRowState> LegacyImportRowStates => Set<LegacyImportRowState>();
     public DbSet<LegacyImportDifference> LegacyImportDifferences => Set<LegacyImportDifference>();
     public DbSet<LegacySourceSnapshot> LegacySourceSnapshots => Set<LegacySourceSnapshot>();
+    public DbSet<ComplianceProfile> ComplianceProfiles => Set<ComplianceProfile>();
+    public DbSet<GovernanceRoleAssignment> GovernanceRoleAssignments => Set<GovernanceRoleAssignment>();
+    public DbSet<ControlledDocument> ControlledDocuments => Set<ControlledDocument>();
+    public DbSet<ComplianceReferenceValue> ComplianceReferenceValues => Set<ComplianceReferenceValue>();
+    public DbSet<RiskMethodologyVersion> RiskMethodologyVersions => Set<RiskMethodologyVersion>();
+    public DbSet<RiskFactorDefinition> RiskFactorDefinitions => Set<RiskFactorDefinition>();
+    public DbSet<RiskFactorOption> RiskFactorOptions => Set<RiskFactorOption>();
+    public DbSet<RiskBand> RiskBands => Set<RiskBand>();
+    public DbSet<ComplianceTask> ComplianceTasks => Set<ComplianceTask>();
+    public DbSet<ComplianceEvidence> ComplianceEvidence => Set<ComplianceEvidence>();
+    public DbSet<ComplianceApproval> ComplianceApprovals => Set<ComplianceApproval>();
+    public DbSet<ComplianceAuditEvent> ComplianceAuditEvents => Set<ComplianceAuditEvent>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -408,5 +420,161 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.HasIndex(snapshot => new { snapshot.SourceTable, snapshot.SourceId }).IsUnique();
             entity.HasIndex(snapshot => snapshot.LastSeenAtUtc);
         });
+
+        builder.Entity<ComplianceProfile>(entity =>
+        {
+            entity.Property(profile => profile.LegalName).HasMaxLength(200);
+            entity.Property(profile => profile.TradingName).HasMaxLength(200);
+            entity.Property(profile => profile.FspNumber).HasMaxLength(64);
+            entity.Property(profile => profile.AccountableInstitutionNumber).HasMaxLength(64);
+            entity.Property(profile => profile.PrimaryContactName).HasMaxLength(191);
+            entity.Property(profile => profile.PrimaryContactEmail).HasMaxLength(191);
+            entity.Property(profile => profile.PrimaryContactPhone).HasMaxLength(64);
+            entity.Property(profile => profile.Status).HasMaxLength(32);
+            entity.Property(profile => profile.UpdatedBy).HasMaxLength(191);
+            ConfigureDateOnly(entity.Property(profile => profile.EffectiveFrom));
+            ConfigureDateOnly(entity.Property(profile => profile.EffectiveTo));
+            entity.HasIndex(profile => profile.Status);
+        });
+
+        builder.Entity<GovernanceRoleAssignment>(entity =>
+        {
+            entity.Property(role => role.RoleType).HasMaxLength(96);
+            entity.Property(role => role.PersonName).HasMaxLength(191);
+            entity.Property(role => role.Email).HasMaxLength(191);
+            entity.Property(role => role.Phone).HasMaxLength(64);
+            entity.Property(role => role.UpdatedBy).HasMaxLength(191);
+            ConfigureDateOnly(entity.Property(role => role.StartDate));
+            ConfigureDateOnly(entity.Property(role => role.EndDate));
+            entity.HasIndex(role => new { role.RoleType, role.IsActive });
+        });
+
+        builder.Entity<ControlledDocument>(entity =>
+        {
+            entity.Property(document => document.DocumentType).HasMaxLength(96);
+            entity.Property(document => document.Title).HasMaxLength(240);
+            entity.Property(document => document.Owner).HasMaxLength(191);
+            entity.Property(document => document.VersionReference).HasMaxLength(96);
+            entity.Property(document => document.Status).HasMaxLength(32);
+            entity.Property(document => document.UpdatedBy).HasMaxLength(191);
+            ConfigureDateOnly(entity.Property(document => document.EffectiveDate));
+            ConfigureDateOnly(entity.Property(document => document.NextReviewDate));
+            entity.HasIndex(document => new { document.DocumentType, document.Status });
+            entity.HasIndex(document => document.NextReviewDate);
+        });
+
+        builder.Entity<ComplianceReferenceValue>(entity =>
+        {
+            entity.Property(reference => reference.Category).HasMaxLength(96);
+            entity.Property(reference => reference.Code).HasMaxLength(96);
+            entity.Property(reference => reference.Name).HasMaxLength(191);
+            entity.Property(reference => reference.UpdatedBy).HasMaxLength(191);
+            entity.HasIndex(reference => new { reference.Category, reference.Code, reference.IsActive }).IsUnique();
+            entity.HasIndex(reference => new { reference.Category, reference.SortOrder });
+        });
+
+        builder.Entity<RiskMethodologyVersion>(entity =>
+        {
+            entity.Property(methodology => methodology.Name).HasMaxLength(191);
+            entity.Property(methodology => methodology.VersionLabel).HasMaxLength(64);
+            entity.Property(methodology => methodology.Status).HasMaxLength(32);
+            entity.Property(methodology => methodology.UpdatedBy).HasMaxLength(191);
+            ConfigureDateOnly(entity.Property(methodology => methodology.EffectiveFrom));
+            ConfigureDateOnly(entity.Property(methodology => methodology.EffectiveTo));
+            entity.HasIndex(methodology => methodology.Status);
+            entity.HasIndex(methodology => methodology.EffectiveFrom);
+        });
+
+        builder.Entity<RiskFactorDefinition>(entity =>
+        {
+            entity.HasOne(factor => factor.MethodologyVersion)
+                .WithMany(methodology => methodology.Factors)
+                .HasForeignKey(factor => factor.RiskMethodologyVersionId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(factor => factor.Code).HasMaxLength(96);
+            entity.Property(factor => factor.Name).HasMaxLength(191);
+            entity.Property(factor => factor.Weight).HasPrecision(9, 4);
+            entity.HasIndex(factor => new { factor.RiskMethodologyVersionId, factor.Code }).IsUnique();
+        });
+
+        builder.Entity<RiskFactorOption>(entity =>
+        {
+            entity.HasOne(option => option.FactorDefinition)
+                .WithMany(factor => factor.Options)
+                .HasForeignKey(option => option.RiskFactorDefinitionId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(option => option.Code).HasMaxLength(96);
+            entity.Property(option => option.Label).HasMaxLength(191);
+            entity.HasIndex(option => new { option.RiskFactorDefinitionId, option.Code }).IsUnique();
+        });
+
+        builder.Entity<RiskBand>(entity =>
+        {
+            entity.HasOne(band => band.MethodologyVersion)
+                .WithMany(methodology => methodology.Bands)
+                .HasForeignKey(band => band.RiskMethodologyVersionId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(band => band.Name).HasMaxLength(96);
+            entity.Property(band => band.MinimumScore).HasPrecision(9, 4);
+            entity.Property(band => band.MaximumScore).HasPrecision(9, 4);
+            entity.HasIndex(band => new { band.RiskMethodologyVersionId, band.Name }).IsUnique();
+        });
+
+        builder.Entity<ComplianceTask>(entity =>
+        {
+            entity.Property(task => task.Title).HasMaxLength(240);
+            entity.Property(task => task.Owner).HasMaxLength(191);
+            entity.Property(task => task.Priority).HasMaxLength(32);
+            entity.Property(task => task.Status).HasMaxLength(32);
+            entity.Property(task => task.LinkedEntityType).HasMaxLength(128);
+            entity.Property(task => task.UpdatedBy).HasMaxLength(191);
+            ConfigureDateOnly(entity.Property(task => task.DueDate));
+            entity.HasIndex(task => new { task.Status, task.DueDate });
+            entity.HasIndex(task => new { task.LinkedEntityType, task.LinkedEntityId });
+        });
+
+        builder.Entity<ComplianceEvidence>(entity =>
+        {
+            entity.Property(evidence => evidence.EvidenceType).HasMaxLength(96);
+            entity.Property(evidence => evidence.Title).HasMaxLength(240);
+            entity.Property(evidence => evidence.Source).HasMaxLength(191);
+            entity.Property(evidence => evidence.Reviewer).HasMaxLength(191);
+            entity.Property(evidence => evidence.LinkedEntityType).HasMaxLength(128);
+            entity.Property(evidence => evidence.UpdatedBy).HasMaxLength(191);
+            ConfigureDateOnly(entity.Property(evidence => evidence.ReceivedDate));
+            ConfigureDateOnly(entity.Property(evidence => evidence.VerifiedDate));
+            ConfigureDateOnly(entity.Property(evidence => evidence.ExpiryDate));
+            entity.HasIndex(evidence => new { evidence.EvidenceType, evidence.ExpiryDate });
+            entity.HasIndex(evidence => new { evidence.LinkedEntityType, evidence.LinkedEntityId });
+        });
+
+        builder.Entity<ComplianceApproval>(entity =>
+        {
+            entity.Property(approval => approval.TargetEntityType).HasMaxLength(128);
+            entity.Property(approval => approval.Decision).HasMaxLength(32);
+            entity.Property(approval => approval.Approver).HasMaxLength(191);
+            entity.HasIndex(approval => new { approval.TargetEntityType, approval.TargetEntityId });
+        });
+
+        builder.Entity<ComplianceAuditEvent>(entity =>
+        {
+            entity.Property(audit => audit.EntityType).HasMaxLength(128);
+            entity.Property(audit => audit.Action).HasMaxLength(64);
+            entity.Property(audit => audit.UserName).HasMaxLength(191);
+            entity.HasIndex(audit => new { audit.EntityType, audit.EntityId });
+            entity.HasIndex(audit => audit.TimestampUtc);
+        });
+    }
+
+    private static void ConfigureDateOnly<TProperty>(Microsoft.EntityFrameworkCore.Metadata.Builders.PropertyBuilder<TProperty> propertyBuilder)
+    {
+        if (typeof(TProperty) == typeof(DateOnly?))
+        {
+            ((Microsoft.EntityFrameworkCore.Metadata.Builders.PropertyBuilder<DateOnly?>)(object)propertyBuilder)
+                .HasColumnType("date")
+                .HasConversion(new ValueConverter<DateOnly?, DateTime?>(
+                    value => value.HasValue ? value.Value.ToDateTime(TimeOnly.MinValue) : null,
+                    value => value.HasValue ? DateOnly.FromDateTime(value.Value) : null));
+        }
     }
 }

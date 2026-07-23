@@ -18,6 +18,9 @@ public sealed class SecuritySeederTests(KcasWebApplicationFactory factory)
         {
             KcasRoles.Administrator,
             KcasRoles.Advisor,
+            KcasRoles.ComplianceAdministrator,
+            KcasRoles.ComplianceApprover,
+            KcasRoles.ComplianceReadOnly,
             KcasRoles.Operations,
             KcasRoles.ReadOnly,
             KcasRoles.Reports
@@ -39,6 +42,10 @@ public sealed class SecuritySeederTests(KcasWebApplicationFactory factory)
             .ToArray();
 
         Assert.Equal(KcasPermissions.All.Order().ToArray(), administratorPermissions);
+        Assert.Contains(KcasPermissions.ComplianceView, administratorPermissions);
+        Assert.Contains(KcasPermissions.ComplianceManage, administratorPermissions);
+        Assert.Contains(KcasPermissions.ComplianceApprove, administratorPermissions);
+        Assert.Contains(KcasPermissions.ComplianceAudit, administratorPermissions);
     }
 
     [Fact]
