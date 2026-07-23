@@ -141,7 +141,7 @@ if (!app.Environment.IsEnvironment("Testing"))
         HttpContext context,
         UserManager<ApplicationUser> userManager,
         SignInManager<ApplicationUser> signInManager,
-        string? returnUrl) =>
+        RoleManager<IdentityRole> roleManager) =>
     {
         if (context.User.Identity?.IsAuthenticated != true || string.IsNullOrWhiteSpace(context.User.Identity.Name))
         {
@@ -171,11 +171,9 @@ if (!app.Environment.IsEnvironment("Testing"))
         }
 
         await signInManager.SignInAsync(user, isPersistent: false);
-        var safeReturnUrl = string.IsNullOrWhiteSpace(returnUrl) || !Uri.IsWellFormedUriString(returnUrl, UriKind.Relative)
-            ? "/clients"
-            : returnUrl;
-
-        return Results.LocalRedirect(user.IsApproved ? safeReturnUrl : "/Account/PendingApproval");
+        return Results.LocalRedirect(user.IsApproved
+            ? await KcasPostLoginRedirects.GetApprovedUserPathAsync(userManager, roleManager, user)
+            : "/Account/PendingApproval");
     })
     .RequireAuthorization(new AuthorizeAttribute { AuthenticationSchemes = NegotiateDefaults.AuthenticationScheme });
 }
