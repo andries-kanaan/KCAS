@@ -1,0 +1,127 @@
+@using KCAS.Admin.Data
+@inject ClientEvidenceReadinessService EvidenceService
+
+@if (IsOpen)
+{
+    <div class="modal fade show d-block" tabindex="-1" role="dialog" aria-modal="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div>
+                        <h2 class="modal-title h5">@Title</h2>
+                        <div class="text-muted small">Server folders visible to the KCAS process</div>
+                    </div>
+                    <button type="button" class="btn-close" aria-label="Close" @onclick="CloseAsync"></button>
+                </div>
+                <div class="modal-body">
+                    @if (folderBrowser is null)
+                    {
+                        <p>Loading folders...</p>
+                    }
+                    else
+                    {
+                        <div class="server-folder-current">
+                            <div>
+                                <div class="text-muted small">Current folder</div>
+                                <strong>@folderBrowser.CurrentPath</strong>
+                            </div>
+                            <button type="button" class="btn btn-primary btn-sm" @onclick="() => SelectAsync(folderBrowser.CurrentPath)" disabled="@Disabled">Select this folder</button>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(folderBrowser.ErrorMessage))
+                        {
+                            <div class="alert alert-warning mt-3 mb-0">@folderBrowser.ErrorMessage</div>
+                        }
+
+                        <div class="server-folder-list mt-3">
+                            @foreach (var root in folderBrowser.Roots)
+                            {
+                                <button type="button" class="server-folder-row" @onclick="() => BrowseAsync(root)" disabled="@Disabled">
+                                    <span class="server-folder-icon">[D]</span>
+                                    <span>@root</span>
+                                    <span class="text-muted">Drive</span>
+                                </button>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(folderBrowser.ParentPath))
+                            {
+                                <button type="button" class="server-folder-row" @onclick="() => BrowseAsync(folderBrowser.ParentPath)" disabled="@Disabled">
+                                    <span class="server-folder-icon">Up</span>
+                                    <span>..</span>
+                                    <span class="text-muted">Parent</span>
+                                </button>
+                            }
+                            @foreach (var folder in folderBrowser.Folders)
+                            {
+                                <div class="server-folder-row server-folder-row-split">
+                                    <button type="button" class="server-folder-open" @onclick="() => BrowseAsync(folder.FullPath)" disabled="@Disabled">
+                                        <span class="server-folder-icon">&gt;</span>
+                                        <span>@folder.Name</span>
+                                    </button>
+                                    <button type="button" class="btn btn-outline-primary btn-sm" @onclick="() => SelectAsync(folder.FullPath)" disabled="@Disabled">Select</button>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" @onclick="CloseAsync">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+@code {
+    [Parameter]
+    public bool IsOpen { get; set; }
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter]
+    public string? InitialPath { get; set; }
+
+    [Parameter]
+    public string Title { get; set; } = "Choose server folder";
+
+    [Parameter]
+    public EventCallback<string> Selected { get; set; }
+
+    [Parameter]
+    public EventCallback Closed { get; set; }
+
+    private ClientEvidenceFolderBrowserModel? folderBrowser;
+    private bool wasOpen;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsOpen && !wasOpen)
+        {
+            await BrowseAsync(InitialPath);
+        }
+
+        if (!IsOpen)
+        {
+            folderBrowser = null;
+        }
+
+        wasOpen = IsOpen;
+    }
+
+    private async Task BrowseAsync(string? path)
+    {
+        folderBrowser = await EvidenceService.BrowseServerFoldersAsync(path);
+    }
+
+    private async Task SelectAsync(string path)
+    {
+        await Selected.InvokeAsync(path);
+        await CloseAsync();
+    }
+
+    private async Task CloseAsync()
+    {
+        await Closed.InvokeAsync();
+    }
+}

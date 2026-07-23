@@ -1172,3 +1172,63 @@ h1:focus {
     margin: .5rem 0 0;
     padding-left: 1.1rem;
 }
+.server-folder-current {
+    align-items: center;
+    background: #f8fafc;
+    border: 1px solid #dbe4ee;
+    border-radius: 8px;
+    display: flex;
+    gap: 1rem;
+    justify-content: space-between;
+    padding: 0.85rem 1rem;
+}
+
+.server-folder-list {
+    border: 1px solid #dbe4ee;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.server-folder-row {
+    align-items: center;
+    background: #fff;
+    border: 0;
+    border-bottom: 1px solid #edf2f7;
+    color: #172033;
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: 1.5rem 1fr auto;
+    min-height: 2.75rem;
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    width: 100%;
+}
+
+.server-folder-row:hover:not(:disabled) {
+    background: #f8fafc;
+}
+
+.server-folder-row:last-child {
+    border-bottom: 0;
+}
+
+.server-folder-row-split {
+    grid-template-columns: 1fr auto;
+}
+
+.server-folder-open {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    color: inherit;
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: 1.5rem 1fr;
+    min-width: 0;
+    padding: 0;
+    text-align: left;
+}
+
+.server-folder-icon {
+    color: #47617d;
+}
