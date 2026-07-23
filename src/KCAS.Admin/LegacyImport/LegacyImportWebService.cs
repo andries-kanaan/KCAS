@@ -309,8 +309,13 @@ public sealed class LegacyImportWebService(
         return new LegacyImportWebResult(run.Id, $"{sourceTable} #{sourceId} was applied from scan #{scanRunId}.");
     }
 
-    public async Task RetainKcasForChangedRowAsync(long rowStateId, string reviewedBy, CancellationToken cancellationToken = default)
+    public async Task RetainKcasForChangedRowAsync(long rowStateId, string reviewedBy, string? reason = null, CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new InvalidOperationException("Retaining KCAS values requires a review reason.");
+        }
+
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var row = await db.LegacyImportRowStates
@@ -331,7 +336,7 @@ public sealed class LegacyImportWebService(
             difference.ResolvedValue = difference.BaselineValue;
             difference.ReviewedBy = reviewedBy;
             difference.ReviewedAtUtc = DateTime.UtcNow;
-            difference.ReviewReason = "KCAS value retained during import reconciliation review.";
+            difference.ReviewReason = reason.Trim();
         }
 
         row.ApplyStatus = LegacyImportApplyStatuses.NotApplicable;
@@ -339,8 +344,13 @@ public sealed class LegacyImportWebService(
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task ApplyIncomingLegacyForChangedRowAsync(long rowStateId, string reviewedBy, CancellationToken cancellationToken = default)
+    public async Task ApplyIncomingLegacyForChangedRowAsync(long rowStateId, string reviewedBy, string? reason = null, CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new InvalidOperationException("Applying incoming legacy values requires a review reason.");
+        }
+
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var row = await db.LegacyImportRowStates
@@ -364,13 +374,120 @@ public sealed class LegacyImportWebService(
             difference.ResolvedValue = difference.IncomingValue;
             difference.ReviewedBy = reviewedBy;
             difference.ReviewedAtUtc = DateTime.UtcNow;
-            difference.ReviewReason = "Incoming legacy value applied during import reconciliation review.";
+            difference.ReviewReason = reason.Trim();
         }
 
         row.ApplyStatus = LegacyImportApplyStatuses.Applied;
         await AcceptSourceSnapshotAsync(db, row, cancellationToken);
         await RefreshRunReviewStatusAsync(db, row.LegacyImportRunId, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task RecordManualResolutionAsync(long rowStateId, string reviewedBy, string resolvedValue, string reason, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(resolvedValue))
+        {
+            throw new InvalidOperationException("Manual resolution requires the resolved value or resolution note.");
+        }
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new InvalidOperationException("Manual resolution requires a reason.");
+        }
+
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var row = await LoadReviewRowAsync(db, rowStateId, cancellationToken);
+        EnsureReviewable(row);
+        EnsureDifferenceAuditRows(row);
+
+        foreach (var difference in row.Differences)
+        {
+            difference.Decision = LegacyImportDecisionStatuses.Corrected;
+            difference.ResolvedValue = resolvedValue.Trim();
+            difference.ReviewedBy = reviewedBy;
+            difference.ReviewedAtUtc = DateTime.UtcNow;
+            difference.ReviewReason = reason.Trim();
+        }
+
+        row.ApplyStatus = LegacyImportApplyStatuses.NotApplicable;
+        await RefreshRunReviewStatusAsync(db, row.LegacyImportRunId, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task DeferReviewAsync(long rowStateId, string reviewedBy, string reason, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new InvalidOperationException("Deferring a reconciliation item requires a reason.");
+        }
+
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var row = await LoadReviewRowAsync(db, rowStateId, cancellationToken);
+        EnsureReviewable(row);
+        EnsureDifferenceAuditRows(row);
+
+        foreach (var difference in row.Differences)
+        {
+            difference.Decision = LegacyImportDecisionStatuses.Deferred;
+            difference.ResolvedValue = null;
+            difference.ReviewedBy = reviewedBy;
+            difference.ReviewedAtUtc = DateTime.UtcNow;
+            difference.ReviewReason = reason.Trim();
+        }
+
+        row.ApplyStatus = LegacyImportApplyStatuses.PendingReview;
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task RejectReviewAsync(long rowStateId, string reviewedBy, string reason, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new InvalidOperationException("Rejecting a reconciliation item requires a reason.");
+        }
+
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var row = await LoadReviewRowAsync(db, rowStateId, cancellationToken);
+        EnsureReviewable(row);
+        EnsureDifferenceAuditRows(row);
+
+        foreach (var difference in row.Differences)
+        {
+            difference.Decision = LegacyImportDecisionStatuses.Rejected;
+            difference.ResolvedValue = difference.BaselineValue;
+            difference.ReviewedBy = reviewedBy;
+            difference.ReviewedAtUtc = DateTime.UtcNow;
+            difference.ReviewReason = reason.Trim();
+        }
+
+        row.ApplyStatus = LegacyImportApplyStatuses.NotApplicable;
+        await RefreshRunReviewStatusAsync(db, row.LegacyImportRunId, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyDictionary<long, string?>> GetCurrentKcasPayloadsAsync(IEnumerable<long> rowStateIds, CancellationToken cancellationToken = default)
+    {
+        var ids = rowStateIds.Distinct().ToArray();
+        if (ids.Length == 0)
+        {
+            return new Dictionary<long, string?>();
+        }
+
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var rows = await db.LegacyImportRowStates
+            .AsNoTracking()
+            .Where(row => ids.Contains(row.Id))
+            .ToListAsync(cancellationToken);
+        var payloads = new Dictionary<long, string?>();
+        foreach (var row in rows)
+        {
+            payloads[row.Id] = await GetCurrentKcasPayloadAsync(db, row, cancellationToken);
+        }
+
+        return payloads;
     }
 
     public bool IsEligibleForApply(LegacyImportRowState row)
@@ -387,6 +504,10 @@ public sealed class LegacyImportWebService(
            row.ApplyStatus == LegacyImportApplyStatuses.PendingReview &&
            row.SourceTable is "tbl_client" or "tbl_clientnote" or "tbl_investmentaccount" or "tbl_investmenthistory" or "tbl_fund" or "tbl_kyc";
 
+    public bool CanResolveReview(LegacyImportRowState row)
+        => row.Classification is LegacyImportClassifications.Changed or LegacyImportClassifications.MissingFromSource or LegacyImportClassifications.Invalid or LegacyImportClassifications.Orphaned &&
+           row.ApplyStatus == LegacyImportApplyStatuses.PendingReview;
+
     private static IReadOnlyDictionary<string, string?> DeserializePayload(string payloadJson)
     {
         using var document = JsonDocument.Parse(payloadJson);
@@ -398,6 +519,82 @@ public sealed class LegacyImportWebService(
         => row.TryGetValue(key, out var value) && int.TryParse(value, out var parsed)
             ? parsed
             : throw new InvalidOperationException($"Incoming legacy payload is missing numeric '{key}'.");
+
+    private static async Task<LegacyImportRowState> LoadReviewRowAsync(ApplicationDbContext db, long rowStateId, CancellationToken cancellationToken)
+    {
+        var row = await db.LegacyImportRowStates
+            .Include(item => item.Differences)
+            .SingleOrDefaultAsync(item => item.Id == rowStateId, cancellationToken);
+        return row ?? throw new InvalidOperationException("The selected reconciliation row no longer exists.");
+    }
+
+    private static void EnsureReviewable(LegacyImportRowState row)
+    {
+        if (row.Classification is not (LegacyImportClassifications.Changed or LegacyImportClassifications.MissingFromSource or LegacyImportClassifications.Invalid or LegacyImportClassifications.Orphaned))
+        {
+            throw new InvalidOperationException("Only changed, missing, invalid or orphaned reconciliation rows can be reviewed this way.");
+        }
+        if (row.ApplyStatus != LegacyImportApplyStatuses.PendingReview)
+        {
+            throw new InvalidOperationException("The selected reconciliation row is not pending review.");
+        }
+    }
+
+    private static void EnsureDifferenceAuditRows(LegacyImportRowState row)
+    {
+        if (row.Differences.Count > 0)
+        {
+            return;
+        }
+
+        row.Differences.Add(new LegacyImportDifference
+        {
+            FieldName = "__row__",
+            BaselineValue = row.BaselinePayloadJson,
+            IncomingValue = row.IncomingPayloadJson
+        });
+    }
+
+    private static async Task<string?> GetCurrentKcasPayloadAsync(ApplicationDbContext db, LegacyImportRowState row, CancellationToken cancellationToken)
+    {
+        return row.SourceTable switch
+        {
+            "tbl_client" => await db.Clients
+                .AsNoTracking()
+                .Where(item => item.LegacyClientId == row.SourceId)
+                .Select(item => item.LegacySnapshots
+                    .OrderByDescending(snapshot => snapshot.ImportedAtUtc)
+                    .Select(snapshot => snapshot.PayloadJson)
+                    .FirstOrDefault())
+                .SingleOrDefaultAsync(cancellationToken),
+            "tbl_clientnote" => await db.ClientNotes
+                .AsNoTracking()
+                .Where(item => item.LegacyClientNoteId == row.SourceId)
+                .Select(item => item.PayloadJson)
+                .SingleOrDefaultAsync(cancellationToken),
+            "tbl_investmentaccount" => await db.ClientInvestmentAccounts
+                .AsNoTracking()
+                .Where(item => item.LegacyInvestmentAccountId == row.SourceId)
+                .Select(item => item.PayloadJson)
+                .SingleOrDefaultAsync(cancellationToken),
+            "tbl_investmenthistory" => await db.ClientInvestmentTransactions
+                .AsNoTracking()
+                .Where(item => item.LegacyInvestmentHistoryId == row.SourceId)
+                .Select(item => item.PayloadJson)
+                .SingleOrDefaultAsync(cancellationToken),
+            "tbl_fund" => await db.ClientFundValuations
+                .AsNoTracking()
+                .Where(item => item.LegacyFundId == row.SourceId)
+                .Select(item => item.PayloadJson)
+                .SingleOrDefaultAsync(cancellationToken),
+            "tbl_kyc" => await db.ClientKycPolicies
+                .AsNoTracking()
+                .Where(item => item.LegacyKycId == row.SourceId)
+                .Select(item => item.PayloadJson)
+                .SingleOrDefaultAsync(cancellationToken),
+            _ => null
+        };
+    }
 
     private static async Task ApplyIncomingMappedValuesAsync(
         ApplicationDbContext db,

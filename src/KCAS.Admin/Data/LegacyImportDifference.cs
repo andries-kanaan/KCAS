@@ -37,4 +37,5 @@ public static class LegacyImportDecisionStatuses
     public const string RetainKcas = "RetainKcas";
     public const string Corrected = "Corrected";
     public const string Deferred = "Deferred";
+    public const string Rejected = "Rejected";
 }

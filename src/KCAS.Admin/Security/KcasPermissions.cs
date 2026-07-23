@@ -12,6 +12,9 @@ public static class KcasPermissions
     public const string KycManage = "Kyc.Manage";
     public const string ReportsView = "Reports.View";
     public const string LegacyImportsView = "LegacyImports.View";
+    public const string LegacyImportsReview = "LegacyImports.Review";
+    public const string LegacyImportsApply = "LegacyImports.Apply";
+    public const string LegacyImportsAdminister = "LegacyImports.Administer";
 
     public static readonly IReadOnlyList<string> All =
     [
@@ -24,6 +27,9 @@ public static class KcasPermissions
         KycView,
         KycManage,
         ReportsView,
-        LegacyImportsView
+        LegacyImportsView,
+        LegacyImportsReview,
+        LegacyImportsApply,
+        LegacyImportsAdminister
     ];
 }

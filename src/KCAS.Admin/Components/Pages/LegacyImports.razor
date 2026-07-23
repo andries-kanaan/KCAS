@@ -10,6 +10,7 @@
 @inject ApplicationDbContext Db
 @inject LegacyImportWebService ImportService
 @inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IAuthorizationService AuthorizationService
 
 <PageTitle>Legacy import reconciliation</PageTitle>
 
@@ -34,7 +35,7 @@
             <span>Incremental reconciliation</span>
         </label>
         <label class="check-row">
-            <input class="form-check-input" type="radio" name="import-mode" checked="@(!IsIncrementalMode)" @onchange="@(() => importMode = ImportModeLegacyBaseline)" disabled="@(isBusy || !ImportService.CanResetImportedLegacyData)" />
+            <input class="form-check-input" type="radio" name="import-mode" checked="@(!IsIncrementalMode)" @onchange="@(() => importMode = ImportModeLegacyBaseline)" disabled="@(isBusy || !CanBaselineImport)" />
             <span>Baseline import</span>
         </label>
     </div>
@@ -225,26 +226,65 @@ else
                                         </div>
                                     </details>
                                 }
+                                @if (ImportService.CanResolveReview(row))
+                                {
+                                    <details class="mt-2">
+                                        <summary>Review payloads</summary>
+                                        <div class="review-payload-grid mt-2">
+                                            <div>
+                                                <strong>Baseline source</strong>
+                                                <pre>@Display(row.BaselinePayloadJson)</pre>
+                                            </div>
+                                            <div>
+                                                <strong>Incoming source</strong>
+                                                <pre>@Display(row.IncomingPayloadJson)</pre>
+                                            </div>
+                                            <div>
+                                                <strong>Current KCAS</strong>
+                                                <pre>@Display(currentKcasPayloads.GetValueOrDefault(row.Id))</pre>
+                                            </div>
+                                        </div>
+                                    </details>
+                                }
                             </td>
                             <td>
-                                @if (ImportService.IsEligibleForApply(row) && selectedRun is not null && selectedRun.Mode == LegacyImportModes.Scan)
+                                @if (ImportService.IsEligibleForApply(row) && selectedRun is not null && selectedRun.Mode == LegacyImportModes.Scan && canApplyImports)
                                 {
                                     <button type="button" class="btn btn-sm btn-outline-primary" @onclick="() => ApplyRowAsync(row)" disabled="@isBusy">
                                         Apply
                                     </button>
                                 }
-                                else if (ImportService.CanRetainKcas(row))
+                                else if (ImportService.CanResolveReview(row) && canReviewImports)
                                 {
-                                    <div class="btn-group btn-group-sm" role="group" aria-label="Changed row actions">
-                                        @if (ImportService.CanApplyIncomingLegacy(row))
+                                    <div class="review-actions">
+                                        <textarea class="form-control form-control-sm" rows="2" placeholder="Review reason" value="@ReviewReason(row.Id)" @onchange="args => SetReviewReason(row.Id, args.Value?.ToString())" disabled="@isBusy"></textarea>
+                                        @if (row.Classification == LegacyImportClassifications.Changed)
                                         {
-                                            <button type="button" class="btn btn-outline-primary" @onclick="() => ApplyIncomingLegacyAsync(row)" disabled="@isBusy">
-                                                Apply incoming
-                                            </button>
+                                            <textarea class="form-control form-control-sm" rows="2" placeholder="Manual resolution value or note" value="@ManualValue(row.Id)" @onchange="args => SetManualValue(row.Id, args.Value?.ToString())" disabled="@isBusy"></textarea>
                                         }
-                                        <button type="button" class="btn btn-outline-secondary" @onclick="() => RetainKcasAsync(row)" disabled="@isBusy">
-                                            Retain KCAS
-                                        </button>
+                                        <div class="btn-group btn-group-sm flex-wrap" role="group" aria-label="Review row actions">
+                                            @if (ImportService.CanRetainKcas(row))
+                                            {
+                                                @if (canApplyImports && ImportService.CanApplyIncomingLegacy(row))
+                                                {
+                                                    <button type="button" class="btn btn-outline-primary" @onclick="() => ApplyIncomingLegacyAsync(row)" disabled="@isBusy">
+                                                        Apply incoming
+                                                    </button>
+                                                }
+                                                <button type="button" class="btn btn-outline-secondary" @onclick="() => RetainKcasAsync(row)" disabled="@isBusy">
+                                                    Retain KCAS
+                                                </button>
+                                                <button type="button" class="btn btn-outline-secondary" @onclick="() => ManualResolveAsync(row)" disabled="@isBusy">
+                                                    Manual
+                                                </button>
+                                            }
+                                            <button type="button" class="btn btn-outline-secondary" @onclick="() => DeferReviewAsync(row)" disabled="@isBusy">
+                                                Defer
+                                            </button>
+                                            <button type="button" class="btn btn-outline-danger" @onclick="() => RejectReviewAsync(row)" disabled="@isBusy">
+                                                Reject
+                                            </button>
+                                        </div>
                                     </div>
                                 }
                                 else if (LegacyImportApprovalValidator.ReviewOnlySourceTables.Contains(row.SourceTable) && row.Classification == LegacyImportClassifications.New)
@@ -279,6 +319,9 @@ else
     private List<LegacyImportRun> runs = [];
     private List<LegacyImportRowState> rows = [];
     private List<string> sourceTables = [];
+    private IReadOnlyDictionary<long, string?> currentKcasPayloads = new Dictionary<long, string?>();
+    private readonly Dictionary<long, string> reviewReasons = [];
+    private readonly Dictionary<long, string> manualValues = [];
     private LegacyImportRun? selectedRun;
     private long selectedRunId;
     private string classification = LegacyImportClassifications.Changed;
@@ -295,16 +338,23 @@ else
     private string? statusMessage;
     private string? errorMessage;
     private int eligibleNewCount;
+    private bool canReviewImports;
+    private bool canApplyImports;
 
     private bool CanApplySelectedRun =>
         selectedRun is { Mode: LegacyImportModes.Scan, CompletedAtUtc: not null } &&
         selectedRun.Status is LegacyImportRunStatuses.Completed or LegacyImportRunStatuses.AwaitingReview &&
+        canApplyImports &&
         eligibleNewCount > 0;
 
     private bool IsIncrementalMode => importMode == ImportModeIncremental;
+    private bool CanBaselineImport => ImportService.CanResetImportedLegacyData;
 
     protected override async Task OnParametersSetAsync()
     {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        canReviewImports = (await AuthorizationService.AuthorizeAsync(authState.User, KcasPermissions.LegacyImportsReview)).Succeeded;
+        canApplyImports = (await AuthorizationService.AuthorizeAsync(authState.User, KcasPermissions.LegacyImportsApply)).Succeeded;
         runs = await Db.LegacyImportRuns.AsNoTracking().OrderByDescending(run => run.Id).Take(20).ToListAsync();
         selectedRunId = RunId.HasValue && runs.Any(run => run.Id == RunId.Value) ? RunId.Value : runs.FirstOrDefault()?.Id ?? 0;
         await LoadRowsAsync();
@@ -317,6 +367,7 @@ else
         {
             rows = [];
             sourceTables = [];
+            currentKcasPayloads = new Dictionary<long, string?>();
             eligibleNewCount = 0;
             return;
         }
@@ -347,6 +398,7 @@ else
             query = query.Where(row => row.SourceTable == sourceTable);
         }
         rows = await query.OrderBy(row => row.SourceTable).ThenBy(row => row.SourceId).Take(200).ToListAsync();
+        currentKcasPayloads = await ImportService.GetCurrentKcasPayloadsAsync(rows.Select(row => row.Id));
     }
 
     private void SelectUpload(InputFileChangeEventArgs args)
@@ -399,7 +451,7 @@ else
         {
             var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
             var reviewedBy = authState.User.Identity?.Name ?? "KCAS user";
-            await ImportService.RetainKcasForChangedRowAsync(row.Id, reviewedBy);
+            await ImportService.RetainKcasForChangedRowAsync(row.Id, reviewedBy, ReviewReason(row.Id));
             statusMessage = $"{row.SourceTable} #{row.SourceId}: KCAS values retained.";
             runs = await Db.LegacyImportRuns.AsNoTracking().OrderByDescending(run => run.Id).Take(20).ToListAsync();
             await LoadRowsAsync();
@@ -423,8 +475,80 @@ else
         {
             var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
             var reviewedBy = authState.User.Identity?.Name ?? "KCAS user";
-            await ImportService.ApplyIncomingLegacyForChangedRowAsync(row.Id, reviewedBy);
+            await ImportService.ApplyIncomingLegacyForChangedRowAsync(row.Id, reviewedBy, ReviewReason(row.Id));
             statusMessage = $"{row.SourceTable} #{row.SourceId}: incoming legacy values applied.";
+            runs = await Db.LegacyImportRuns.AsNoTracking().OrderByDescending(run => run.Id).Take(20).ToListAsync();
+            await LoadRowsAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.GetBaseException().Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task ManualResolveAsync(LegacyImportRowState row)
+    {
+        isBusy = true;
+        statusMessage = null;
+        errorMessage = null;
+        try
+        {
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            var reviewedBy = authState.User.Identity?.Name ?? "KCAS user";
+            await ImportService.RecordManualResolutionAsync(row.Id, reviewedBy, ManualValue(row.Id), ReviewReason(row.Id));
+            statusMessage = $"{row.SourceTable} #{row.SourceId}: manual resolution recorded.";
+            runs = await Db.LegacyImportRuns.AsNoTracking().OrderByDescending(run => run.Id).Take(20).ToListAsync();
+            await LoadRowsAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.GetBaseException().Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task DeferReviewAsync(LegacyImportRowState row)
+    {
+        isBusy = true;
+        statusMessage = null;
+        errorMessage = null;
+        try
+        {
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            var reviewedBy = authState.User.Identity?.Name ?? "KCAS user";
+            await ImportService.DeferReviewAsync(row.Id, reviewedBy, ReviewReason(row.Id));
+            statusMessage = $"{row.SourceTable} #{row.SourceId}: review deferred.";
+            runs = await Db.LegacyImportRuns.AsNoTracking().OrderByDescending(run => run.Id).Take(20).ToListAsync();
+            await LoadRowsAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.GetBaseException().Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task RejectReviewAsync(LegacyImportRowState row)
+    {
+        isBusy = true;
+        statusMessage = null;
+        errorMessage = null;
+        try
+        {
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            var reviewedBy = authState.User.Identity?.Name ?? "KCAS user";
+            await ImportService.RejectReviewAsync(row.Id, reviewedBy, ReviewReason(row.Id));
+            statusMessage = $"{row.SourceTable} #{row.SourceId}: review rejected.";
             runs = await Db.LegacyImportRuns.AsNoTracking().OrderByDescending(run => run.Id).Take(20).ToListAsync();
             await LoadRowsAsync();
         }
@@ -535,4 +659,8 @@ else
     private static string ShortHash(string value) => value.Length > 16 ? value[..16] + "…" : value;
     private static string FormatBytes(long bytes)
         => bytes >= 1_048_576 ? $"{bytes / 1_048_576d:N1} MB" : $"{bytes / 1024d:N1} KB";
+    private string ReviewReason(long rowId) => reviewReasons.GetValueOrDefault(rowId, string.Empty);
+    private string ManualValue(long rowId) => manualValues.GetValueOrDefault(rowId, string.Empty);
+    private void SetReviewReason(long rowId, string? value) => reviewReasons[rowId] = value ?? string.Empty;
+    private void SetManualValue(long rowId, string? value) => manualValues[rowId] = value ?? string.Empty;
 }

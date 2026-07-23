@@ -4,8 +4,10 @@
 @using Microsoft.AspNetCore.Authentication
 @using Microsoft.AspNetCore.Identity
 @using KCAS.Admin.Data
+@using KCAS.Admin.Security
 
 @inject UserManager<ApplicationUser> UserManager
+@inject RoleManager<IdentityRole> RoleManager
 @inject SignInManager<ApplicationUser> SignInManager
 @inject ILogger<Login> Logger
 @inject NavigationManager NavigationManager
@@ -69,10 +71,9 @@
 @code {
     private string? errorMessage;
     private EditContext editContext = default!;
-    private const string DefaultPostLoginPath = "clients";
     private string WindowsLoginUrl => NavigationManager.GetUriWithQueryParameters(
         "Account/WindowsLogin",
-        new Dictionary<string, object?> { ["returnUrl"] = PostLoginPath });
+        new Dictionary<string, object?>());
 
     [CascadingParameter]
     private HttpContext HttpContext { get; set; } = default!;
@@ -127,7 +128,9 @@
         {
             Logger.LogInformation("User logged in.");
             var user = await UserManager.FindByNameAsync(Input.Email);
-            RedirectManager.RedirectTo(user?.IsApproved == true ? PostLoginPath : "Account/PendingApproval");
+            RedirectManager.RedirectTo(user?.IsApproved == true
+                ? await KcasPostLoginRedirects.GetApprovedUserPathAsync(UserManager, RoleManager, user)
+                : "Account/PendingApproval");
         }
         else if (result.RequiresTwoFactor)
         {
@@ -162,5 +165,4 @@
         public PasskeyInputModel? Passkey { get; set; }
     }
 
-    private string PostLoginPath => string.IsNullOrWhiteSpace(ReturnUrl) ? DefaultPostLoginPath : ReturnUrl;
 }

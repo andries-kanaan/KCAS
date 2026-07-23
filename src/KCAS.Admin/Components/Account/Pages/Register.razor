@@ -106,7 +106,9 @@
         else
         {
             await SignInManager.SignInAsync(user, isPersistent: false);
-            RedirectManager.RedirectTo(user.IsApproved ? ReturnUrl : "Account/PendingApproval");
+            RedirectManager.RedirectTo(user.IsApproved
+                ? await KcasPostLoginRedirects.GetApprovedUserPathAsync(UserManager, RoleManager, user)
+                : "Account/PendingApproval");
         }
     }
 

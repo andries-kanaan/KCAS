@@ -7,9 +7,11 @@
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.WebUtilities
 @using KCAS.Admin.Data
+@using KCAS.Admin.Security
 
 @inject SignInManager<ApplicationUser> SignInManager
 @inject UserManager<ApplicationUser> UserManager
+@inject RoleManager<IdentityRole> RoleManager
 @inject IUserStore<ApplicationUser> UserStore
 @inject IEmailSender<ApplicationUser> EmailSender
 @inject NavigationManager NavigationManager
@@ -121,7 +123,10 @@
                 "{Name} logged in with {LoginProvider} provider.",
                 externalLoginInfo.Principal.Identity?.Name,
                 externalLoginInfo.LoginProvider);
-            RedirectManager.RedirectTo(ReturnUrl);
+            var user = await UserManager.FindByLoginAsync(externalLoginInfo.LoginProvider, externalLoginInfo.ProviderKey);
+            RedirectManager.RedirectTo(user?.IsApproved == true
+                ? await KcasPostLoginRedirects.GetApprovedUserPathAsync(UserManager, RoleManager, user)
+                : "Account/PendingApproval");
             return;
         }
         else if (result.IsLockedOut)
@@ -176,7 +181,9 @@
                 else
                 {
                     await SignInManager.SignInAsync(user, isPersistent: false, externalLoginInfo.LoginProvider);
-                    RedirectManager.RedirectTo(ReturnUrl);
+                    RedirectManager.RedirectTo(user.IsApproved
+                        ? await KcasPostLoginRedirects.GetApprovedUserPathAsync(UserManager, RoleManager, user)
+                        : "Account/PendingApproval");
                 }
             }
         }

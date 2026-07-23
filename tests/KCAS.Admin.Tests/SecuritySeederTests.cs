@@ -68,6 +68,12 @@ public sealed class SecuritySeederTests(KcasWebApplicationFactory factory)
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
 
+        foreach (var existingUser in userManager.Users.ToList())
+        {
+            var deleteResult = await userManager.DeleteAsync(existingUser);
+            Assert.True(deleteResult.Succeeded, string.Join("; ", deleteResult.Errors.Select(error => error.Description)));
+        }
+
         var user = new ApplicationUser
         {
             UserName = "first.admin@example.test",
@@ -85,5 +91,60 @@ public sealed class SecuritySeederTests(KcasWebApplicationFactory factory)
         Assert.NotNull(refreshedUser);
         Assert.True(refreshedUser.IsApproved);
         Assert.True(await userManager.IsInRoleAsync(refreshedUser, KcasRoles.Administrator));
+    }
+
+    [Fact]
+    public async Task Post_login_redirect_prefers_clients_when_user_can_view_clients()
+    {
+        using var scope = factory.Services.CreateScope();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+
+        var user = await CreateApprovedUserAsync(userManager, "clients-redirect@example.test");
+        var addToRoleResult = await userManager.AddToRoleAsync(user, KcasRoles.ReadOnly);
+        Assert.True(addToRoleResult.Succeeded, string.Join("; ", addToRoleResult.Errors.Select(error => error.Description)));
+
+        var redirectPath = await KcasPostLoginRedirects.GetApprovedUserPathAsync(userManager, roleManager, user);
+
+        Assert.Equal(KcasPostLoginRedirects.ClientsPath, redirectPath);
+    }
+
+    [Fact]
+    public async Task Post_login_redirect_falls_back_home_when_clients_are_not_available()
+    {
+        using var scope = factory.Services.CreateScope();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+
+        var roleName = $"NoClients-{Guid.NewGuid():N}";
+        var createRoleResult = await roleManager.CreateAsync(new IdentityRole(roleName));
+        Assert.True(createRoleResult.Succeeded, string.Join("; ", createRoleResult.Errors.Select(error => error.Description)));
+
+        var user = await CreateApprovedUserAsync(userManager, "home-redirect@example.test");
+        var addToRoleResult = await userManager.AddToRoleAsync(user, roleName);
+        Assert.True(addToRoleResult.Succeeded, string.Join("; ", addToRoleResult.Errors.Select(error => error.Description)));
+
+        var redirectPath = await KcasPostLoginRedirects.GetApprovedUserPathAsync(userManager, roleManager, user);
+
+        Assert.Equal(KcasPostLoginRedirects.HomePath, redirectPath);
+    }
+
+    private static async Task<ApplicationUser> CreateApprovedUserAsync(
+        UserManager<ApplicationUser> userManager,
+        string email)
+    {
+        var user = new ApplicationUser
+        {
+            UserName = email,
+            Email = email,
+            IsApproved = true,
+            CreatedAtUtc = DateTime.UtcNow,
+            ApprovedAtUtc = DateTime.UtcNow
+        };
+
+        var createResult = await userManager.CreateAsync(user, "Passw0rd!Test");
+        Assert.True(createResult.Succeeded, string.Join("; ", createResult.Errors.Select(error => error.Description)));
+
+        return user;
     }
 }

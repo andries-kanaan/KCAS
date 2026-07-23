@@ -739,6 +739,29 @@ a, .btn-link {
     white-space: pre-wrap;
 }
 
+.review-payload-grid {
+    display: grid;
+    gap: .75rem;
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+}
+
+.review-payload-grid pre {
+    max-height: 14rem;
+    overflow: auto;
+    padding: .5rem;
+    border: 1px solid #dee2e6;
+    border-radius: .25rem;
+    background: #f8f9fa;
+    font-size: .8rem;
+    white-space: pre-wrap;
+}
+
+.review-actions {
+    display: grid;
+    gap: .5rem;
+    min-width: 16rem;
+}
+
 .legacy-json {
     max-height: 22rem;
     margin: 0;
