@@ -227,7 +227,21 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
 
     public async Task<int> RunScanAsync(string? requestedRootPath, string? userName, string reason)
     {
+        var runId = await StartScanRunAsync(requestedRootPath, userName, reason);
+        await ExecuteScanRunAsync(runId, userName, reason, CancellationToken.None);
+        return runId;
+    }
+
+    public async Task<int> StartScanRunAsync(string? requestedRootPath, string? userName, string reason)
+    {
         RequireReason(reason);
+        if (await db.ClientEvidenceScanRuns.AnyAsync(run =>
+            run.Status == ClientEvidenceScanStatuses.Running ||
+            run.Status == ClientEvidenceScanStatuses.Cancelling))
+        {
+            throw new InvalidOperationException("An evidence scan is already running.");
+        }
+
         var rootPath = Normalize(requestedRootPath);
         if (rootPath is null)
         {
@@ -252,15 +266,22 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         };
         db.ClientEvidenceScanRuns.Add(run);
         await db.SaveChangesAsync();
+        return run.Id;
+    }
 
+    public async Task ExecuteScanRunAsync(int runId, string? userName, string reason, CancellationToken cancellationToken)
+    {
+        var run = await db.ClientEvidenceScanRuns.SingleOrDefaultAsync(run => run.Id == runId, cancellationToken)
+            ?? throw new InvalidOperationException("Evidence scan run not found.");
         try
         {
-            var clients = await db.Clients.AsNoTracking().ToListAsync();
-            var requirements = await LoadActiveRequirementsAsync();
-            foreach (var path in Directory.EnumerateFiles(rootPath, "*.*", SearchOption.AllDirectories))
+            var clients = await db.Clients.AsNoTracking().ToListAsync(cancellationToken);
+            var requirements = await LoadActiveRequirementsAsync(cancellationToken);
+            foreach (var path in Directory.EnumerateFiles(run.RootPath, "*.*", SearchOption.AllDirectories))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var fileInfo = new FileInfo(path);
-                var relativePath = Path.GetRelativePath(rootPath, path);
+                var relativePath = Path.GetRelativePath(run.RootPath, path);
                 var extension = fileInfo.Extension.ToLowerInvariant();
                 run.TotalFiles++;
 
@@ -272,7 +293,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                     FileName = fileInfo.Name,
                     FileSizeBytes = fileInfo.Length,
                     FileLastWriteTimeUtc = fileInfo.LastWriteTimeUtc,
-                    FileSha256 = await ComputeSha256Async(path),
+                    FileSha256 = await ComputeSha256Async(path, cancellationToken),
                     SuggestedEvidenceType = SuggestEvidenceType(relativePath)
                 };
 
@@ -282,6 +303,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                     scanFile.MatchReason = "Unsupported file extension.";
                     run.SkippedFiles++;
                     db.ClientEvidenceScanFiles.Add(scanFile);
+                    await SaveScanProgressIfNeededAsync(run, cancellationToken);
                     continue;
                 }
 
@@ -301,6 +323,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                     }
 
                     db.ClientEvidenceScanFiles.Add(scanFile);
+                    await SaveScanProgressIfNeededAsync(run, cancellationToken);
                     continue;
                 }
 
@@ -313,7 +336,8 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                 var existingItem = await db.ClientEvidenceItems.FirstOrDefaultAsync(item =>
                     item.ClientId == match.Client.Id &&
                     item.FileSha256 == scanFile.FileSha256 &&
-                    item.RelativePath == scanFile.RelativePath);
+                    item.RelativePath == scanFile.RelativePath,
+                    cancellationToken);
 
                 if (existingItem is null)
                 {
@@ -336,6 +360,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                 }
 
                 run.LinkedFiles++;
+                await SaveScanProgressIfNeededAsync(run, cancellationToken);
             }
 
             run.Status = ClientEvidenceScanStatuses.Completed;
@@ -349,7 +374,14 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                 run.AmbiguousFiles,
                 run.SkippedFiles
             }, userName, reason);
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            run.Status = ClientEvidenceScanStatuses.Cancelled;
+            run.FinishedAtUtc = DateTime.UtcNow;
+            run.ErrorMessage = "Scan cancelled by user request.";
+            await db.SaveChangesAsync(CancellationToken.None);
         }
         catch (Exception ex)
         {
@@ -359,8 +391,55 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             await db.SaveChangesAsync();
             throw;
         }
+    }
 
-        return run.Id;
+    public async Task RequestScanCancellationAsync(int runId, string? userName, string reason)
+    {
+        RequireReason(reason);
+        var run = await db.ClientEvidenceScanRuns.SingleOrDefaultAsync(run => run.Id == runId)
+            ?? throw new InvalidOperationException("Evidence scan run not found.");
+        if (run.Status is not (ClientEvidenceScanStatuses.Running or ClientEvidenceScanStatuses.Cancelling))
+        {
+            return;
+        }
+
+        run.Status = ClientEvidenceScanStatuses.Cancelling;
+        run.ErrorMessage = "Cancellation requested.";
+        await AddAuditAsync("ClientEvidenceScanRun", run.Id, "CancelScan", new
+        {
+            run.RootPath,
+            run.TotalFiles,
+            run.LinkedFiles,
+            run.UnmatchedFiles,
+            run.AmbiguousFiles,
+            run.SkippedFiles
+        }, userName, reason);
+        await db.SaveChangesAsync();
+    }
+
+    public async Task CancelUntrackedScanAsync(int runId, string? userName, string reason)
+    {
+        RequireReason(reason);
+        var run = await db.ClientEvidenceScanRuns.SingleOrDefaultAsync(run => run.Id == runId)
+            ?? throw new InvalidOperationException("Evidence scan run not found.");
+        if (run.Status is not (ClientEvidenceScanStatuses.Running or ClientEvidenceScanStatuses.Cancelling))
+        {
+            return;
+        }
+
+        run.Status = ClientEvidenceScanStatuses.Cancelled;
+        run.FinishedAtUtc = DateTime.UtcNow;
+        run.ErrorMessage = "Scan cancelled. No active worker was tracking this run.";
+        await AddAuditAsync("ClientEvidenceScanRun", run.Id, "CancelScan", new
+        {
+            run.RootPath,
+            run.TotalFiles,
+            run.LinkedFiles,
+            run.UnmatchedFiles,
+            run.AmbiguousFiles,
+            run.SkippedFiles
+        }, userName, reason);
+        await db.SaveChangesAsync();
     }
 
     public async Task VerifyEvidenceAsync(int evidenceItemId, DateOnly? receivedDate, DateOnly? expiryDate, string? userName, string reason)
@@ -479,12 +558,12 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         RequiresExpiryDate = expiry
     };
 
-    private async Task<List<ClientEvidenceRequirement>> LoadActiveRequirementsAsync() =>
+    private async Task<List<ClientEvidenceRequirement>> LoadActiveRequirementsAsync(CancellationToken cancellationToken = default) =>
         await db.ClientEvidenceRequirements
             .AsNoTracking()
             .Where(requirement => requirement.Status == ClientEvidenceRequirementStatuses.Active)
             .OrderBy(requirement => requirement.SortOrder)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
     private static ClientEvidenceReadinessCounts CalculateReadiness(
         int clientId,
@@ -629,10 +708,10 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         return null;
     }
 
-    private static async Task<string> ComputeSha256Async(string path)
+    private static async Task<string> ComputeSha256Async(string path, CancellationToken cancellationToken = default)
     {
         await using var stream = File.OpenRead(path);
-        var hash = await SHA256.HashDataAsync(stream);
+        var hash = await SHA256.HashDataAsync(stream, cancellationToken);
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
@@ -649,6 +728,14 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             NewValueJson = JsonSerializer.Serialize(entity, AuditJsonOptions)
         });
         await Task.CompletedTask;
+    }
+
+    private async Task SaveScanProgressIfNeededAsync(ClientEvidenceScanRun run, CancellationToken cancellationToken)
+    {
+        if (run.TotalFiles % 25 == 0)
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
     }
 
     private static void RequireReason(string reason)

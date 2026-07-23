@@ -3,7 +3,9 @@
 @rendermode InteractiveServer
 @attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
 @using KCAS.Admin.Data
+@implements IDisposable
 @inject ClientEvidenceReadinessService EvidenceService
+@inject ClientEvidenceScanCoordinator ScanCoordinator
 @inject AuthenticationStateProvider AuthenticationStateProvider
 
 <PageTitle>Client evidence readiness</PageTitle>
@@ -57,7 +59,11 @@ else
         <div class="row-actions mt-2">
             <button type="button" class="btn btn-outline-secondary" @onclick="OpenFolderPicker" disabled="@(!canManage)">Browse folders</button>
             <button type="button" class="btn btn-outline-secondary" @onclick="SaveRootAsync" disabled="@(!canManage)">Save root</button>
-            <button type="button" class="btn btn-primary" @onclick="RunScanAsync" disabled="@(!canManage)">Run scan</button>
+            <button type="button" class="btn btn-primary" @onclick="RunScanAsync" disabled="@(!canManage || IsScanRunning)">Run scan</button>
+            @if (CanCancelScan)
+            {
+                <button type="button" class="btn btn-outline-danger" @onclick="CancelScanAsync">Cancel scan</button>
+            }
         </div>
         <ServerFolderPicker IsOpen="@isFolderPickerOpen"
                             InitialPath="@scanRootPath"
@@ -67,6 +73,24 @@ else
                             Closed="CloseFolderPicker" />
         @if (model.LatestScanRun is not null)
         {
+            @if (IsScanRunning)
+            {
+                <div class="scan-progress mt-3">
+                    <div class="scan-progress-header">
+                        <strong>@(model.LatestScanRun.Status == ClientEvidenceScanStatuses.Cancelling ? "Cancelling scan..." : "Scanning server documents...")</strong>
+                        <span>@model.LatestScanRun.TotalFiles file(s) processed</span>
+                    </div>
+                    <div class="progress" role="progressbar" aria-label="Evidence scan progress">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 100%"></div>
+                    </div>
+                    <div class="scan-progress-counts">
+                        <span>@model.LatestScanRun.LinkedFiles linked</span>
+                        <span>@model.LatestScanRun.UnmatchedFiles unmatched</span>
+                        <span>@model.LatestScanRun.AmbiguousFiles ambiguous</span>
+                        <span>@model.LatestScanRun.SkippedFiles skipped</span>
+                    </div>
+                </div>
+            }
             <div class="table-responsive mt-3">
                 <table class="table align-middle">
                     <tbody>
@@ -155,6 +179,11 @@ else
     private bool canManage;
     private string? statusMessage;
     private bool isFolderPickerOpen;
+    private CancellationTokenSource? pollingCancellation;
+
+    private bool IsScanRunning => model?.LatestScanRun?.Status is ClientEvidenceScanStatuses.Running or ClientEvidenceScanStatuses.Cancelling;
+
+    private bool CanCancelScan => canManage && model?.LatestScanRun?.Status == ClientEvidenceScanStatuses.Running;
 
     protected override async Task OnInitializedAsync()
     {
@@ -162,6 +191,10 @@ else
         currentUser = authState.User.Identity?.Name;
         canManage = authState.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage);
         await LoadAsync();
+        if (IsScanRunning)
+        {
+            StartPolling();
+        }
     }
 
     private async Task LoadAsync()
@@ -172,13 +205,77 @@ else
 
     private async Task SaveRootAsync() => await ExecuteAsync(async () => await EvidenceService.SaveScanRootAsync(scanRootPath ?? "", currentUser, reason ?? ""));
 
-    private async Task RunScanAsync() => await ExecuteAsync(async () => await EvidenceService.RunScanAsync(scanRootPath, currentUser, reason ?? ""));
+    private async Task RunScanAsync()
+    {
+        try
+        {
+            var runId = await ScanCoordinator.StartScanAsync(scanRootPath, currentUser, reason ?? "");
+            statusMessage = $"Evidence scan {runId} started.";
+            await LoadAsync();
+            StartPolling();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = ex.Message;
+        }
+    }
+
+    private async Task CancelScanAsync()
+    {
+        if (model?.LatestScanRun is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await ScanCoordinator.CancelScanAsync(model.LatestScanRun.Id, currentUser, reason ?? "");
+            statusMessage = "Evidence scan cancellation requested.";
+            await LoadAsync();
+            StartPolling();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = ex.Message;
+        }
+    }
 
     private void SelectFolder(string path) => scanRootPath = path;
 
     private void OpenFolderPicker() => isFolderPickerOpen = true;
 
     private void CloseFolderPicker() => isFolderPickerOpen = false;
+
+    private void StartPolling()
+    {
+        pollingCancellation?.Cancel();
+        pollingCancellation?.Dispose();
+        pollingCancellation = new CancellationTokenSource();
+        _ = PollLatestRunAsync(pollingCancellation.Token);
+    }
+
+    private async Task PollLatestRunAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                await InvokeAsync(async () =>
+                {
+                    await LoadAsync();
+                    StateHasChanged();
+                    if (!IsScanRunning)
+                    {
+                        pollingCancellation?.Cancel();
+                    }
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
 
     private async Task ExecuteAsync(Func<Task> action)
     {
@@ -195,4 +292,10 @@ else
     }
 
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+
+    public void Dispose()
+    {
+        pollingCancellation?.Cancel();
+        pollingCancellation?.Dispose();
+    }
 }

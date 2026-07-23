@@ -1232,3 +1232,31 @@ h1:focus {
 .server-folder-icon {
     color: #47617d;
 }
+
+.scan-progress {
+    background: #f8fafc;
+    border: 1px solid #dbe4ee;
+    border-radius: 8px;
+    padding: 0.85rem 1rem;
+}
+
+.scan-progress-header,
+.scan-progress-counts {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    justify-content: space-between;
+}
+
+.scan-progress-counts {
+    color: #536579;
+    font-size: 0.9rem;
+    justify-content: flex-start;
+    margin-top: 0.5rem;
+}
+
+.scan-progress .progress {
+    height: 0.75rem;
+    margin-top: 0.65rem;
+}

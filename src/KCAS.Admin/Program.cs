@@ -69,6 +69,7 @@ builder.Services.AddScoped<ClientCodeGenerator>();
 builder.Services.AddScoped<ClientOperationsService>();
 builder.Services.AddScoped<ComplianceService>();
 builder.Services.AddScoped<ClientEvidenceReadinessService>();
+builder.Services.AddSingleton<ClientEvidenceScanCoordinator>();
 builder.Services.AddScoped<LegacyImportWebService>();
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 

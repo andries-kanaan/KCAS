@@ -18,6 +18,8 @@ public static class ClientEvidenceRequirementStatuses
 public static class ClientEvidenceScanStatuses
 {
     public const string Running = "Running";
+    public const string Cancelling = "Cancelling";
+    public const string Cancelled = "Cancelled";
     public const string Completed = "Completed";
     public const string Failed = "Failed";
 }
