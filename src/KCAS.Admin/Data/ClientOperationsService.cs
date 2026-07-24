@@ -53,6 +53,10 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
         client.Language = Normalize(model.Language);
         client.ClientFolder = Normalize(model.ClientFolder);
         client.ClientCategory = Normalize(model.ClientCategory) ?? ClientCategories.NaturalPerson;
+        client.ClientCategorySource = ClientCategorySources.Manual;
+        client.ClientCategoryReason = "Category selected on the client edit page.";
+        client.ClientCategoryUpdatedAtUtc = DateTime.UtcNow;
+        client.ClientCategoryUpdatedBy = Normalize(model.UpdatedBy);
         client.IsActive = model.IsActive;
 
         client.PersonalProfile ??= new ClientPersonalProfile { Client = client };
@@ -1150,6 +1154,11 @@ public sealed class ClientEditModel
     public string? Language { get; set; }
     public string? ClientFolder { get; set; }
     public string ClientCategory { get; set; } = ClientCategories.NaturalPerson;
+    public string? ClientCategorySource { get; set; }
+    public string? ClientCategoryReason { get; set; }
+    public DateTime? ClientCategoryUpdatedAtUtc { get; set; }
+    public string? ClientCategoryUpdatedBy { get; set; }
+    public string? UpdatedBy { get; set; }
     public bool IsActive { get; set; } = true;
     public string? SouthAfricanIdNumber { get; set; }
     public string? Gender { get; set; }
@@ -1190,6 +1199,10 @@ public sealed class ClientEditModel
             Language = client.Language,
             ClientFolder = client.ClientFolder,
             ClientCategory = client.ClientCategory,
+            ClientCategorySource = client.ClientCategorySource,
+            ClientCategoryReason = client.ClientCategoryReason,
+            ClientCategoryUpdatedAtUtc = client.ClientCategoryUpdatedAtUtc,
+            ClientCategoryUpdatedBy = client.ClientCategoryUpdatedBy,
             IsActive = client.IsActive,
             SouthAfricanIdNumber = client.PersonalProfile?.SouthAfricanIdNumber,
             Gender = client.PersonalProfile?.Gender,

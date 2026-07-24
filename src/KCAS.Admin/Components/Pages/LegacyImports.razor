@@ -66,7 +66,7 @@
         }
         else
         {
-            <p class="section-subtitle">Backs up KCAS, deletes previous imported legacy baseline data, then imports the mapped baseline again.</p>
+            <p class="section-subtitle">Backs up KCAS, clears previous imported baseline and compliance operational review/scan history, then imports the mapped baseline again.</p>
         }
         <div class="form-actions">
             <button type="button" class="btn btn-primary" @onclick="UploadAndScanAsync" disabled="@(isBusy || uploadFile is null)">

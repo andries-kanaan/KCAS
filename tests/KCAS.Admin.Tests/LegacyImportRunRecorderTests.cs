@@ -63,6 +63,134 @@ public sealed class LegacyImportRunRecorderTests(KcasWebApplicationFactory facto
     }
 
     [Fact]
+    public async Task Delete_compliance_operational_data_clears_reviews_and_scans_but_preserves_setup()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        await LegacyImportWebService.DeleteComplianceOperationalDataAsync(db, CancellationToken.None);
+
+        var client = new Client
+        {
+            LegacyClientId = 901001,
+            DisplayName = "Baseline Reset Client",
+            SurnameOrEntityName = "Reset Client",
+            ClientCategory = ClientCategories.NaturalPerson
+        };
+        var requirement = new ClientEvidenceRequirement
+        {
+            ClientCategory = ClientCategories.NaturalPerson,
+            RequirementGroup = "Baseline reset test",
+            EvidenceType = "PEP",
+            Title = "PEP screening",
+            SortOrder = 999
+        };
+        var root = new ClientEvidenceScanRoot
+        {
+            RootPath = @"C:\EvidenceRoot",
+            IsActive = true,
+            UpdatedBy = "tester"
+        };
+        var run = new ClientEvidenceScanRun
+        {
+            RootPath = root.RootPath,
+            Status = ClientEvidenceScanStatuses.Completed,
+            StartedBy = "tester",
+            TotalFiles = 1,
+            LinkedFiles = 1,
+            FinishedAtUtc = DateTime.UtcNow
+        };
+        var scanFile = new ClientEvidenceScanFile
+        {
+            ScanRun = run,
+            Client = client,
+            FullPath = @"C:\EvidenceRoot\pep.pdf",
+            RelativePath = "pep.pdf",
+            FileName = "pep.pdf",
+            FileSha256 = new string('a', 64),
+            FileLastWriteTimeUtc = DateTime.UtcNow,
+            MatchStatus = ClientEvidenceScanFileStatuses.Linked
+        };
+
+        db.Clients.Add(client);
+        db.ClientEvidenceRequirements.Add(requirement);
+        db.ClientEvidenceScanRoots.Add(root);
+        db.ClientEvidenceScanRuns.Add(run);
+        db.ClientEvidenceScanFiles.Add(scanFile);
+        db.ClientEvidenceItems.Add(new ClientEvidenceItem
+        {
+            Client = client,
+            Requirement = requirement,
+            ScanFile = scanFile,
+            EvidenceType = requirement.EvidenceType,
+            Title = requirement.Title,
+            FileName = scanFile.FileName,
+            Status = ClientEvidenceStatuses.Verified,
+            Reviewer = "tester"
+        });
+        db.ClientEvidenceExceptions.Add(new ClientEvidenceException
+        {
+            Client = client,
+            Requirement = requirement,
+            Reason = "Legacy baseline test exception",
+            ApprovedBy = "tester",
+            ReviewDate = DateOnly.FromDateTime(DateTime.Today)
+        });
+        db.ComplianceTasks.Add(new ComplianceTask
+        {
+            Title = "Review legacy evidence",
+            Status = ComplianceStatuses.Draft,
+            LinkedEntityType = nameof(Client),
+            LinkedEntityId = client.Id
+        });
+        db.ComplianceEvidence.Add(new ComplianceEvidence
+        {
+            EvidenceType = "Screening",
+            Title = "Screening evidence",
+            LinkedEntityType = nameof(Client),
+            LinkedEntityId = client.Id
+        });
+        db.ComplianceApprovals.Add(new ComplianceApproval
+        {
+            TargetEntityType = nameof(ClientEvidenceException),
+            TargetEntityId = 1,
+            Decision = "Approved",
+            Approver = "tester",
+            Reason = "Legacy baseline test approval"
+        });
+        db.ComplianceAuditEvents.Add(new ComplianceAuditEvent
+        {
+            EntityType = nameof(ClientEvidenceItem),
+            EntityId = 1,
+            Action = "Verify",
+            UserName = "tester",
+            Reason = "Legacy baseline test audit"
+        });
+        await db.SaveChangesAsync();
+
+        var requirementId = requirement.Id;
+        var rootId = root.Id;
+
+        await LegacyImportWebService.DeleteComplianceOperationalDataAsync(db, CancellationToken.None);
+
+        Assert.Equal(0, await db.ClientEvidenceItems.CountAsync());
+        Assert.Equal(0, await db.ClientEvidenceExceptions.CountAsync());
+        Assert.Equal(0, await db.ClientEvidenceScanFiles.CountAsync());
+        Assert.Equal(0, await db.ClientEvidenceScanRuns.CountAsync());
+        Assert.Equal(0, await db.ComplianceTasks.CountAsync());
+        Assert.Equal(0, await db.ComplianceEvidence.CountAsync());
+        Assert.Equal(0, await db.ComplianceApprovals.CountAsync());
+        Assert.Equal(0, await db.ComplianceAuditEvents.CountAsync());
+        Assert.True(await db.ClientEvidenceRequirements.AnyAsync(item => item.Id == requirementId));
+        Assert.True(await db.ClientEvidenceScanRoots.AnyAsync(item => item.Id == rootId));
+
+        db.ChangeTracker.Clear();
+        db.ClientEvidenceRequirements.RemoveRange(db.ClientEvidenceRequirements.Where(item => item.Id == requirementId));
+        db.ClientEvidenceScanRoots.RemoveRange(db.ClientEvidenceScanRoots.Where(item => item.Id == rootId));
+        db.Clients.RemoveRange(db.Clients.Where(item => item.Id == client.Id));
+        await db.SaveChangesAsync();
+    }
+
+    [Fact]
     public async Task Existing_target_without_a_source_snapshot_is_changed_not_new()
     {
         using var scope = factory.Services.CreateScope();

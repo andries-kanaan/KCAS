@@ -107,6 +107,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.Property(client => client.ClientCategory)
                 .HasMaxLength(96)
                 .HasDefaultValue(ClientCategories.NaturalPerson);
+            entity.Property(client => client.ClientCategorySource)
+                .HasMaxLength(32)
+                .HasDefaultValue(ClientCategorySources.Unknown);
+            entity.Property(client => client.ClientCategoryReason).HasMaxLength(512);
+            entity.Property(client => client.ClientCategoryUpdatedBy).HasMaxLength(191);
             entity.Property(client => client.CreatedAtUtc).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
             entity.Property(client => client.LegacyReconciliationStatus)
                 .HasMaxLength(32)

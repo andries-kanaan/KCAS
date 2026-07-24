@@ -18,6 +18,7 @@ public static class LegacyClientImportMapper
         var fullName = Read(row, "client_full_name");
         var initials = Read(row, "initials");
         var displayName = BuildDisplayName(surname, fullName, initials);
+        var category = ClientCategoryInference.InferFromLegacyClient(surname, fullName, displayName, Read(row, "client_folder"));
 
         var client = new Client
         {
@@ -30,6 +31,10 @@ public static class LegacyClientImportMapper
             DisplayName = displayName,
             Language = Read(row, "language"),
             ClientFolder = Read(row, "client_folder"),
+            ClientCategory = category.Category,
+            ClientCategorySource = category.Source,
+            ClientCategoryReason = category.Reason,
+            ClientCategoryUpdatedAtUtc = importedAtUtc,
             CreatedAtUtc = ReadDateTime(row, "date_opened") ?? importedAtUtc,
             UpdatedAtUtc = ReadDateTime(row, "date_updated")
         };
@@ -127,6 +132,14 @@ public static class LegacyClientImportMapper
         target.DisplayName = source.DisplayName;
         target.Language = source.Language;
         target.ClientFolder = source.ClientFolder;
+        if (ClientCategoryInference.CanApplyInferredCategory(target))
+        {
+            target.ClientCategory = source.ClientCategory;
+            target.ClientCategorySource = source.ClientCategorySource;
+            target.ClientCategoryReason = source.ClientCategoryReason;
+            target.ClientCategoryUpdatedAtUtc = DateTime.UtcNow;
+            target.ClientCategoryUpdatedBy = source.ClientCategoryUpdatedBy;
+        }
         target.IsActive = source.IsActive;
         target.UpdatedAtUtc = DateTime.UtcNow;
 

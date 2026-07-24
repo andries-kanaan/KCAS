@@ -348,7 +348,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             ?? throw new InvalidOperationException("Evidence scan run not found.");
         try
         {
-            var clients = await db.Clients.AsNoTracking().ToListAsync(cancellationToken);
+            var clients = await db.Clients.ToListAsync(cancellationToken);
             var requirements = await LoadActiveRequirementsAsync(cancellationToken);
             var forcedClient = forcedClientId.HasValue
                 ? clients.SingleOrDefault(client => client.Id == forcedClientId.Value) ?? throw new InvalidOperationException("Client not found.")
@@ -411,6 +411,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                 await ResolvePriorScanFilesForPathAsync(scanFile, match.Client.Id, cancellationToken);
 
                 var evidenceType = scanFile.SuggestedEvidenceType ?? "General";
+                await ApplyEvidenceCategoryInferenceAsync(match.Client, relativePath, evidenceType, userName, reason);
                 var requirement = requirements.FirstOrDefault(requirement => requirement.EvidenceType == evidenceType);
                 var existingItem = await db.ClientEvidenceItems.FirstOrDefaultAsync(item =>
                     item.ClientId == match.Client.Id &&
@@ -930,8 +931,11 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
     {
         var text = NormalizeToken(relativePath);
         var folderText = NormalizeToken(Path.GetDirectoryName(relativePath));
+        if (ContainsAny(text, "trustdeed", "trustakte", "lettersofauthority", "letterauthority")) return "TrustDeed";
+        if (ContainsAny(text, "trustee", "trustees", "founder")) return "TrustParties";
+        if (ContainsAny(text, "cipc", "companyregistration", "cor14", "cor39", "ck1", "ck2")) return "LegalPersonRegistration";
+        if (ContainsAny(text, "director", "directors", "member", "members", "authorisedsignatory", "authorizedsignatory", "resolution")) return "LegalPersonControllers";
         if (ContainsAny(text, "beneficiary", "beneficiaries", "beneficial", "ownership", "director", "trustee")) return "BeneficialOwnership";
-        if (ContainsAny(text, "trustdeed", "trustakte")) return "TrustDeed";
         if (ContainsAny(text, "proofaddress", "proofofaddress", "address", "adres", "proofresidence", "utility", "municipal", "residence")) return "Address";
         if (ContainsAny(folderText, "fica", "kyc") || ContainsAny(text, "identity", "identitydocument", "passport", "registration")) return "Identity";
         if (ContainsAny(folderText, "tax") || ContainsAny(text, "tax", "sars", "residency")) return "TaxResidency";
@@ -944,6 +948,46 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         if (ContainsAny(text, "offshore", "country", "geography", "jurisdiction")) return "Geography";
         if (ContainsAny(text, "policy", "policies", "product", "investment", "mandate", "applicationform", "applicationforms", "portfolio", "unittrust", "hedgefund", "annuity")) return "ProductService";
         return null;
+    }
+
+    private async Task ApplyEvidenceCategoryInferenceAsync(Client client, string relativePath, string evidenceType, string? userName, string reason)
+    {
+        if (!ClientCategoryInference.CanApplyInferredCategory(client))
+        {
+            return;
+        }
+
+        var inferred = ClientCategoryInference.InferFromEvidence(relativePath, evidenceType);
+        if (inferred is null || string.Equals(client.ClientCategory, inferred.Category, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var previous = new
+        {
+            client.ClientCategory,
+            client.ClientCategorySource,
+            client.ClientCategoryReason
+        };
+        client.ClientCategory = inferred.Category;
+        client.ClientCategorySource = inferred.Source;
+        client.ClientCategoryReason = inferred.Reason;
+        client.ClientCategoryUpdatedAtUtc = DateTime.UtcNow;
+        client.ClientCategoryUpdatedBy = userName;
+        await AddAuditAsync("Client", client.Id, "InferClientCategoryFromEvidence", new
+        {
+            Previous = previous,
+            Current = new
+            {
+                client.ClientCategory,
+                client.ClientCategorySource,
+                client.ClientCategoryReason,
+                client.ClientCategoryUpdatedAtUtc,
+                client.ClientCategoryUpdatedBy
+            },
+            EvidenceType = evidenceType,
+            RelativePath = relativePath
+        }, userName, reason);
     }
 
     private async Task VerifyEvidenceItemAsync(ClientEvidenceItem item, DateOnly? receivedDate, DateOnly? expiryDate, string? userName, string reason)

@@ -42,7 +42,8 @@ public sealed class KcasWebApplicationFactory : WebApplicationFactory<Program>, 
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:DefaultConnection"] = ConnectionString,
-                ["Database:MigrateOnStartup"] = "true"
+                ["Database:MigrateOnStartup"] = "true",
+                ["Logging:LogLevel:Microsoft.EntityFrameworkCore.Database.Command"] = "Warning"
             });
         });
     }
