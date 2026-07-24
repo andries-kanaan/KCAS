@@ -1,4 +1,5 @@
 using System.Text.Json;
+using KCAS.Admin.Data;
 using KCAS.Admin.LegacyImport;
 
 namespace KCAS.Admin.Tests;
@@ -14,6 +15,8 @@ public sealed class LegacyClientImportMapperTests
         Assert.Equal("007", client.KanaanId);
         Assert.Equal("Van Vuuren, A", client.DisplayName);
         Assert.Equal("Van Vuuren", client.SurnameOrEntityName);
+        Assert.Equal(ClientCategories.NaturalPerson, client.ClientCategory);
+        Assert.Equal(ClientCategorySources.LegacyImportInferred, client.ClientCategorySource);
         Assert.Equal("Afrikaans", client.Language);
         Assert.Equal("8001015009087", client.PersonalProfile?.SouthAfricanIdNumber);
         Assert.True(client.PersonalProfile?.IsTaxClient);
@@ -56,6 +59,46 @@ public sealed class LegacyClientImportMapperTests
         Assert.Null(client.FullName);
         Assert.Null(client.FinancialProfile?.GrossMonthlySalary);
         Assert.DoesNotContain(client.ContactPoints, contact => contact.LegacySourceField == "email01");
+    }
+
+    [Theory]
+    [InlineData("An-Mar Trust", "An-Mar Trust", @"z:\Kanaan Trust\Clients\Clients\An-Mar Trust", ClientCategories.Trust)]
+    [InlineData("KSB Durban Trading CC", "KSB Durban Trading CC", @"z:\Kanaan Trust\Clients\Clients\KSB Durban Trading CC", ClientCategories.LegalPerson)]
+    [InlineData("Darke", "Alwyn Louis", @"z:\Kanaan Trust\Clients\Clients\Darke AL Estate Late", ClientCategories.Other)]
+    public void Map_infers_client_category_from_legacy_name_and_final_folder_segment(string surname, string? fullName, string folder, string expectedCategory)
+    {
+        var row = SampleRow();
+        row["client_surname"] = surname;
+        row["client_full_name"] = fullName;
+        row["client_folder"] = folder;
+
+        var client = LegacyClientImportMapper.Map(row, DateTime.UtcNow);
+
+        Assert.Equal(expectedCategory, client.ClientCategory);
+        Assert.Equal(ClientCategorySources.LegacyImportInferred, client.ClientCategorySource);
+        Assert.False(string.IsNullOrWhiteSpace(client.ClientCategoryReason));
+    }
+
+    [Fact]
+    public void ApplyUpdatedGraph_refreshes_inferred_category_but_preserves_manual_category()
+    {
+        var sourceRow = SampleRow();
+        sourceRow["client_surname"] = "An-Mar Trust";
+        sourceRow["client_full_name"] = "An-Mar Trust";
+        var source = LegacyClientImportMapper.Map(sourceRow, DateTime.UtcNow);
+        var inferredTarget = LegacyClientImportMapper.Map(SampleRow(), DateTime.UtcNow);
+        var manualTarget = LegacyClientImportMapper.Map(SampleRow(), DateTime.UtcNow);
+        manualTarget.ClientCategory = ClientCategories.LegalPerson;
+        manualTarget.ClientCategorySource = ClientCategorySources.Manual;
+        manualTarget.ClientCategoryReason = "Manually corrected.";
+
+        LegacyClientImportMapper.ApplyUpdatedGraph(inferredTarget, source);
+        LegacyClientImportMapper.ApplyUpdatedGraph(manualTarget, source);
+
+        Assert.Equal(ClientCategories.Trust, inferredTarget.ClientCategory);
+        Assert.Equal(ClientCategorySources.LegacyImportInferred, inferredTarget.ClientCategorySource);
+        Assert.Equal(ClientCategories.LegalPerson, manualTarget.ClientCategory);
+        Assert.Equal(ClientCategorySources.Manual, manualTarget.ClientCategorySource);
     }
 
     private static Dictionary<string, string?> SampleRow()

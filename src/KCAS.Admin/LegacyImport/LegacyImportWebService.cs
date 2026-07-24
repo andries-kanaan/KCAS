@@ -994,6 +994,7 @@ public sealed class LegacyImportWebService(
             await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
             await DeleteImportHistoryAsync(db, cancellationToken);
+            await DeleteComplianceOperationalDataAsync(db, cancellationToken);
 
             if (tableScopes.Contains(LegacyImportTableScopes.AllMapped) || tableScopes.Contains(LegacyImportTableScopes.FundValuations))
             {
@@ -1033,6 +1034,18 @@ public sealed class LegacyImportWebService(
 
             await transaction.CommitAsync(cancellationToken);
         });
+    }
+
+    internal static async Task DeleteComplianceOperationalDataAsync(ApplicationDbContext db, CancellationToken cancellationToken)
+    {
+        await db.Database.ExecuteSqlRawAsync("DELETE FROM `ClientEvidenceItems`;", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("DELETE FROM `ClientEvidenceExceptions`;", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("DELETE FROM `ClientEvidenceScanFiles`;", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("DELETE FROM `ClientEvidenceScanRuns`;", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("DELETE FROM `ComplianceApprovals`;", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("DELETE FROM `ComplianceEvidence`;", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("DELETE FROM `ComplianceTasks`;", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("DELETE FROM `ComplianceAuditEvents`;", cancellationToken);
     }
 
     internal static async Task DeleteImportHistoryAsync(ApplicationDbContext db, CancellationToken cancellationToken)

@@ -35,6 +35,17 @@ public class Client
     [MaxLength(96)]
     public string ClientCategory { get; set; } = ClientCategories.NaturalPerson;
 
+    [MaxLength(32)]
+    public string ClientCategorySource { get; set; } = ClientCategorySources.Unknown;
+
+    [MaxLength(512)]
+    public string? ClientCategoryReason { get; set; }
+
+    public DateTime? ClientCategoryUpdatedAtUtc { get; set; }
+
+    [MaxLength(191)]
+    public string? ClientCategoryUpdatedBy { get; set; }
+
     public bool IsActive { get; set; } = true;
 
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
@@ -87,4 +98,12 @@ public static class ClientCategories
     public const string LegalPerson = "LegalPerson";
     public const string Trust = "Trust";
     public const string Other = "Other";
+}
+
+public static class ClientCategorySources
+{
+    public const string Unknown = "Unknown";
+    public const string LegacyImportInferred = "LegacyImportInferred";
+    public const string Manual = "Manual";
+    public const string EvidenceScanInferred = "EvidenceScanInferred";
 }

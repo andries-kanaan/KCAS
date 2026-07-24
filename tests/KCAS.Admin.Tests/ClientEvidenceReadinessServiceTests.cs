@@ -173,6 +173,60 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
     }
 
     [Fact]
+    public async Task Scan_corrects_imported_natural_person_category_from_strong_trust_evidence()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var clientId = await CreateClientAsync(
+            db,
+            "Evidence Category Client",
+            "CAT-TRUST-001",
+            @"z:\Kanaan Trust\Clients\Evidence Category Client",
+            categorySource: ClientCategorySources.LegacyImportInferred);
+        var root = CreateTempRoot();
+        await WriteFileAsync(root, "Evidence Category Client", "Storage Data", "Trust", "Trust Deed.pdf");
+
+        await service.RunScanAsync(root, "scanner@example.test", "Scan category evidence.");
+
+        var client = await db.Clients.SingleAsync(client => client.Id == clientId);
+        Assert.Equal(ClientCategories.Trust, client.ClientCategory);
+        Assert.Equal(ClientCategorySources.EvidenceScanInferred, client.ClientCategorySource);
+        Assert.Contains("trust", client.ClientCategoryReason!, StringComparison.OrdinalIgnoreCase);
+        Assert.True(await db.ComplianceAuditEvents.AnyAsync(audit =>
+            audit.EntityType == "Client" &&
+            audit.EntityId == clientId &&
+            audit.Action == "InferClientCategoryFromEvidence"));
+    }
+
+    [Fact]
+    public async Task Scan_does_not_override_manual_client_category()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var clientId = await CreateClientAsync(
+            db,
+            "Manual Category Client",
+            "CAT-MANUAL-001",
+            @"z:\Kanaan Trust\Clients\Manual Category Client",
+            ClientCategories.LegalPerson,
+            ClientCategorySources.Manual);
+        var root = CreateTempRoot();
+        await WriteFileAsync(root, "Manual Category Client", "Storage Data", "Trust", "Trust Deed.pdf");
+
+        await service.RunScanAsync(root, "scanner@example.test", "Scan category evidence.");
+
+        var client = await db.Clients.SingleAsync(client => client.Id == clientId);
+        Assert.Equal(ClientCategories.LegalPerson, client.ClientCategory);
+        Assert.Equal(ClientCategorySources.Manual, client.ClientCategorySource);
+        Assert.False(await db.ComplianceAuditEvents.AnyAsync(audit =>
+            audit.EntityType == "Client" &&
+            audit.EntityId == clientId &&
+            audit.Action == "InferClientCategoryFromEvidence"));
+    }
+
+    [Fact]
     public async Task Scan_linked_evidence_does_not_complete_requirements_until_verified()
     {
         using var scope = factory.Services.CreateScope();
@@ -381,6 +435,7 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
         string kanaanId,
         string folder,
         string category = ClientCategories.NaturalPerson,
+        string categorySource = ClientCategorySources.LegacyImportInferred,
         string? initials = null,
         string? fullName = null,
         string? surnameOrEntityName = null)
@@ -393,7 +448,8 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
             SurnameOrEntityName = surnameOrEntityName ?? name,
             KanaanId = kanaanId,
             ClientFolder = folder,
-            ClientCategory = category
+            ClientCategory = category,
+            ClientCategorySource = categorySource
         };
         db.Clients.Add(client);
         await db.SaveChangesAsync();

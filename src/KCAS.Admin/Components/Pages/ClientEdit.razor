@@ -4,8 +4,10 @@
 @attribute [Authorize(Policy = KcasPermissions.ClientsManage)]
 @using System.ComponentModel.DataAnnotations
 @using KCAS.Admin.Data
+@using Microsoft.AspNetCore.Components.Authorization
 @inject ClientOperationsService ClientOperations
 @inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthenticationStateProvider
 
 <PageTitle>@(Id is null ? "New client" : "Edit client")</PageTitle>
 
@@ -195,6 +197,8 @@
     {
         try
         {
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            model.UpdatedBy = authState.User.Identity?.Name;
             var clientId = await ClientOperations.SaveClientAsync(model);
             Navigation.NavigateTo($"/clients/{clientId}");
         }
