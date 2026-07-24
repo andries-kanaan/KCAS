@@ -98,7 +98,7 @@ else
                 <input class="form-control" type="date" @bind="batchExpiryDate" />
             </div>
             <div class="row-actions mt-2">
-                <button type="button" class="btn btn-outline-secondary" @onclick="SelectAllUnverified">Select all unverified</button>
+                <button type="button" class="btn btn-outline-secondary" @onclick="SelectAllCurrentUnverified">Select current unverified</button>
                 <button type="button" class="btn btn-outline-secondary" @onclick="ClearSelectedEvidence">Clear</button>
                 <button type="button" class="btn btn-primary" @onclick="VerifySelectedAsync" disabled="@(selectedEvidenceItemIds.Count == 0)">Verify selected (@selectedEvidenceItemIds.Count)</button>
             </div>
@@ -135,36 +135,104 @@ else
                                 }
                                 else
                                 {
-                                    @foreach (var item in requirement.Items)
+                                    var currentItems = CurrentEvidenceItems(requirement).ToList();
+                                    var historicalItems = HistoricalEvidenceItems(requirement, currentItems).ToList();
+
+                                    @foreach (var item in currentItems)
                                     {
-                                        <div class="evidence-review-row">
+                                        <div class="evidence-review-row evidence-review-row-current">
                                             @if (canManage && item.VerifiedDate is null)
                                             {
                                                 <input type="checkbox" checked="@selectedEvidenceItemIds.Contains(item.Id)" @onchange="eventArgs => ToggleEvidenceSelection(item.Id, eventArgs)" />
                                             }
-                                            <strong>@item.Title</strong>
-                                            <span class="text-muted small">@Display(item.RelativePath)</span>
-                                            @if (!string.IsNullOrWhiteSpace(item.ScreeningRiskSignal))
-                                            {
-                                                <span class="small">Review: @DisplayOutcome(item.ScreeningOutcome), @item.ScreeningRiskSignal risk</span>
-                                                <span class="text-muted small">Subject: @Display(item.ScreeningSubjectName), reviewed: @Date(item.ScreeningReviewDate)</span>
-                                            }
-                                            @if (item.EscalationRequired)
-                                            {
-                                                <span class="badge text-bg-warning">Escalation required</span>
-                                            }
-                                            <span class="text-muted small">Verified: @Date(item.VerifiedDate), expires: @Date(item.ExpiryDate)</span>
-                                            @if (item.CanOpen)
-                                            {
-                                                <span class="row-actions">
-                                                    <a class="btn btn-outline-secondary btn-sm" href="@item.FileUrl" target="_blank" rel="noopener">Open</a>
-                                                    @if (item.IsImage)
+                                            <div class="evidence-review-main">
+                                                <div class="evidence-review-title">
+                                                    <strong>@item.Title</strong>
+                                                    <span class="@SelectionBadgeClass(item)">@SelectionLabel(item)</span>
+                                                    @if (item.VerifiedDate is not null)
                                                     {
-                                                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => PreviewImage(item)">Preview</button>
+                                                        <span class="badge text-bg-success">Verified</span>
                                                     }
-                                                </span>
-                                            }
+                                                    else
+                                                    {
+                                                        <span class="badge text-bg-secondary">Linked</span>
+                                                    }
+                                                </div>
+                                                <div class="text-muted small">@Display(item.RelativePath)</div>
+                                                @if (!string.IsNullOrWhiteSpace(item.SelectionReason))
+                                                {
+                                                    <div class="small evidence-selection-reason">@item.SelectionReason</div>
+                                                }
+                                                @if (!string.IsNullOrWhiteSpace(item.ScreeningRiskSignal))
+                                                {
+                                                    <div class="small">Review: @DisplayOutcome(item.ScreeningOutcome), @item.ScreeningRiskSignal risk</div>
+                                                    <div class="text-muted small">Subject: @Display(item.ScreeningSubjectName), reviewed: @Date(item.ScreeningReviewDate)</div>
+                                                }
+                                                @if (item.EscalationRequired)
+                                                {
+                                                    <span class="badge text-bg-warning">Escalation required</span>
+                                                }
+                                                <div class="text-muted small">Verified: @Date(item.VerifiedDate), expires: @Date(item.ExpiryDate)</div>
+                                                @if (item.CanOpen)
+                                                {
+                                                    <div class="row-actions">
+                                                        <a class="btn btn-outline-secondary btn-sm" href="@item.FileUrl" target="_blank" rel="noopener">Open</a>
+                                                        @if (item.IsImage)
+                                                        {
+                                                            <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => PreviewImage(item)">Preview</button>
+                                                        }
+                                                    </div>
+                                                }
+                                            </div>
                                         </div>
+                                    }
+
+                                    @if (historicalItems.Count > 0)
+                                    {
+                                        <details class="historical-evidence-details">
+                                            <summary>@historicalItems.Count historical linked item@(historicalItems.Count == 1 ? "" : "s")</summary>
+                                            <div class="historical-evidence-list">
+                                                @foreach (var item in historicalItems)
+                                                {
+                                                    <div class="evidence-review-row evidence-review-row-historical">
+                                                        @if (canManage && item.VerifiedDate is null)
+                                                        {
+                                                            <input type="checkbox" checked="@selectedEvidenceItemIds.Contains(item.Id)" @onchange="eventArgs => ToggleEvidenceSelection(item.Id, eventArgs)" />
+                                                        }
+                                                        <div class="evidence-review-main">
+                                                            <div class="evidence-review-title">
+                                                                <strong>@item.Title</strong>
+                                                                <span class="@SelectionBadgeClass(item)">@SelectionLabel(item)</span>
+                                                                @if (item.VerifiedDate is not null)
+                                                                {
+                                                                    <span class="badge text-bg-success">Verified</span>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <span class="badge text-bg-secondary">Linked</span>
+                                                                }
+                                                            </div>
+                                                            <div class="text-muted small">@Display(item.RelativePath)</div>
+                                                            @if (!string.IsNullOrWhiteSpace(item.SelectionReason))
+                                                            {
+                                                                <div class="small evidence-selection-reason">@item.SelectionReason</div>
+                                                            }
+                                                            <div class="text-muted small">Verified: @Date(item.VerifiedDate), expires: @Date(item.ExpiryDate)</div>
+                                                            @if (item.CanOpen)
+                                                            {
+                                                                <div class="row-actions">
+                                                                    <a class="btn btn-outline-secondary btn-sm" href="@item.FileUrl" target="_blank" rel="noopener">Open</a>
+                                                                    @if (item.IsImage)
+                                                                    {
+                                                                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => PreviewImage(item)">Preview</button>
+                                                                    }
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                }
+                                            </div>
+                                        </details>
                                     }
                                 }
                             </td>
@@ -227,7 +295,10 @@ else
                                 <td>@item.EvidenceType</td>
                                 <td>@item.Title</td>
                                 <td>@Display(item.RelativePath)</td>
-                                <td>@item.Status</td>
+                                <td>
+                                    <div>@item.Status</div>
+                                    <span class="@SelectionBadgeClass(item)">@SelectionLabel(item)</span>
+                                </td>
                                 <td>@Display(item.Reviewer)</td>
                                 <td>
                                     @if (!string.IsNullOrWhiteSpace(item.ScreeningRiskSignal))
@@ -447,7 +518,7 @@ else
         });
     }
 
-    private void SelectAllUnverified()
+    private void SelectAllCurrentUnverified()
     {
         if (model is null)
         {
@@ -455,7 +526,9 @@ else
         }
 
         selectedEvidenceItemIds.Clear();
-        foreach (var item in model.EvidenceItems.Where(item => item.VerifiedDate is null))
+        foreach (var item in model.Requirements
+            .SelectMany(requirement => CurrentEvidenceItems(requirement))
+            .Where(item => item.VerifiedDate is null))
         {
             selectedEvidenceItemIds.Add(item.Id);
         }
@@ -539,6 +612,36 @@ else
 
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
     private static string Date(DateOnly? value) => value is null ? "-" : value.Value.ToString("yyyy-MM-dd");
+
+    private static IEnumerable<ClientEvidenceItemModel> CurrentEvidenceItems(ClientEvidenceRequirementStatusModel requirement)
+    {
+        var current = requirement.Items.Where(item => item.IsCurrentSelection).ToList();
+        return current.Count > 0 ? current : requirement.Items.Take(1);
+    }
+
+    private static IEnumerable<ClientEvidenceItemModel> HistoricalEvidenceItems(ClientEvidenceRequirementStatusModel requirement, IReadOnlyCollection<ClientEvidenceItemModel> currentItems)
+    {
+        var currentIds = currentItems.Select(item => item.Id).ToHashSet();
+        return requirement.Items.Where(item => !currentIds.Contains(item.Id));
+    }
+
+    private static string SelectionLabel(ClientEvidenceItemModel item) => item.SelectionStatus switch
+    {
+        ClientEvidenceSelectionStatuses.Current => "Current",
+        ClientEvidenceSelectionStatuses.Historical => "Historical",
+        ClientEvidenceSelectionStatuses.Rejected => "Rejected",
+        ClientEvidenceSelectionStatuses.Candidate => "Candidate",
+        _ => Display(item.SelectionStatus)
+    };
+
+    private static string SelectionBadgeClass(ClientEvidenceItemModel item) => item.SelectionStatus switch
+    {
+        ClientEvidenceSelectionStatuses.Current => "badge text-bg-primary",
+        ClientEvidenceSelectionStatuses.Historical => "badge text-bg-light evidence-selection-badge-muted",
+        ClientEvidenceSelectionStatuses.Rejected => "badge text-bg-danger",
+        ClientEvidenceSelectionStatuses.Candidate => "badge text-bg-info",
+        _ => "badge text-bg-secondary"
+    };
 
     private static string SubjectKey(ClientEvidenceScreeningSubjectModel subject) => $"{subject.SubjectType}|{subject.SubjectName}";
 

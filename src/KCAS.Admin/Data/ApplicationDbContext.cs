@@ -606,6 +606,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
                 .WithOne(file => file.EvidenceItem)
                 .HasForeignKey<ClientEvidenceItem>(item => item.ClientEvidenceScanFileId)
                 .OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne(item => item.SupersededByClientEvidenceItem)
+                .WithMany()
+                .HasForeignKey(item => item.SupersededByClientEvidenceItemId)
+                .OnDelete(DeleteBehavior.SetNull);
             entity.Property(item => item.EvidenceType).HasMaxLength(96);
             entity.Property(item => item.Title).HasMaxLength(240);
             entity.Property(item => item.SourcePath).HasMaxLength(512);
@@ -618,16 +622,26 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.Property(item => item.ScreeningOutcome).HasMaxLength(96);
             entity.Property(item => item.ScreeningRiskSignal).HasMaxLength(32);
             entity.Property(item => item.Status).HasMaxLength(32);
+            entity.Property(item => item.SelectionStatus)
+                .HasMaxLength(32)
+                .HasDefaultValue(ClientEvidenceSelectionStatuses.Candidate);
+            entity.Property(item => item.SelectionReason).HasMaxLength(512);
+            entity.Property(item => item.SelectedBy).HasMaxLength(191);
+            entity.Property(item => item.VerificationPolicy)
+                .HasMaxLength(32)
+                .HasDefaultValue("ManualRequired");
             entity.Property(item => item.UpdatedBy).HasMaxLength(191);
             ConfigureDateOnly(entity.Property(item => item.ReceivedDate));
             ConfigureDateOnly(entity.Property(item => item.VerifiedDate));
             ConfigureDateOnly(entity.Property(item => item.ExpiryDate));
             ConfigureDateOnly(entity.Property(item => item.ScreeningReviewDate));
             entity.HasIndex(item => new { item.ClientId, item.EvidenceType, item.Status });
+            entity.HasIndex(item => new { item.ClientId, item.EvidenceType, item.SelectionStatus });
             entity.HasIndex(item => new { item.ClientId, item.EvidenceType, item.ScreeningRiskSignal });
             entity.HasIndex(item => item.EscalationRequired);
             entity.HasIndex(item => item.FileSha256);
             entity.HasIndex(item => item.ExpiryDate);
+            entity.HasIndex(item => item.SupersededByClientEvidenceItemId);
         });
 
         builder.Entity<ClientEvidenceException>(entity =>

@@ -64,6 +64,26 @@ public sealed class ClientEvidenceItem
     [MaxLength(32)]
     public string Status { get; set; } = ClientEvidenceStatuses.Linked;
 
+    [MaxLength(32)]
+    public string SelectionStatus { get; set; } = ClientEvidenceSelectionStatuses.Candidate;
+
+    public int? SelectionConfidence { get; set; }
+
+    [MaxLength(512)]
+    public string? SelectionReason { get; set; }
+
+    public DateTime? SelectedAtUtc { get; set; }
+
+    [MaxLength(191)]
+    public string? SelectedBy { get; set; }
+
+    [MaxLength(32)]
+    public string VerificationPolicy { get; set; } = "ManualRequired";
+
+    public int? SupersededByClientEvidenceItemId { get; set; }
+
+    public ClientEvidenceItem? SupersededByClientEvidenceItem { get; set; }
+
     public string? Notes { get; set; }
 
     public int? ClientEvidenceScanFileId { get; set; }

@@ -200,6 +200,63 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
     }
 
     [Fact]
+    public async Task Scan_does_not_classify_unit_trust_beneficiary_nomination_as_trust_client()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var clientId = await CreateClientAsync(
+            db,
+            "Philip Nel Auto",
+            "AUTO-BEN-001",
+            @"z:\Kanaan Trust\Clients\Clients\Badenhorst PN Auto",
+            initials: "PN",
+            fullName: "Philip Nel",
+            surnameOrEntityName: "Badenhorst",
+            categorySource: ClientCategorySources.LegacyImportInferred);
+        var root = CreateTempRoot();
+        await WriteFileAsync(root, "BADENHORST PN AUTO", "Storage Data", "Application Forms", "Unit Trust", "AIMS", "Beneficiaries", "PN Badenhorst Beneficiary Nom Form Updated.pdf");
+
+        await service.RunScanAsync(root, "scanner@example.test", "Scan beneficiary nomination evidence.");
+
+        var client = await db.Clients.SingleAsync(client => client.Id == clientId);
+        var item = await db.ClientEvidenceItems.SingleAsync(item => item.ClientId == clientId);
+        Assert.Equal(ClientCategories.NaturalPerson, client.ClientCategory);
+        Assert.Equal("BeneficialOwnership", item.EvidenceType);
+        Assert.Equal(ClientEvidenceSelectionStatuses.Current, item.SelectionStatus);
+    }
+
+    [Fact]
+    public async Task Scan_selects_latest_clear_candidate_and_keeps_older_evidence_historical()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var clientId = await CreateClientAsync(db, "Selection Client", "SEL-001", @"z:\Kanaan Trust\Clients\Selection Client");
+        var root = CreateTempRoot();
+        var folder = Directory.CreateDirectory(Path.Combine(root, "Selection Client", "Storage Data", "FICA", "Individual"));
+        var older = Path.Combine(folder.FullName, "ID Selection Client 2019.pdf");
+        var latest = Path.Combine(folder.FullName, "ID Selection Client certified 2025.pdf");
+        await File.WriteAllTextAsync(older, "old identity");
+        await File.WriteAllTextAsync(latest, "current certified identity");
+        File.SetLastWriteTimeUtc(older, new DateTime(2019, 1, 1, 8, 0, 0, DateTimeKind.Utc));
+        File.SetLastWriteTimeUtc(latest, new DateTime(2025, 10, 27, 8, 0, 0, DateTimeKind.Utc));
+
+        await service.RunScanAsync(root, "scanner@example.test", "Scan selection candidates.");
+
+        var items = await db.ClientEvidenceItems
+            .Where(item => item.ClientId == clientId && item.EvidenceType == "Identity")
+            .OrderBy(item => item.FileName)
+            .ToListAsync();
+        var current = Assert.Single(items, item => item.SelectionStatus == ClientEvidenceSelectionStatuses.Current);
+        var historical = Assert.Single(items, item => item.SelectionStatus == ClientEvidenceSelectionStatuses.Historical);
+        Assert.Equal("ID Selection Client certified 2025.pdf", current.FileName);
+        Assert.Equal(current.Id, historical.SupersededByClientEvidenceItemId);
+        Assert.Null(current.VerifiedDate);
+        Assert.Equal("ManualRequired", current.VerificationPolicy);
+    }
+
+    [Fact]
     public async Task Scan_does_not_override_manual_client_category()
     {
         using var scope = factory.Services.CreateScope();

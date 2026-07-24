@@ -31,3 +31,11 @@ public static class ClientEvidenceScanFileStatuses
     public const string Ambiguous = "Ambiguous";
     public const string Skipped = "Skipped";
 }
+
+public static class ClientEvidenceSelectionStatuses
+{
+    public const string Candidate = "Candidate";
+    public const string Current = "Current";
+    public const string Historical = "Historical";
+    public const string Rejected = "Rejected";
+}

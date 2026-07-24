@@ -119,7 +119,13 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         var requirementRows = requirements
             .Select(requirement =>
             {
-                var matchedItems = items.Where(item => item.ClientEvidenceRequirementId == requirement.Id || item.EvidenceType == requirement.EvidenceType).ToList();
+                var matchedItems = items
+                    .Where(item => item.ClientEvidenceRequirementId == requirement.Id || item.EvidenceType == requirement.EvidenceType)
+                    .OrderByDescending(item => item.SelectionStatus == ClientEvidenceSelectionStatuses.Current)
+                    .ThenByDescending(item => item.SelectionConfidence ?? 0)
+                    .ThenByDescending(item => item.FileLastWriteTimeUtc ?? item.CreatedAtUtc)
+                    .ThenBy(item => item.Title)
+                    .ToList();
                 var activeException = exceptions.FirstOrDefault(exception => exception.ClientEvidenceRequirementId == requirement.Id && !IsExpired(exception.ReviewDate, today));
                 var isComplete = matchedItems.Any(item => IsEvidenceComplete(requirement, item, today));
                 return new ClientEvidenceRequirementStatusModel
@@ -350,6 +356,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         {
             var clients = await db.Clients.ToListAsync(cancellationToken);
             var requirements = await LoadActiveRequirementsAsync(cancellationToken);
+            var affectedClientIds = new HashSet<int>();
             var forcedClient = forcedClientId.HasValue
                 ? clients.SingleOrDefault(client => client.Id == forcedClientId.Value) ?? throw new InvalidOperationException("Client not found.")
                 : null;
@@ -407,6 +414,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
 
                 scanFile.ClientId = match.Client.Id;
                 scanFile.MatchStatus = ClientEvidenceScanFileStatuses.Linked;
+                affectedClientIds.Add(match.Client.Id);
                 db.ClientEvidenceScanFiles.Add(scanFile);
                 await ResolvePriorScanFilesForPathAsync(scanFile, match.Client.Id, cancellationToken);
 
@@ -441,6 +449,13 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
 
                 run.LinkedFiles++;
                 await SaveScanProgressIfNeededAsync(run, cancellationToken);
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+
+            foreach (var clientId in affectedClientIds)
+            {
+                await RefreshEvidenceSelectionsAsync(clientId, userName, reason, cancellationToken);
             }
 
             run.Status = ClientEvidenceScanStatuses.Completed;
@@ -997,6 +1012,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         item.ExpiryDate = expiryDate;
         item.Reviewer = userName;
         item.Status = ClientEvidenceStatuses.Verified;
+        item.VerificationPolicy = "VerifiedByReviewer";
         item.UpdatedAtUtc = DateTime.UtcNow;
         item.UpdatedBy = userName;
         await AddAuditAsync("ClientEvidenceItem", item.Id, "Verify", item, userName, reason);
@@ -1024,6 +1040,157 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                 priorFile.SuggestedEvidenceType = scanFile.SuggestedEvidenceType;
             }
         }
+    }
+
+    private async Task RefreshEvidenceSelectionsAsync(int clientId, string? userName, string reason, CancellationToken cancellationToken)
+    {
+        var items = await db.ClientEvidenceItems
+            .Where(item => item.ClientId == clientId &&
+                item.Status != ClientEvidenceStatuses.Rejected &&
+                item.Status != ClientEvidenceStatuses.Replaced)
+            .ToListAsync(cancellationToken);
+
+        foreach (var group in items.GroupBy(item => item.EvidenceType))
+        {
+            var ranked = group
+                .Select(item => new
+                {
+                    Item = item,
+                    Score = ScoreEvidenceSelection(item)
+                })
+                .OrderByDescending(entry => entry.Score.Score)
+                .ThenByDescending(entry => entry.Item.FileLastWriteTimeUtc ?? entry.Item.CreatedAtUtc)
+                .ThenByDescending(entry => entry.Item.FileSizeBytes ?? 0)
+                .ThenByDescending(entry => entry.Item.Id)
+                .ToList();
+
+            var current = ranked.FirstOrDefault();
+            if (current is null)
+            {
+                continue;
+            }
+
+            foreach (var entry in ranked)
+            {
+                var item = entry.Item;
+                var newStatus = item.Id == current.Item.Id
+                    ? ClientEvidenceSelectionStatuses.Current
+                    : ClientEvidenceSelectionStatuses.Historical;
+                int? supersededById = item.Id == current.Item.Id ? null : current.Item.Id;
+                var reasonText = item.Id == current.Item.Id
+                    ? $"Selected as current {item.EvidenceType} evidence: {entry.Score.Reason}"
+                    : $"Historical {item.EvidenceType} evidence; current item is #{current.Item.Id}.";
+
+                if (item.SelectionStatus == newStatus &&
+                    item.SelectionConfidence == entry.Score.Score &&
+                    item.SelectionReason == reasonText &&
+                    item.SupersededByClientEvidenceItemId == supersededById)
+                {
+                    continue;
+                }
+
+                var previous = new
+                {
+                    item.SelectionStatus,
+                    item.SelectionConfidence,
+                    item.SelectionReason,
+                    item.SupersededByClientEvidenceItemId
+                };
+
+                item.SelectionStatus = newStatus;
+                item.SelectionConfidence = entry.Score.Score;
+                item.SelectionReason = reasonText;
+                item.SelectedAtUtc = DateTime.UtcNow;
+                item.SelectedBy = userName;
+                item.VerificationPolicy = item.VerifiedDate.HasValue ? "VerifiedByReviewer" : "ManualRequired";
+                item.SupersededByClientEvidenceItemId = supersededById;
+                item.UpdatedAtUtc = DateTime.UtcNow;
+                item.UpdatedBy = userName;
+
+                await AddAuditAsync("ClientEvidenceItem", item.Id, "SelectCurrentEvidence", new
+                {
+                    Previous = previous,
+                    Current = new
+                    {
+                        item.SelectionStatus,
+                        item.SelectionConfidence,
+                        item.SelectionReason,
+                        item.SupersededByClientEvidenceItemId,
+                        item.VerificationPolicy
+                    },
+                    item.ClientId,
+                    item.EvidenceType,
+                    item.FileName,
+                    item.RelativePath
+                }, userName, reason);
+            }
+        }
+    }
+
+    private static ClientEvidenceSelectionScore ScoreEvidenceSelection(ClientEvidenceItem item)
+    {
+        var score = item.VerifiedDate.HasValue ? 10_000 : 0;
+        var reasons = new List<string>();
+        if (item.VerifiedDate.HasValue)
+        {
+            reasons.Add("reviewer verified");
+        }
+
+        var extension = Path.GetExtension(item.FileName ?? item.SourcePath ?? "").ToLowerInvariant();
+        if (extension is ".pdf" or ".jpg" or ".jpeg" or ".png")
+        {
+            score += 40;
+            reasons.Add("directly reviewable file");
+        }
+        else if (extension is ".doc" or ".docx" or ".xls" or ".xlsx")
+        {
+            score += 15;
+            reasons.Add("office document");
+        }
+        else if (extension is ".msg" or ".eml")
+        {
+            score -= 20;
+            reasons.Add("email wrapper");
+        }
+
+        var text = NormalizeToken($"{item.RelativePath} {item.FileName} {item.Title}");
+        if (ContainsAny(text, "temporary", "temp", "~$"))
+        {
+            score -= 25;
+            reasons.Add("temporary-path penalty");
+        }
+
+        if (ContainsAny(text, "certified", "cert", "signed", "updated", "current", "2025", "2026"))
+        {
+            score += 20;
+            reasons.Add("current/certified/signed naming");
+        }
+
+        if (ContainsAny(text, "old", "previous", "draft", "unsigned"))
+        {
+            score -= 15;
+            reasons.Add("old/draft naming penalty");
+        }
+
+        if (item.FileLastWriteTimeUtc.HasValue)
+        {
+            var yearBonus = Math.Clamp(item.FileLastWriteTimeUtc.Value.Year - 2010, 0, 25);
+            score += yearBonus;
+            reasons.Add($"latest file date {item.FileLastWriteTimeUtc.Value:yyyy-MM-dd}");
+        }
+
+        if ((item.FileSizeBytes ?? 0) > 50_000)
+        {
+            score += 5;
+            reasons.Add("substantive file size");
+        }
+
+        if (reasons.Count == 0)
+        {
+            reasons.Add("default candidate ranking");
+        }
+
+        return new(score, string.Join("; ", reasons));
     }
 
     private static async Task<string> ComputeSha256Async(string path, CancellationToken cancellationToken = default)
@@ -1227,6 +1394,8 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         public bool IsReadyForRiskAssessment => BlockedCount == 0;
     }
 
+    private sealed record ClientEvidenceSelectionScore(int Score, string Reason);
+
     private sealed record ClientEvidenceMatchResult(Client? Client, int CandidateCount, string Reason);
 }
 
@@ -1329,6 +1498,12 @@ public sealed class ClientEvidenceItemModel
     public string? ScreeningRiskSignal { get; set; }
     public bool EscalationRequired { get; set; }
     public string Status { get; set; } = "";
+    public string SelectionStatus { get; set; } = "";
+    public int? SelectionConfidence { get; set; }
+    public string? SelectionReason { get; set; }
+    public string VerificationPolicy { get; set; } = "";
+    public int? SupersededByClientEvidenceItemId { get; set; }
+    public bool IsCurrentSelection => SelectionStatus == ClientEvidenceSelectionStatuses.Current;
     public bool CanOpen => !string.IsNullOrWhiteSpace(FileName) && IsOpenableFile(FileName);
     public bool IsImage => !string.IsNullOrWhiteSpace(FileName) && IsImageFile(FileName);
     public string FileUrl => $"/client-evidence/items/{Id}/file";
@@ -1350,7 +1525,12 @@ public sealed class ClientEvidenceItemModel
         ScreeningOutcome = item.ScreeningOutcome,
         ScreeningRiskSignal = item.ScreeningRiskSignal,
         EscalationRequired = item.EscalationRequired,
-        Status = item.Status
+        Status = item.Status,
+        SelectionStatus = item.SelectionStatus,
+        SelectionConfidence = item.SelectionConfidence,
+        SelectionReason = item.SelectionReason,
+        VerificationPolicy = item.VerificationPolicy,
+        SupersededByClientEvidenceItemId = item.SupersededByClientEvidenceItemId
     };
 
     private static bool IsOpenableFile(string fileName)
