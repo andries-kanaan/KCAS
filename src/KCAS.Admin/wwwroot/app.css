@@ -1284,8 +1284,53 @@ h1:focus {
     margin-bottom: 0.45rem;
 }
 
-.evidence-review-row .text-muted {
-    grid-column: 2;
+.evidence-review-main {
+    display: grid;
+    gap: 0.25rem;
+}
+
+.evidence-review-title {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.evidence-review-row-current {
+    border: 1px solid rgba(13, 110, 253, .22);
+    border-radius: 0.45rem;
+    background: rgba(13, 110, 253, .04);
+    padding: 0.65rem;
+}
+
+.evidence-review-row-historical {
+    border-top: 1px solid rgba(19, 25, 35, .08);
+    margin-bottom: 0;
+    padding: 0.65rem 0;
+}
+
+.evidence-selection-reason {
+    color: #394756;
+}
+
+.evidence-selection-badge-muted {
+    border: 1px solid rgba(19, 25, 35, .16);
+    color: #3e4653;
+}
+
+.historical-evidence-details {
+    margin-top: 0.5rem;
+}
+
+.historical-evidence-details summary {
+    color: #536579;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 700;
+}
+
+.historical-evidence-list {
+    margin-top: 0.35rem;
 }
 
 .evidence-image-preview {

@@ -22,7 +22,7 @@ public static partial class ClientCategoryInference
             string.Equals(evidenceType, "TrustParties", StringComparison.OrdinalIgnoreCase) ||
             TrustEvidenceRegex().IsMatch(text))
         {
-            return new(ClientCategories.Trust, ClientCategorySources.EvidenceScanInferred, "Evidence scan found trust deed, trustee, beneficiary or letters-of-authority evidence.");
+            return new(ClientCategories.Trust, ClientCategorySources.EvidenceScanInferred, "Evidence scan found trust deed, trustee/founder, Master or letters-of-authority evidence.");
         }
 
         if (string.Equals(evidenceType, "LegalPersonRegistration", StringComparison.OrdinalIgnoreCase) ||
@@ -93,7 +93,7 @@ public static partial class ClientCategoryInference
     [GeneratedRegex(@"\b(estate|estate\s+late|late\s+estate|boedel|wyle|deceased|voorgestelde|bateverdeling|bate\s+verdeling|executorship|executor|liquidation\s+and\s+distribution)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
     private static partial Regex EstateRegex();
 
-    [GeneratedRegex(@"\b(trust\s+deed|trustdeed|trustakte|letters?\s+of\s+authority|lettersofauthority|trustee|trustees|founder|beneficiary|beneficiaries)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
+    [GeneratedRegex(@"\b(trust\s+deed|trustdeed|trustakte|letters?\s+of\s+authority|lettersofauthority|master\s+of\s+the\s+high\s+court|trust\s+registration|trustees?|founder)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
     private static partial Regex TrustEvidenceRegex();
 
     [GeneratedRegex(@"\b(cipc|company\s+registration|companyregistration|cor14|cor39|ck1|ck2|director|directors|member|members|resolution|authorised\s+signatory|authorized\s+signatory)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
