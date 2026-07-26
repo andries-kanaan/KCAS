@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Negotiate;
 using Microsoft.AspNetCore.Authorization;
@@ -78,6 +79,7 @@ builder.Services.AddScoped<ClientRiskAssessmentService>();
 builder.Services.AddScoped<BusinessRiskAssessmentService>();
 builder.Services.AddScoped<RmcpService>();
 builder.Services.AddScoped<ComplianceWorkService>();
+builder.Services.AddScoped<InspectionService>();
 builder.Services.AddSingleton<ClientEvidenceScanCoordinator>();
 builder.Services.AddScoped<LegacyImportWebService>();
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
@@ -156,6 +158,17 @@ app.MapGet("/client-evidence/items/{id:int}/file", async Task<IResult> (int id, 
 
     return Results.File(File.OpenRead(item.SourcePath), contentType, enableRangeProcessing: true);
 }).RequireAuthorization(KcasPermissions.ComplianceView);
+
+app.MapGet("/compliance/inspections/{id:int}/export.json", async Task<IResult> (int id, InspectionService inspections) =>
+{
+    var pack = await inspections.LoadPrintableAsync(id);
+    var safeReference = string.Concat(pack.Reference.Select(character =>
+        char.IsLetterOrDigit(character) || character is '-' or '_' ? character : '-'));
+    return Results.File(
+        Encoding.UTF8.GetBytes(pack.SnapshotJson),
+        "application/json",
+        $"KCAS-inspection-{safeReference}.json");
+}).RequireAuthorization(KcasPermissions.InspectionsExport);
 
 app.MapStaticAssets();
 app.MapRazorComponents<App>()

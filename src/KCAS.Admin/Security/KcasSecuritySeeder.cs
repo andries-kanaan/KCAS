@@ -57,7 +57,10 @@ public static class KcasSecuritySeeder
             KcasPermissions.RiskAssessmentsView,
             KcasPermissions.RiskAssessmentsPrepare,
             KcasPermissions.RiskAssessmentsFinalise,
-            KcasPermissions.RiskAssessmentsApprove
+            KcasPermissions.RiskAssessmentsApprove,
+            KcasPermissions.InspectionsView,
+            KcasPermissions.InspectionsManage,
+            KcasPermissions.InspectionsExport
         ],
         [KcasRoles.ComplianceApprover] =
         [
@@ -66,13 +69,17 @@ public static class KcasSecuritySeeder
             KcasPermissions.ComplianceAudit,
             KcasPermissions.RiskAssessmentsView,
             KcasPermissions.RiskAssessmentsFinalise,
-            KcasPermissions.RiskAssessmentsApprove
+            KcasPermissions.RiskAssessmentsApprove,
+            KcasPermissions.InspectionsView,
+            KcasPermissions.InspectionsExport
         ],
         [KcasRoles.ComplianceReadOnly] =
         [
             KcasPermissions.ComplianceView,
             KcasPermissions.ComplianceAudit,
-            KcasPermissions.RiskAssessmentsView
+            KcasPermissions.RiskAssessmentsView,
+            KcasPermissions.InspectionsView,
+            KcasPermissions.InspectionsExport
         ]
     };
 

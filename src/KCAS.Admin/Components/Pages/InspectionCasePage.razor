@@ -1,0 +1,154 @@
+@page "/compliance/inspections/{Id:int}"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.InspectionsView)]
+@using KCAS.Admin.Data
+@inject InspectionService InspectionService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Inspection workspace</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Inspection workspace</p>
+        <h1>@(inspection?.Title ?? "Loading...")</h1>
+        @if (inspection is not null) { <p class="text-muted mb-0">@inspection.Reference · as at @inspection.AsAtDate.ToString("yyyy-MM-dd") · @inspection.Status</p> }
+    </div>
+    <a class="btn btn-outline-secondary" href="/compliance/inspections">All cases</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(message)) { <div class="alert alert-info">@message</div> }
+
+@if (inspection is null || edit is null)
+{
+    <p>Loading inspection workspace...</p>
+}
+else
+{
+    <section class="work-area">
+        <h2>Controlled action reason</h2>
+        <input class="form-control" @bind="reason" placeholder="Required for every change or decision" />
+    </section>
+    <section class="work-area">
+        <h2>Request context</h2>
+        <div class="workspace-grid">
+            <input class="form-control" @bind="edit.Reference" disabled="@(!CanEdit)" />
+            <input class="form-control" @bind="edit.Title" disabled="@(!CanEdit)" />
+            <input class="form-control" @bind="edit.RequestingAuthority" disabled="@(!CanEdit)" />
+            <input class="form-control" @bind="edit.Coordinator" disabled="@(!CanEdit)" />
+            <InputDate class="form-control" @bind-Value="edit.AsAtDate" disabled="@(!CanEdit)" />
+            <InputDate class="form-control" @bind-Value="edit.RequestDate" disabled="@(!CanEdit)" />
+            <InputDate class="form-control" @bind-Value="edit.DueDate" disabled="@(!CanEdit)" />
+        </div>
+        <textarea class="form-control mt-2" rows="2" @bind="edit.Scope" disabled="@(!CanEdit)"></textarea>
+        <textarea class="form-control mt-2" rows="2" @bind="edit.Notes" disabled="@(!CanEdit)"></textarea>
+        @if (CanEdit) { <button class="btn btn-primary mt-2" @onclick="SaveAsync">Save workspace</button> }
+    </section>
+
+    <section class="work-area">
+        <h2>Requested evidence</h2>
+        @foreach (var item in itemEdits)
+        {
+            <div class="border rounded p-3 mb-3">
+                <div class="workspace-grid">
+                    <select class="form-select" @bind="item.Category" disabled="@(!CanEdit)">
+                        @foreach (var category in InspectionEvidenceCategories.All) { <option value="@category">@category</option> }
+                    </select>
+                    <input class="form-control" @bind="item.Title" disabled="@(!CanEdit)" placeholder="Requested item" />
+                    <input class="form-control" @bind="item.Owner" disabled="@(!CanEdit)" placeholder="Owner" />
+                    <InputDate class="form-control" @bind-Value="item.DueDate" disabled="@(!CanEdit)" />
+                    <select class="form-select" @bind="item.Status" disabled="@(!CanEdit)">
+                        @foreach (var status in InspectionItemEditModelStatuses.All) { <option value="@status">@status</option> }
+                    </select>
+                </div>
+                <textarea class="form-control mt-2" @bind="item.Description" disabled="@(!CanEdit)" placeholder="Description"></textarea>
+                <input class="form-control mt-2" @bind="item.EvidenceTitle" disabled="@(!CanEdit)" placeholder="Evidence title" />
+                <input class="form-control mt-2" @bind="item.EvidenceLocation" disabled="@(!CanEdit)" placeholder="Evidence location" />
+                <div class="workspace-grid mt-2">
+                    <input class="form-control" @bind="item.LinkedEntityType" disabled="@(!CanEdit)" placeholder="Linked entity type" />
+                    <InputNumber class="form-control" @bind-Value="item.LinkedEntityId" disabled="@(!CanEdit)" placeholder="Linked entity ID" />
+                </div>
+                <textarea class="form-control mt-2" @bind="item.ReviewNotes" disabled="@(!CanEdit)" placeholder="Review notes"></textarea>
+                @if (CanEdit) { <button class="btn btn-outline-primary mt-2" @onclick="() => SaveItemAsync(item)">Save requested item</button> }
+            </div>
+        }
+        @if (CanEdit)
+        {
+            <button class="btn btn-outline-secondary" @onclick="AddItem">Add requested item</button>
+        }
+    </section>
+
+    <section class="work-area">
+        <h2>Readiness checks</h2>
+        <p class="text-muted">Passing a check requires the actual test evidence. KCAS does not infer that backup, restore, rollback, performance or training has occurred.</p>
+        @foreach (var check in inspection.ReadinessChecks)
+        {
+            <div class="border rounded p-3 mb-2">
+                <h3 class="h6">@InspectionReadinessCheckTypes.Display(check.CheckType)</h3>
+                <div class="workspace-grid">
+                    <select class="form-select" value="@check.Status" @onchange="args => check.Status = args.Value?.ToString() ?? InspectionCheckStatuses.Pending" disabled="@(!CanEdit)">
+                        @foreach (var status in InspectionCheckStatuses.All) { <option value="@status">@status</option> }
+                    </select>
+                    <input class="form-control" value="@check.EvidenceLocation" @onchange="args => check.EvidenceLocation = args.Value?.ToString()" disabled="@(!CanEdit)" placeholder="Evidence location" />
+                </div>
+                <textarea class="form-control mt-2" value="@check.Notes" @onchange="args => check.Notes = args.Value?.ToString()" disabled="@(!CanEdit)" placeholder="What was tested and the result"></textarea>
+                @if (CanEdit) { <button class="btn btn-outline-primary mt-2" @onclick="() => SaveCheckAsync(check)">Record check</button> }
+                @if (check.TestedAtUtc is not null) { <small class="d-block mt-2">@check.TestedBy · @check.TestedAtUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</small> }
+            </div>
+        }
+    </section>
+
+    <section class="work-area">
+        <h2>Freeze and export</h2>
+        <p class="text-muted">Freezing captures the evidence index exactly as at @inspection.AsAtDate.ToString("yyyy-MM-dd"). The frozen pack is immutable.</p>
+        @if (CanEdit) { <button class="btn btn-success" @onclick="FreezeAsync">Freeze inspection pack</button> }
+        @if (inspection.Status is InspectionStatuses.Frozen or InspectionStatuses.Closed)
+        {
+            <a class="btn btn-outline-secondary ms-2" href="@($"/compliance/inspections/{Id}/print")">View frozen pack</a>
+            @if (canExport) { <a class="btn btn-outline-secondary ms-2" href="@($"/compliance/inspections/{Id}/export.json")">Download JSON</a> }
+        }
+        @if (canManage && inspection.Status == InspectionStatuses.Frozen)
+        {
+            <button class="btn btn-outline-primary ms-2" @onclick="CloseAsync">Close inspection case</button>
+        }
+    </section>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+    private InspectionCase? inspection;
+    private InspectionCaseEditModel? edit;
+    private List<InspectionRequestItemEditModel> itemEdits = [];
+    private string reason = "";
+    private string? currentUser;
+    private string? message;
+    private bool canManage;
+    private bool canExport;
+    private bool CanEdit => canManage && inspection?.Status is InspectionStatuses.Draft or InspectionStatuses.Open;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        currentUser = state.User.Identity?.Name;
+        canManage = state.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.InspectionsManage);
+        canExport = state.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.InspectionsExport);
+        await LoadAsync();
+    }
+    private async Task LoadAsync()
+    {
+        inspection = await InspectionService.LoadAsync(Id);
+        edit = inspection is null ? null : InspectionCaseEditModel.FromEntity(inspection);
+        itemEdits = inspection?.Items.Select(InspectionRequestItemEditModel.FromEntity).ToList() ?? [];
+    }
+    private void AddItem() => itemEdits.Add(new() { Owner = inspection?.Coordinator ?? "", DueDate = inspection?.DueDate ?? DateOnly.FromDateTime(DateTime.Today) });
+    private async Task SaveAsync() => await ExecuteAsync(() => InspectionService.SaveDraftAsync(edit!, currentUser, reason), "Inspection workspace saved.");
+    private async Task SaveItemAsync(InspectionRequestItemEditModel item) => await ExecuteAsync(() => InspectionService.SaveRequestItemAsync(Id, item, currentUser, reason), "Requested item saved.");
+    private async Task SaveCheckAsync(InspectionReadinessCheck check) => await ExecuteAsync(() =>
+        InspectionService.RecordReadinessCheckAsync(Id, check.Id, check.Status, check.EvidenceLocation, check.Notes, currentUser, reason), "Readiness check recorded.");
+    private async Task FreezeAsync() => await ExecuteAsync(() => InspectionService.FreezeAsync(Id, currentUser, reason), "Inspection pack frozen.");
+    private async Task CloseAsync() => await ExecuteAsync(() => InspectionService.CloseAsync(Id, currentUser, reason), "Inspection case closed.");
+    private async Task ExecuteAsync(Func<Task> action, string success)
+    {
+        try { await action(); message = success; await LoadAsync(); }
+        catch (Exception ex) { message = ex.Message; }
+    }
+}

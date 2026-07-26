@@ -158,11 +158,11 @@ Do not resolve a material conflict merely by choosing the newest filename. Recor
 | 3 | Proportional client risk assessment workflow | Technical delivery complete; operational acceptance deferred to Phase 8 | Pilot assessments reproduce approved methodology |
 | 4 | Business Risk Assessment | Technical foundation delivered and browser-checked by the user on 2026-07-26; action integration continues in Phase 6 and operational acceptance is deferred to Phase 8 | BRA approved from traceable evidence and methodology |
 | 5 | RMCP control and approval management | Technical foundation delivered and browser-checked by the user on 2026-07-26; operational acceptance is deferred to Phase 8 | Approved RMCP version links risks, controls and evidence |
-| 6 | Monitoring, reviews and remediation | Technical foundation delivered; operational acceptance is deferred to Phase 8 | End-to-end review and escalation cases pass |
-| 7 | Inspection readiness, reporting and rollout | Not started | Inspection pack, security, recovery and rollout accepted |
+| 6 | Monitoring, reviews and remediation | Technical foundation delivered and browser-checked by the user on 2026-07-26; operational acceptance is deferred to Phase 8 | End-to-end review and escalation cases pass |
+| 7 | Inspection readiness, reporting and rollout | Technical foundation delivered; operational acceptance is part of Phase 8 | Inspection pack, security, recovery and rollout accepted |
 | 8 | Controlled operational population and verification | Deferred until Phases 3–7 tools are delivered | Every current client is reviewed, verified and assessed |
 
-Current resume point: **begin Phase 7 inspection readiness, reporting and controlled rollout without creating operational BRA, RMCP, client-assessment or work-register records.**
+Current resume point: **begin Phase 8 controlled operational population and verification with the imported-record lifecycle classification, then work client by client under explicit user approval.**
 
 Phase 0 remains available for operational import acceptance and final data switch-over evidence, but it is no longer the active development blocker.
 
@@ -546,7 +546,19 @@ Produce a defensible inspection evidence pack and put the proportional Kanaan so
 - Access, audit-log, sensitive-data, backup, restore and rollback verification.
 - Proportionate performance testing and a single Kanaan acceptance/training exercise rather than staged enterprise rollout.
 
-### Acceptance gate 7
+### Implemented technical foundation
+
+- Separate permission-controlled inspection workspace with reference, authority, scope, coordinator, as-at date, due date and status.
+- Request-item register with category, owner, due date, evidence title/location, optional entity link, review notes and readiness status.
+- Reproducible frozen evidence index covering clients, client assessments, BRA, RMCP, approvals, training, monitoring/remediation, controlled documents, compliance evidence and audit-event count.
+- Protected printable pack and exact JSON export of the frozen as-at snapshot; no external-auditor portal.
+- Explicit readiness checks for permissions, audit log, sensitive data, backup, restore, rollback, performance and user acceptance/training/support.
+- A pack cannot freeze until every request is ready/not applicable and every readiness check has actual passing evidence and test notes.
+- Frozen and closed inspection packs are immutable and reason-audited.
+- Dedicated inspection view/manage/export permissions are assigned proportionately to existing compliance roles.
+- No live inspection case, request item or readiness result was created during technical delivery.
+
+### Operational acceptance gate 7 — completed during Phase 8 rollout
 
 - A mock inspection request can be answered from KCAS with a complete evidence index.
 - Reports reproduce the approved records as at the selected date.
