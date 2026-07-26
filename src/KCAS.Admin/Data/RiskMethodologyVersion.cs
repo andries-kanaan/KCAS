@@ -16,4 +16,5 @@ public sealed class RiskMethodologyVersion
     public string? UpdatedBy { get; set; }
     public List<RiskFactorDefinition> Factors { get; set; } = [];
     public List<RiskBand> Bands { get; set; } = [];
+    public List<ClientRiskAssessment> ClientAssessments { get; set; } = [];
 }

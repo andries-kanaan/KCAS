@@ -10,4 +10,5 @@ public sealed class RiskFactorOption
     public int Score { get; set; }
     public bool TriggersHighRisk { get; set; }
     public int SortOrder { get; set; }
+    public List<ClientRiskAssessmentResponse> AssessmentResponses { get; set; } = [];
 }

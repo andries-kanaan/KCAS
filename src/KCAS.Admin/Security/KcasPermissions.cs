@@ -19,6 +19,10 @@ public static class KcasPermissions
     public const string ComplianceManage = "Compliance.Manage";
     public const string ComplianceApprove = "Compliance.Approve";
     public const string ComplianceAudit = "Compliance.Audit";
+    public const string RiskAssessmentsView = "RiskAssessments.View";
+    public const string RiskAssessmentsPrepare = "RiskAssessments.Prepare";
+    public const string RiskAssessmentsFinalise = "RiskAssessments.Finalise";
+    public const string RiskAssessmentsApprove = "RiskAssessments.Approve";
 
     public static readonly IReadOnlyList<string> All =
     [
@@ -38,6 +42,10 @@ public static class KcasPermissions
         ComplianceView,
         ComplianceManage,
         ComplianceApprove,
-        ComplianceAudit
+        ComplianceAudit,
+        RiskAssessmentsView,
+        RiskAssessmentsPrepare,
+        RiskAssessmentsFinalise,
+        RiskAssessmentsApprove
     ];
 }

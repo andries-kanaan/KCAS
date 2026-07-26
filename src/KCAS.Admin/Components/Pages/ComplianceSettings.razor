@@ -134,8 +134,11 @@ else
             <input class="form-control" @bind="band.Name" placeholder="Risk band" disabled="@(!canManage)" />
             <InputNumber class="form-control" @bind-Value="band.MinimumScore" disabled="@(!canManage)" />
             <InputNumber class="form-control" @bind-Value="band.MaximumScore" disabled="@(!canManage)" />
+            <InputNumber class="form-control" @bind-Value="band.ReviewMonths" disabled="@(!canManage)" />
         </div>
         <button type="button" class="btn btn-primary mt-2" @onclick="SaveMethodologyAsync" disabled="@(!canManage)">Save methodology</button>
+        <button type="button" class="btn btn-outline-primary mt-2 ms-1" @onclick="CreateStarterMethodologyAsync" disabled="@(!canManage)">Create Kanaan starter draft</button>
+        <p class="form-text">Risk-band review period is entered in months. The Kanaan starter is a draft and requires two distinct KI approvals before activation.</p>
         @RenderMethodologies()
     </section>
 
@@ -214,7 +217,7 @@ else
     private RiskMethodologyModel methodology = new();
     private RiskFactorModel factor = new() { Code = "CLIENT", Name = "Client risk", Weight = 1 };
     private RiskFactorOptionModel option = new() { Code = "LOW", Label = "Low", Score = 1 };
-    private RiskBandModel band = new() { Name = "Low", MinimumScore = 0, MaximumScore = 2 };
+    private RiskBandModel band = new() { Name = "Low", MinimumScore = 0, MaximumScore = 2, ReviewMonths = 60 };
     private ComplianceTaskModel task = new();
     private ComplianceEvidenceModel evidence = new();
     private string? reason;
@@ -254,8 +257,11 @@ else
             methodology = new();
             factor = new() { Code = "CLIENT", Name = "Client risk", Weight = 1 };
             option = new() { Code = "LOW", Label = "Low", Score = 1 };
-            band = new() { Name = "Low", MinimumScore = 0, MaximumScore = 2 };
+            band = new() { Name = "Low", MinimumScore = 0, MaximumScore = 2, ReviewMonths = 60 };
         });
+
+    private async Task CreateStarterMethodologyAsync()
+        => await ExecuteAsync(async () => { await ComplianceService.CreateKanaanStarterMethodologyAsync(currentUser, reason ?? ""); });
 
     private async Task SubmitMethodologyAsync(int id) => await ExecuteAsync(async () => await ComplianceService.SubmitMethodologyAsync(id, currentUser, reason ?? ""));
     private async Task ApproveMethodologyAsync(int id) => await ExecuteAsync(async () => await ComplianceService.ApproveMethodologyAsync(id, currentUser, reason ?? ""));

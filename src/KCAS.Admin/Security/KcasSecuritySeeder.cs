@@ -18,7 +18,10 @@ public static class KcasSecuritySeeder
             KcasPermissions.InvestmentsManage,
             KcasPermissions.KycView,
             KcasPermissions.KycManage,
-            KcasPermissions.ReportsView
+            KcasPermissions.ReportsView,
+            KcasPermissions.RiskAssessmentsView,
+            KcasPermissions.RiskAssessmentsPrepare,
+            KcasPermissions.RiskAssessmentsFinalise
         ],
         [KcasRoles.Operations] =
         [
@@ -27,7 +30,9 @@ public static class KcasSecuritySeeder
             KcasPermissions.NotesManage,
             KcasPermissions.InvestmentsView,
             KcasPermissions.KycView,
-            KcasPermissions.KycManage
+            KcasPermissions.KycManage,
+            KcasPermissions.RiskAssessmentsView,
+            KcasPermissions.RiskAssessmentsPrepare
         ],
         [KcasRoles.Reports] =
         [
@@ -48,18 +53,26 @@ public static class KcasSecuritySeeder
             KcasPermissions.ComplianceView,
             KcasPermissions.ComplianceManage,
             KcasPermissions.ComplianceApprove,
-            KcasPermissions.ComplianceAudit
+            KcasPermissions.ComplianceAudit,
+            KcasPermissions.RiskAssessmentsView,
+            KcasPermissions.RiskAssessmentsPrepare,
+            KcasPermissions.RiskAssessmentsFinalise,
+            KcasPermissions.RiskAssessmentsApprove
         ],
         [KcasRoles.ComplianceApprover] =
         [
             KcasPermissions.ComplianceView,
             KcasPermissions.ComplianceApprove,
-            KcasPermissions.ComplianceAudit
+            KcasPermissions.ComplianceAudit,
+            KcasPermissions.RiskAssessmentsView,
+            KcasPermissions.RiskAssessmentsFinalise,
+            KcasPermissions.RiskAssessmentsApprove
         ],
         [KcasRoles.ComplianceReadOnly] =
         [
             KcasPermissions.ComplianceView,
-            KcasPermissions.ComplianceAudit
+            KcasPermissions.ComplianceAudit,
+            KcasPermissions.RiskAssessmentsView
         ]
     };
 

@@ -1,0 +1,51 @@
+@page "/compliance/client-risk"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.RiskAssessmentsView)]
+@using KCAS.Admin.Data
+@inject ClientRiskAssessmentService RiskService
+
+<PageTitle>Client risk</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Compliance</p>
+        <h1>Client risk</h1>
+        <p class="text-muted mb-0">A proportional view of current Kanaan client assessments.</p>
+    </div>
+    <div class="header-actions"><a class="btn btn-outline-secondary" href="/compliance">Compliance dashboard</a></div>
+</div>
+
+<section class="work-area">
+    <div class="input-group">
+        <input class="form-control" @bind="search" @bind:event="oninput" placeholder="Search client, Kanaan ID or risk" />
+        <button type="button" class="btn btn-primary" @onclick="LoadAsync">Search</button>
+    </div>
+    <p class="mt-3 mb-2">
+        Low: @items.Count(item => item.Rating == "Low") |
+        Standard: @items.Count(item => item.Rating == "Standard") |
+        High: @items.Count(item => item.Rating == "High") |
+        Pending KI approval: @items.Count(item => item.Status == ClientRiskAssessmentStatuses.PendingKiApproval)
+    </p>
+    <div class="table-responsive">
+        <table class="table align-middle">
+            <thead><tr><th>Client</th><th>Kanaan ID</th><th>Risk</th><th>Status</th><th>Next review</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var item in items)
+                {
+                    <tr>
+                        <td>@item.DisplayName</td><td>@(item.KanaanId ?? "-")</td><td>@(item.Rating ?? "-")</td><td>@item.Status</td><td>@(item.NextReviewDate?.ToString("yyyy-MM-dd") ?? "-")</td>
+                        <td class="text-end"><a class="btn btn-sm btn-outline-primary" href="@($"/clients/{item.ClientId}/risk")">Open</a></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</section>
+
+@code {
+    private IReadOnlyList<ClientRiskPortfolioItem> items = [];
+    private string? search;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+    private async Task LoadAsync() => items = await RiskService.LoadPortfolioAsync(search);
+}

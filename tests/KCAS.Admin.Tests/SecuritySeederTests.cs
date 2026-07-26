@@ -46,6 +46,9 @@ public sealed class SecuritySeederTests(KcasWebApplicationFactory factory)
         Assert.Contains(KcasPermissions.ComplianceManage, administratorPermissions);
         Assert.Contains(KcasPermissions.ComplianceApprove, administratorPermissions);
         Assert.Contains(KcasPermissions.ComplianceAudit, administratorPermissions);
+        Assert.Contains(KcasPermissions.RiskAssessmentsPrepare, administratorPermissions);
+        Assert.Contains(KcasPermissions.RiskAssessmentsFinalise, administratorPermissions);
+        Assert.Contains(KcasPermissions.RiskAssessmentsApprove, administratorPermissions);
     }
 
     [Fact]

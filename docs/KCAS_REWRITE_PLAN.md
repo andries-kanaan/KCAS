@@ -304,7 +304,7 @@ Verified locally after the security, import, compliance foundation and client ev
 - `dotnet build` succeeds.
 - `dotnet test tests\KCAS.Admin.Tests\KCAS.Admin.Tests.csproj` passes.
 - `dotnet ef migrations has-pending-model-changes` reports no pending model changes.
-- `src\KCAS.Admin\Data\Migrations\kcas_blazor_schema.sql` includes the entity ownership and related-party register and records latest migration `20260726120259_AddClientEntityOwnershipRegister`.
+- `src\KCAS.Admin\Data\Migrations\kcas_blazor_schema.sql` includes the proportional client-risk assessment workflow and records latest migration `20260726131207_AddProportionalClientRisk`.
 - Kestrel starts on `http://127.0.0.1:5143`.
 - WAMP HTTPS proxy reaches the app at `https://kcas.test:8443`.
 - `https://kcas.test:8443/clients` redirects unauthenticated users to login.
@@ -330,6 +330,7 @@ Still to verify manually in browser:
 - `/compliance/client-evidence` can configure and scan the live server client document root.
 - `/clients/{id}/evidence` supports per-client evidence readiness review.
 - `/clients/{id}/ownership` supports audited trust/legal-person ownership, control, authority, evidence and screening traceability.
+- `/clients/{id}/risk` supports the controlled client assessment and `/compliance/client-risk` provides the proportional portfolio worklist.
 - Client create/edit, contact/address editing, relationship editing, note create/edit/finalize/delete.
 - Investment account create/edit/delete and transaction create/edit/finalize/delete.
 - Fund summary filtering/totals and unmatched valuation handling.
