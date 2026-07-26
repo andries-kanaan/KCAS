@@ -23,6 +23,9 @@ public static class KcasPermissions
     public const string RiskAssessmentsPrepare = "RiskAssessments.Prepare";
     public const string RiskAssessmentsFinalise = "RiskAssessments.Finalise";
     public const string RiskAssessmentsApprove = "RiskAssessments.Approve";
+    public const string InspectionsView = "Inspections.View";
+    public const string InspectionsManage = "Inspections.Manage";
+    public const string InspectionsExport = "Inspections.Export";
 
     public static readonly IReadOnlyList<string> All =
     [
@@ -46,6 +49,9 @@ public static class KcasPermissions
         RiskAssessmentsView,
         RiskAssessmentsPrepare,
         RiskAssessmentsFinalise,
-        RiskAssessmentsApprove
+        RiskAssessmentsApprove,
+        InspectionsView,
+        InspectionsManage,
+        InspectionsExport
     ];
 }

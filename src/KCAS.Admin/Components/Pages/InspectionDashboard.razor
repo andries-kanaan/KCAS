@@ -1,0 +1,93 @@
+@page "/compliance/inspections"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.InspectionsView)]
+@using KCAS.Admin.Data
+@inject InspectionService InspectionService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager NavigationManager
+
+<PageTitle>Inspection readiness</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Compliance</p>
+        <h1>Inspection readiness</h1>
+        <p class="lede">A controlled workspace for inspection requests, evidence indexing and Kanaan readiness checks.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="/compliance">Compliance dashboard</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(message)) { <div class="alert alert-info">@message</div> }
+
+@if (canManage)
+{
+    <section class="work-area">
+        <h2>Start inspection workspace</h2>
+        <div class="workspace-grid">
+            <input class="form-control" @bind="edit.Reference" placeholder="Reference" />
+            <input class="form-control" @bind="edit.Title" placeholder="Title" />
+            <input class="form-control" @bind="edit.RequestingAuthority" placeholder="Requesting authority" />
+            <input class="form-control" @bind="edit.Coordinator" placeholder="Coordinator" />
+            <label>As-at date<InputDate class="form-control" @bind-Value="edit.AsAtDate" /></label>
+            <label>Request date<InputDate class="form-control" @bind-Value="edit.RequestDate" /></label>
+            <label>Due date<InputDate class="form-control" @bind-Value="edit.DueDate" /></label>
+        </div>
+        <textarea class="form-control mt-2" rows="2" @bind="edit.Scope" placeholder="Scope"></textarea>
+        <textarea class="form-control mt-2" rows="2" @bind="edit.Notes" placeholder="Notes"></textarea>
+        <input class="form-control mt-2" @bind="reason" placeholder="Reason for creating this workspace" />
+        <button class="btn btn-primary mt-2" @onclick="CreateAsync">Create workspace</button>
+    </section>
+}
+
+<section class="work-area">
+    <h2>Inspection cases</h2>
+    @if (items.Count == 0)
+    {
+        <p>No inspection workspace has been created.</p>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead><tr><th>Reference</th><th>Title</th><th>As at</th><th>Due</th><th>Status</th><th>Items</th><th>Checks passed</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var item in items)
+                    {
+                        <tr>
+                            <td>@item.Reference</td><td>@item.Title</td><td>@item.AsAtDate.ToString("yyyy-MM-dd")</td><td>@item.DueDate.ToString("yyyy-MM-dd")</td>
+                            <td>@item.Status</td><td>@item.Items.Count</td><td>@item.ReadinessChecks.Count(check => check.Status == InspectionCheckStatuses.Passed) / @item.ReadinessChecks.Count</td>
+                            <td class="text-end"><a class="btn btn-sm btn-outline-primary" href="@($"/compliance/inspections/{item.Id}")">Open</a></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@code {
+    private IReadOnlyList<InspectionCase> items = [];
+    private InspectionCaseEditModel edit = new();
+    private string reason = "";
+    private string? currentUser;
+    private string? message;
+    private bool canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        currentUser = state.User.Identity?.Name;
+        canManage = state.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.InspectionsManage);
+        await LoadAsync();
+    }
+    private async Task LoadAsync() => items = await InspectionService.LoadListAsync();
+    private async Task CreateAsync()
+    {
+        try
+        {
+            var id = await InspectionService.CreateDraftAsync(edit, currentUser, reason);
+            NavigationManager.NavigateTo($"/compliance/inspections/{id}");
+        }
+        catch (Exception ex) { message = ex.Message; }
+    }
+}

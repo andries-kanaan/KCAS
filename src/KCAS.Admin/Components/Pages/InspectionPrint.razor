@@ -1,0 +1,78 @@
+@page "/compliance/inspections/{Id:int}/print"
+@attribute [Authorize(Policy = KcasPermissions.InspectionsView)]
+@using System.Text.Json
+@using KCAS.Admin.Data
+@inject InspectionService InspectionService
+
+<PageTitle>Frozen inspection pack</PageTitle>
+
+<div class="print-actions mb-3">
+    <a class="btn btn-outline-secondary" href="@($"/compliance/inspections/{Id}")">Back</a>
+    <button class="btn btn-primary ms-2" onclick="window.print()">Print</button>
+</div>
+
+@if (document is null)
+{
+    <p>Loading frozen inspection pack...</p>
+}
+else
+{
+    var root = document.RootElement;
+    var summary = root.GetProperty("summary");
+    <article class="approved-record">
+        <p class="eyebrow">Frozen inspection evidence pack</p>
+        <h1>@root.GetProperty("title").GetString()</h1>
+        <p>@root.GetProperty("reference").GetString() · @root.GetProperty("requestingAuthority").GetString() · as at @root.GetProperty("asAtDate").GetString()</p>
+        <p><strong>Scope:</strong> @root.GetProperty("scope").GetString()</p>
+        <h2>As-at summary</h2>
+        <ul>
+            <li>Clients: @summary.GetProperty("clientCount").GetInt32() (@summary.GetProperty("activeClientCount").GetInt32() active)</li>
+            <li>Frozen client assessments: @summary.GetProperty("frozenClientAssessmentCount").GetInt32()</li>
+            <li>Approved BRAs: @summary.GetProperty("approvedBraCount").GetInt32()</li>
+            <li>Approved RMCPs: @summary.GetProperty("approvedRmcpCount").GetInt32()</li>
+            <li>Open monitoring items: @summary.GetProperty("openWorkCount").GetInt32()</li>
+            <li>Closed training items: @summary.GetProperty("closedTrainingCount").GetInt32()</li>
+        </ul>
+        <h2>Requested evidence</h2>
+        <table class="table table-bordered">
+            <thead><tr><th>Category</th><th>Request</th><th>Owner</th><th>Status</th><th>Evidence</th></tr></thead>
+            <tbody>
+                @foreach (var item in root.GetProperty("requestItems").EnumerateArray())
+                {
+                    <tr><td>@item.GetProperty("category").GetString()</td><td>@item.GetProperty("title").GetString()</td><td>@item.GetProperty("owner").GetString()</td><td>@item.GetProperty("status").GetString()</td><td>@Optional(item, "evidenceTitle")<br />@Optional(item, "evidenceLocation")</td></tr>
+                }
+            </tbody>
+        </table>
+        <h2>Readiness checks</h2>
+        <table class="table table-bordered">
+            <thead><tr><th>Check</th><th>Status</th><th>Evidence</th><th>Test</th></tr></thead>
+            <tbody>
+                @foreach (var check in root.GetProperty("readinessChecks").EnumerateArray())
+                {
+                    <tr><td>@InspectionReadinessCheckTypes.Display(check.GetProperty("checkType").GetString() ?? "")</td><td>@check.GetProperty("status").GetString()</td><td>@Optional(check, "evidenceLocation")</td><td>@Optional(check, "notes")</td></tr>
+                }
+            </tbody>
+        </table>
+        <p class="text-muted">The downloadable JSON contains the complete frozen evidence index for clients, assessments, BRA, RMCP, approvals, training, monitoring, remediation, documents, evidence and audit-event count.</p>
+    </article>
+}
+
+<style>
+    @@media print {
+        .print-actions, .sidebar, header { display: none !important; }
+        .approved-record { font-size: 10pt; }
+        .approved-record table { font-size: 8pt; }
+    }
+</style>
+
+@code {
+    [Parameter] public int Id { get; set; }
+    private JsonDocument? document;
+    protected override async Task OnParametersSetAsync()
+    {
+        document?.Dispose();
+        document = JsonDocument.Parse((await InspectionService.LoadPrintableAsync(Id)).SnapshotJson);
+    }
+    private static string Optional(JsonElement element, string name)
+        => element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : "";
+}

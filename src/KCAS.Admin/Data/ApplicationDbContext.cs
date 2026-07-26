@@ -62,6 +62,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<BusinessRiskApproval> BusinessRiskApprovals => Set<BusinessRiskApproval>();
     public DbSet<RmcpVersion> RmcpVersions => Set<RmcpVersion>();
     public DbSet<RmcpControl> RmcpControls => Set<RmcpControl>();
+    public DbSet<InspectionCase> InspectionCases => Set<InspectionCase>();
+    public DbSet<InspectionRequestItem> InspectionRequestItems => Set<InspectionRequestItem>();
+    public DbSet<InspectionReadinessCheck> InspectionReadinessChecks => Set<InspectionReadinessCheck>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -158,6 +161,45 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
                 .WithMany()
                 .HasForeignKey(item => item.ComplianceTaskId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        builder.Entity<InspectionCase>(entity =>
+        {
+            entity.Property(item => item.Reference).HasMaxLength(96);
+            entity.Property(item => item.Title).HasMaxLength(240);
+            entity.Property(item => item.RequestingAuthority).HasMaxLength(191);
+            entity.Property(item => item.Status).HasMaxLength(32);
+            entity.Property(item => item.Coordinator).HasMaxLength(191);
+            entity.Property(item => item.CreatedBy).HasMaxLength(191);
+            entity.Property(item => item.UpdatedBy).HasMaxLength(191);
+            ConfigureDateOnly(entity.Property(item => item.AsAtDate));
+            ConfigureDateOnly(entity.Property(item => item.RequestDate));
+            ConfigureDateOnly(entity.Property(item => item.DueDate));
+            entity.HasIndex(item => new { item.Status, item.DueDate });
+            entity.HasMany(item => item.Items).WithOne(item => item.InspectionCase)
+                .HasForeignKey(item => item.InspectionCaseId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(item => item.ReadinessChecks).WithOne(item => item.InspectionCase)
+                .HasForeignKey(item => item.InspectionCaseId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<InspectionRequestItem>(entity =>
+        {
+            entity.Property(item => item.Category).HasMaxLength(64);
+            entity.Property(item => item.Title).HasMaxLength(240);
+            entity.Property(item => item.Owner).HasMaxLength(191);
+            entity.Property(item => item.Status).HasMaxLength(32);
+            entity.Property(item => item.LinkedEntityType).HasMaxLength(128);
+            entity.Property(item => item.CompletedBy).HasMaxLength(191);
+            ConfigureDateOnly(entity.Property(item => item.DueDate));
+            entity.HasIndex(item => new { item.InspectionCaseId, item.Status, item.DueDate });
+        });
+
+        builder.Entity<InspectionReadinessCheck>(entity =>
+        {
+            entity.Property(item => item.CheckType).HasMaxLength(64);
+            entity.Property(item => item.Status).HasMaxLength(32);
+            entity.Property(item => item.TestedBy).HasMaxLength(191);
+            entity.HasIndex(item => new { item.InspectionCaseId, item.CheckType }).IsUnique();
         });
 
         builder.Entity<IdentityRole>(entity =>
