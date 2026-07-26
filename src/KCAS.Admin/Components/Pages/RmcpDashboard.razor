@@ -1,0 +1,102 @@
+@page "/compliance/rmcp"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
+@using KCAS.Admin.Data
+@inject RmcpService RmcpService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager NavigationManager
+
+<PageTitle>RMCP</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Compliance</p>
+        <h1>Risk Management and Compliance Programme</h1>
+        <p class="lede">Controlled RMCP versions and Kanaan's concise risk-control register. The signed Word/PDF remains authoritative.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="/compliance">Compliance dashboard</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(message)) { <div class="alert alert-info">@message</div> }
+
+@if (model is null)
+{
+    <p>Loading RMCP records...</p>
+}
+else
+{
+    @if (canManage)
+    {
+        <section class="work-area">
+            <h2>Start a controlled RMCP version</h2>
+            @if (model.EligibleBras.Count == 0)
+            {
+                <p>An approved or effective Business Risk Assessment is required before an RMCP version can be created.</p>
+            }
+            else
+            {
+                <div class="workspace-grid">
+                    <select class="form-select" @bind="selectedBraId">
+                        @foreach (var bra in model.EligibleBras) { <option value="@bra.Id">@bra.Name (@bra.Status)</option> }
+                    </select>
+                    <input class="form-control" @bind="reason" placeholder="Reason for creating the draft" />
+                    <button type="button" class="btn btn-primary" @onclick="CreateAsync">Create draft</button>
+                </div>
+            }
+        </section>
+    }
+
+    <section class="work-area">
+        <h2>Controlled versions</h2>
+        @if (model.Versions.Count == 0) { <p>No RMCP version has been created yet.</p> }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead><tr><th>Version</th><th>BRA</th><th>Status</th><th>Effective</th><th>Next review</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var item in model.Versions)
+                        {
+                            <tr>
+                                <td>@item.Title<br /><small>@item.VersionReference</small></td>
+                                <td>@item.BusinessRiskAssessment?.Name</td>
+                                <td>@item.Status</td>
+                                <td>@(item.EffectiveDate?.ToString("yyyy-MM-dd") ?? "-")</td>
+                                <td>@(item.NextReviewDate?.ToString("yyyy-MM-dd") ?? "-")</td>
+                                <td class="text-end"><a class="btn btn-sm btn-outline-primary" href="@($"/compliance/rmcp/{item.Id}")">Open</a></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+}
+
+@code {
+    private RmcpDashboardModel? model;
+    private int selectedBraId;
+    private string reason = "";
+    private string? currentUser;
+    private string? message;
+    private bool canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        currentUser = state.User.Identity?.Name;
+        canManage = state.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage);
+        model = await RmcpService.LoadDashboardAsync();
+        selectedBraId = model.EligibleBras.FirstOrDefault()?.Id ?? 0;
+    }
+
+    private async Task CreateAsync()
+    {
+        try
+        {
+            var id = await RmcpService.CreateDraftAsync(selectedBraId, currentUser, reason);
+            NavigationManager.NavigateTo($"/compliance/rmcp/{id}");
+        }
+        catch (Exception ex) { message = ex.Message; }
+    }
+}

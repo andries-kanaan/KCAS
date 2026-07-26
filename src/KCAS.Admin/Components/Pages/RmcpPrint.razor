@@ -1,0 +1,88 @@
+@page "/compliance/rmcp/{Id:int}/print"
+@attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
+@using System.Text.Json
+@using KCAS.Admin.Data
+@inject RmcpService RmcpService
+
+<PageTitle>Approved RMCP record</PageTitle>
+
+<div class="print-actions mb-3">
+    <a class="btn btn-outline-secondary" href="@($"/compliance/rmcp/{Id}")">Back</a>
+    <button class="btn btn-primary ms-2" onclick="window.print()">Print</button>
+</div>
+
+@if (document is null)
+{
+    <p>Loading approved RMCP record...</p>
+}
+else
+{
+    var root = document.RootElement;
+    <article class="approved-record">
+        <p class="eyebrow">Frozen approved control record</p>
+        <h1>@root.GetProperty("title").GetString()</h1>
+        <p>@root.GetProperty("versionReference").GetString() · Linked BRA: @root.GetProperty("bra").GetProperty("name").GetString()</p>
+        <p><strong>Scope:</strong> @root.GetProperty("scope").GetString()</p>
+        <p><strong>Owner:</strong> @root.GetProperty("owner").GetString() · <strong>Review cycle:</strong> @root.GetProperty("reviewMonths").GetInt32() months</p>
+        <p><strong>Authoritative signed source:</strong> @root.GetProperty("signedDocumentLocation").GetString()</p>
+        <p><strong>Approval resolution:</strong> @root.GetProperty("approvalResolutionLocation").GetString()</p>
+        <p><strong>Change summary:</strong> @root.GetProperty("changeSummary").GetString()</p>
+
+        <h2>Control register</h2>
+        <div class="table-responsive">
+            <table class="table table-bordered align-middle">
+                <thead><tr><th>Control</th><th>Procedure and BRA risk</th><th>Owner/frequency</th><th>Evidence/monitoring</th><th>Escalation/treatment</th></tr></thead>
+                <tbody>
+                    @foreach (var control in root.GetProperty("controls").EnumerateArray())
+                    {
+                        <tr>
+                            <td><strong>@control.GetProperty("code").GetString()</strong><br />@control.GetProperty("title").GetString()<br /><small>@RmcpControlDomains.Display(control.GetProperty("domain").GetString() ?? "")</small></td>
+                            <td>@control.GetProperty("procedureSummary").GetString()<br /><em>@Optional(control, "braRisk")</em></td>
+                            <td>@control.GetProperty("owner").GetString()<br />@control.GetProperty("frequency").GetString()</td>
+                            <td>@control.GetProperty("evidenceExpectation").GetString()<br /><em>@control.GetProperty("monitoringMethod").GetString()</em></td>
+                            <td>@control.GetProperty("escalationProcedure").GetString()@Gap(control)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <h2>KI approvals</h2>
+        <ul>
+            @foreach (var approval in root.GetProperty("approvals").EnumerateArray())
+            {
+                <li>@approval.GetProperty("approver").GetString() — @approval.GetProperty("decidedAtUtc").GetDateTime().ToLocalTime().ToString("yyyy-MM-dd HH:mm") — @approval.GetProperty("reason").GetString()</li>
+            }
+        </ul>
+        <p class="text-muted">This printout is the frozen KCAS control record. The signed Word/PDF identified above remains the authoritative RMCP.</p>
+    </article>
+}
+
+<style>
+    @@media print {
+        .print-actions, .sidebar, header { display: none !important; }
+        .approved-record { font-size: 10pt; }
+        .approved-record table { font-size: 8pt; }
+    }
+</style>
+
+@code {
+    [Parameter] public int Id { get; set; }
+    private JsonDocument? document;
+    protected override async Task OnParametersSetAsync()
+    {
+        document?.Dispose();
+        var model = await RmcpService.LoadPrintableAsync(Id);
+        document = JsonDocument.Parse(model.SnapshotJson);
+    }
+    private static string Optional(JsonElement element, string name)
+        => element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : "";
+    private static MarkupString Gap(JsonElement control)
+    {
+        if (!control.GetProperty("hasGap").GetBoolean()) return new("");
+        var description = Optional(control, "gapDescription");
+        var owner = Optional(control, "treatmentOwner");
+        var due = Optional(control, "treatmentDueDate");
+        return new($"<hr /><strong>Gap:</strong> {System.Net.WebUtility.HtmlEncode(description)}<br />{System.Net.WebUtility.HtmlEncode(owner)} · {System.Net.WebUtility.HtmlEncode(due)}");
+    }
+}

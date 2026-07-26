@@ -156,13 +156,13 @@ Do not resolve a material conflict merely by choosing the newest filename. Recor
 | 1 | Compliance foundation and controlled configuration | Complete for delivery; browser acceptance evidence remains operational follow-up | Configuration/versioning and permissions accepted |
 | 2 | Client profile and evidence readiness | Foundation delivered; operational population deferred to Phase 8 | Pilot clients pass completeness and evidence checks |
 | 3 | Proportional client risk assessment workflow | Technical delivery complete; operational acceptance deferred to Phase 8 | Pilot assessments reproduce approved methodology |
-| 4 | Business Risk Assessment | Technical foundation delivered; action integration continues in Phase 6 and operational acceptance is deferred to Phase 8 | BRA approved from traceable evidence and methodology |
-| 5 | RMCP control and approval management | Not started | Approved RMCP version links risks, controls and evidence |
+| 4 | Business Risk Assessment | Technical foundation delivered and browser-checked by the user on 2026-07-26; action integration continues in Phase 6 and operational acceptance is deferred to Phase 8 | BRA approved from traceable evidence and methodology |
+| 5 | RMCP control and approval management | Technical foundation delivered; operational acceptance is deferred to Phase 8 | Approved RMCP version links risks, controls and evidence |
 | 6 | Monitoring, reviews and remediation | Not started | End-to-end review and escalation cases pass |
 | 7 | Inspection readiness, reporting and rollout | Not started | Inspection pack, security, recovery and rollout accepted |
 | 8 | Controlled operational population and verification | Deferred until Phases 3–7 tools are delivered | Every current client is reviewed, verified and assessed |
 
-Current resume point: **begin Phase 5 RMCP control and approval management without creating or approving live BRA or client records.**
+Current resume point: **begin Phase 6 monitoring, reviews and remediation without creating or approving live BRA, RMCP or client records.**
 
 Phase 0 remains available for operational import acceptance and final data switch-over evidence, but it is no longer the active development blocker.
 
@@ -478,7 +478,18 @@ Manage the RMCP as a controlled document and concise risk/control register linke
 - Draft, approved, effective and superseded states, with change reason and both KI approvals.
 - The signed document remains authoritative; KCAS will not become a custom word processor or bank-scale clause-management system.
 
-### Acceptance gate 5
+### Implemented technical foundation
+
+- Separate RMCP workspace with controlled draft, KI review, approved, effective and superseded versions.
+- Required references to an approved/effective BRA, signed Word/PDF source and signed approval resolution.
+- Concise starter register covering client risk, CDD, EDD, screening, records, reporting, training, governance and review.
+- BRA-risk links plus owner, frequency, expected evidence, monitoring and escalation for every control.
+- Submission blocks incomplete domain coverage, incomplete controls and unmapped material BRA risks.
+- Identified control gaps create linked treatment items in the existing compliance work register.
+- Two distinct KI approvals, reasoned audit events, frozen approved JSON and printable control record.
+- No live RMCP, BRA or client-assessment record was created, submitted, approved or activated during technical delivery.
+
+### Operational acceptance gate 5 — deferred to Phase 8
 
 - Every material BRA risk maps to one or more controls or an approved treatment action.
 - Every control has an owner, evidence expectation and monitoring frequency.

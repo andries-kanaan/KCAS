@@ -76,6 +76,7 @@ builder.Services.AddScoped<ClientEvidenceReadinessService>();
 builder.Services.AddScoped<ClientEntityOwnershipService>();
 builder.Services.AddScoped<ClientRiskAssessmentService>();
 builder.Services.AddScoped<BusinessRiskAssessmentService>();
+builder.Services.AddScoped<RmcpService>();
 builder.Services.AddSingleton<ClientEvidenceScanCoordinator>();
 builder.Services.AddScoped<LegacyImportWebService>();
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
