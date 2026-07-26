@@ -48,6 +48,19 @@ public class Client
 
     public bool IsActive { get; set; } = true;
 
+    [MaxLength(32)]
+    public string LifecycleStatus { get; set; } = ClientLifecycleStatuses.Unreviewed;
+
+    [MaxLength(1000)]
+    public string? LifecycleReason { get; set; }
+
+    public DateTime? LifecycleReviewedAtUtc { get; set; }
+
+    [MaxLength(191)]
+    public string? LifecycleReviewedBy { get; set; }
+
+    public int? DuplicateOfClientId { get; set; }
+
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 
     public DateTime? UpdatedAtUtc { get; set; }
@@ -88,6 +101,28 @@ public class Client
     public ICollection<ClientRelatedParty> RelatedParties { get; } = [];
 
     public ICollection<ClientRiskAssessment> RiskAssessments { get; } = [];
+
+    public ICollection<ClientVerificationItem> VerificationItems { get; } = [];
+}
+
+public static class ClientLifecycleStatuses
+{
+    public const string Unreviewed = "Unreviewed";
+    public const string Current = "Current";
+    public const string Closed = "Closed";
+    public const string Deceased = "Deceased";
+    public const string Duplicate = "Duplicate";
+    public const string Historical = "Historical";
+
+    public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
+    {
+        Unreviewed,
+        Current,
+        Closed,
+        Deceased,
+        Duplicate,
+        Historical
+    };
 }
 
 public static class LegacyReconciliationStatuses

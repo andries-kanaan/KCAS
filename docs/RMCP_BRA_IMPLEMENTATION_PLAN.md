@@ -159,8 +159,8 @@ Do not resolve a material conflict merely by choosing the newest filename. Recor
 | 4 | Business Risk Assessment | Technical foundation delivered and browser-checked by the user on 2026-07-26; action integration continues in Phase 6 and operational acceptance is deferred to Phase 8 | BRA approved from traceable evidence and methodology |
 | 5 | RMCP control and approval management | Technical foundation delivered and browser-checked by the user on 2026-07-26; operational acceptance is deferred to Phase 8 | Approved RMCP version links risks, controls and evidence |
 | 6 | Monitoring, reviews and remediation | Technical foundation delivered and browser-checked by the user on 2026-07-26; operational acceptance is deferred to Phase 8 | End-to-end review and escalation cases pass |
-| 7 | Inspection readiness, reporting and rollout | Technical foundation delivered; operational acceptance is part of Phase 8 | Inspection pack, security, recovery and rollout accepted |
-| 8 | Controlled operational population and verification | Deferred until Phases 3–7 tools are delivered | Every current client is reviewed, verified and assessed |
+| 7 | Inspection readiness, reporting and rollout | Technical foundation delivered and browser-checked by the user on 2026-07-26; operational acceptance is part of Phase 8 | Inspection pack, security, recovery and rollout accepted |
+| 8 | Controlled operational population and verification | In progress: lifecycle and per-fact human-verification control implementation started after Phase 7 browser acceptance | Every current client is reviewed, verified and assessed |
 
 Current resume point: **begin Phase 8 controlled operational population and verification with the imported-record lifecycle classification, then work client by client under explicit user approval.**
 
@@ -590,6 +590,28 @@ Return deliberately to the client information and evidence population work only 
 - No assisted value is treated as verified merely because it was extracted or proposed by Codex.
 - The production BRA reconciles to the verified current-client population.
 - The programme is not marked complete while any current client has unresolved blocking verification items.
+
+### Phase 8 implementation sequence
+
+1. Deliver and browser-check the lifecycle classification and assisted/imported fact-verification controls without altering live client facts.
+2. Confirm every imported record as current, closed, deceased, duplicate or historical, retaining the reviewer, date, reason and duplicate link where applicable.
+3. For each confirmed current client, work collaboratively in Codex: select the client folder, scan/link documents, inspect each relevant document and present differences and recommendations.
+4. Queue every assisted/imported fact or proposed replacement as awaiting human verification. Do not apply a replacement until the user explicitly accepts it.
+5. Let an authorised Kanaan user verify or reject each queued item in KCAS with the source, decision user, date and reason visible in the register.
+6. Complete evidence readiness and the client risk assessment only when lifecycle and blocking verification checks are clear.
+7. Reconcile and approve the production BRA, RMCP, monitoring baseline and inspection pack from the verified current population.
+
+### Implemented Phase 8 control foundation
+
+- A portfolio review page shows lifecycle totals and outstanding verification counts before client-by-client work begins.
+- Each client has a controlled lifecycle classification with mandatory reason, reviewer and timestamp; duplicate classification requires a canonical client.
+- Assisted/imported facts and Codex recommendations are held in a pending register with current value, proposed value, source, recommendation and blocking flag.
+- Accepting a replacement applies only a supported field and fails safely if the underlying value changed after the recommendation was created.
+- Verification and rejection require a human decision reason and retain the user, time and compliance audit event.
+- Client detail warns when lifecycle review or human verification remains outstanding.
+- Final client-risk assessment is blocked unless the client is classified Current and has no blocking verification items.
+- Technical delivery creates no lifecycle decisions or verification items for live clients.
+- Technical verification on 2026-07-26 passed 151 automated tests with zero build warnings and no pending EF model changes. Migration `20260726175421_AddClientOperationalVerification` was applied after backup; all 490 imported clients remained Unreviewed and the verification register remained empty.
 
 ## 15. Cross-cutting requirements
 

@@ -27,6 +27,16 @@
             </NavLink>
         </div>
 
+        <AuthorizeView Policy="@KcasPermissions.ClientsView">
+            <Authorized>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="clients/operational-review">
+                        <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Client verification
+                    </NavLink>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+
         <AuthorizeView Policy="@KcasPermissions.SecurityManage">
             <Authorized>
                 <div class="nav-section">Administration</div>
@@ -50,51 +60,44 @@
 
         <AuthorizeView Policy="@KcasPermissions.ComplianceView">
             <Authorized>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="compliance">
-                        <span class="bi bi-clipboard-check" aria-hidden="true"></span> Compliance
-                    </NavLink>
-                </div>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="compliance/client-evidence">
-                        <span class="bi bi-folder-check" aria-hidden="true"></span> Client evidence
-                    </NavLink>
-                </div>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="compliance/business-risk">
-                        <span class="bi bi-grid-3x3-gap" aria-hidden="true"></span> Business risk
-                    </NavLink>
-                </div>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="compliance/rmcp">
-                        <span class="bi bi-journal-check" aria-hidden="true"></span> RMCP
-                    </NavLink>
-                </div>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="compliance/work-register">
-                        <span class="bi bi-list-check" aria-hidden="true"></span> Monitoring
-                    </NavLink>
-                </div>
-            </Authorized>
-        </AuthorizeView>
-
-        <AuthorizeView Policy="@KcasPermissions.RiskAssessmentsView">
-            <Authorized>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="compliance/client-risk">
-                        <span class="bi bi-shield-check" aria-hidden="true"></span> Client risk
-                    </NavLink>
-                </div>
-            </Authorized>
-        </AuthorizeView>
-
-        <AuthorizeView Policy="@KcasPermissions.InspectionsView">
-            <Authorized>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="compliance/inspections">
-                        <span class="bi bi-archive" aria-hidden="true"></span> Inspections
-                    </NavLink>
-                </div>
+                <details class="nav-group" open="@ComplianceMenuOpen">
+                    <summary>
+                        <span class="bi bi-clipboard-check" aria-hidden="true"></span>
+                        <span>Compliance</span>
+                        <span class="nav-group-chevron" aria-hidden="true">›</span>
+                    </summary>
+                    <div class="nav-group-items">
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="compliance" Match="NavLinkMatch.All">Compliance risk</NavLink>
+                        </div>
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="compliance/client-evidence">Client evidence</NavLink>
+                        </div>
+                        <AuthorizeView Policy="@KcasPermissions.RiskAssessmentsView">
+                            <Authorized Context="riskContext">
+                                <div class="nav-item px-3">
+                                    <NavLink class="nav-link" href="compliance/client-risk">Client risk assessments</NavLink>
+                                </div>
+                            </Authorized>
+                        </AuthorizeView>
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="compliance/business-risk">Business risk</NavLink>
+                        </div>
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="compliance/rmcp">RMCP</NavLink>
+                        </div>
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="compliance/work-register">Monitoring</NavLink>
+                        </div>
+                        <AuthorizeView Policy="@KcasPermissions.InspectionsView">
+                            <Authorized Context="inspectionContext">
+                                <div class="nav-item px-3">
+                                    <NavLink class="nav-link" href="compliance/inspections">Inspections</NavLink>
+                                </div>
+                            </Authorized>
+                        </AuthorizeView>
+                    </div>
+                </details>
             </Authorized>
         </AuthorizeView>
 
@@ -133,6 +136,7 @@
 
 @code {
     private string? currentUrl;
+    private bool ComplianceMenuOpen => currentUrl?.StartsWith("compliance", StringComparison.OrdinalIgnoreCase) == true;
 
     protected override void OnInitialized()
     {

@@ -43,7 +43,11 @@ else
         <section class="summary-grid">
             <article class="summary-card">
                 <span>Evidence readiness</span>
-                <strong>@(model.IsReadyForRiskAssessment ? "Ready" : $"{model.BlockingEvidenceCount} blocker(s)")</strong>
+                <strong>@(model.IsReadyForRiskAssessment ? "Ready" : $"{model.BlockingEvidenceCount + model.BlockingVerificationCount} blocker(s)")</strong>
+            </article>
+            <article class="summary-card">
+                <span>Client verification</span>
+                <strong>@model.LifecycleStatus · @model.BlockingVerificationCount blocking</strong>
             </article>
             <article class="summary-card">
                 <span>Methodology</span>

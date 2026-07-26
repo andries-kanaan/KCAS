@@ -30,6 +30,7 @@ else
                     <a class="btn btn-outline-secondary" href="@($"/clients/{Id}/risk")">Risk assessment</a>
                 </Authorized>
             </AuthorizeView>
+            <a class="btn btn-outline-secondary" href="@($"/clients/{Id}/verification")">Verification</a>
             @if (client.ClientCategory is ClientCategories.Trust or ClientCategories.LegalPerson)
             {
                 <a class="btn btn-outline-secondary" href="@($"/clients/{Id}/ownership")">Ownership register</a>
@@ -49,6 +50,22 @@ else
     @if (!string.IsNullOrWhiteSpace(statusMessage))
     {
         <div class="alert alert-info">@statusMessage</div>
+    }
+
+    var pendingVerificationCount = client.VerificationItems.Count(item => item.Status == ClientVerificationStatuses.Pending);
+    var blockingVerificationCount = client.VerificationItems.Count(item =>
+        item.Status == ClientVerificationStatuses.Pending && item.IsBlocking);
+    @if (client.LifecycleStatus == ClientLifecycleStatuses.Unreviewed || pendingVerificationCount > 0)
+    {
+        <div class="alert alert-warning">
+            Lifecycle: <strong>@client.LifecycleStatus</strong>.
+            <strong>@pendingVerificationCount</strong> item(s) still require human verification
+            @if (blockingVerificationCount > 0)
+            {
+                <span>(@blockingVerificationCount blocking)</span>
+            }.
+            <a href="@($"/clients/{Id}/verification")">Open controlled review</a>.
+        </div>
     }
 
     <section class="detail-grid">
@@ -73,6 +90,10 @@ else
                 <dd>@Display(client.ClientCategorySource)</dd>
                 <dt>Category reason</dt>
                 <dd>@Display(client.ClientCategoryReason)</dd>
+                <dt>Lifecycle status</dt>
+                <dd>@Display(client.LifecycleStatus)</dd>
+                <dt>Lifecycle review</dt>
+                <dd>@Display(client.LifecycleReason)</dd>
             </dl>
         </article>
 
@@ -829,6 +850,7 @@ else
             .Include(client => client.FundValuations)
             .Include(client => client.InvestmentAccounts)
                 .ThenInclude(account => account.Transactions)
+            .Include(client => client.VerificationItems)
             .SingleOrDefaultAsync(client => client.Id == Id);
     }
 

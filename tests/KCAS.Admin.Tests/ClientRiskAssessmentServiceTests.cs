@@ -186,7 +186,8 @@ public sealed class ClientRiskAssessmentServiceTests(KcasWebApplicationFactory f
             SurnameOrEntityName = displayName,
             DisplayName = displayName,
             ClientCategory = ClientCategories.NaturalPerson,
-            ClientCategorySource = ClientCategorySources.Manual
+            ClientCategorySource = ClientCategorySources.Manual,
+            LifecycleStatus = ClientLifecycleStatuses.Current
         };
         db.Clients.Add(client);
         await db.SaveChangesAsync();

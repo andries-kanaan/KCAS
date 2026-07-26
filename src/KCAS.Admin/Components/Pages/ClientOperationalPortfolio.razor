@@ -1,0 +1,85 @@
+@page "/clients/operational-review"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ClientsView)]
+@using KCAS.Admin.Data
+@inject ClientOperationalVerificationService VerificationService
+
+<PageTitle>Client operational review</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Phase 8</p>
+        <h1>Client operational review</h1>
+        <p class="text-muted mb-0">Classify the imported register, then verify assisted or imported facts client by client.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="/clients">Back to clients</a>
+</div>
+
+<section class="summary-grid">
+    <article class="summary-card"><span>Unreviewed</span><strong>@Count(ClientLifecycleStatuses.Unreviewed)</strong></article>
+    <article class="summary-card"><span>Current</span><strong>@Count(ClientLifecycleStatuses.Current)</strong></article>
+    <article class="summary-card"><span>Other classifications</span><strong>@(allItems.Count - Count(ClientLifecycleStatuses.Unreviewed) - Count(ClientLifecycleStatuses.Current))</strong></article>
+    <article class="summary-card"><span>Pending verification</span><strong>@allItems.Sum(item => item.PendingVerificationCount)</strong></article>
+</section>
+
+<section class="work-area">
+    <label class="form-label" for="lifecycle-filter">Lifecycle filter</label>
+    <select id="lifecycle-filter" class="form-select" style="max-width: 22rem" @bind="lifecycleFilter" @bind:after="ApplyFilter">
+        <option value="">All clients</option>
+        @foreach (var status in ClientLifecycleStatuses.All)
+        {
+            <option value="@status">@status</option>
+        }
+    </select>
+</section>
+
+<div class="table-responsive">
+    <table class="table align-middle">
+        <thead>
+            <tr><th>Kanaan ID</th><th>Client</th><th>Lifecycle</th><th>Awaiting verification</th><th></th></tr>
+        </thead>
+        <tbody>
+            @foreach (var item in filteredItems)
+            {
+                <tr>
+                    <td>@(item.KanaanId ?? "—")</td>
+                    <td><a href="@($"/clients/{item.ClientId}")">@item.DisplayName</a></td>
+                    <td><span class="@LifecycleBadge(item.LifecycleStatus)">@item.LifecycleStatus</span></td>
+                    <td>
+                        @item.PendingVerificationCount
+                        @if (item.BlockingVerificationCount > 0)
+                        {
+                            <span class="badge text-bg-warning ms-1">@item.BlockingVerificationCount blocking</span>
+                        }
+                    </td>
+                    <td><a class="btn btn-sm btn-outline-primary" href="@($"/clients/{item.ClientId}/verification")">Review</a></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@code {
+    private List<ClientOperationalPortfolioItem> allItems = [];
+    private List<ClientOperationalPortfolioItem> filteredItems = [];
+    private string? lifecycleFilter;
+
+    protected override async Task OnInitializedAsync()
+    {
+        allItems = await VerificationService.LoadPortfolioAsync();
+        ApplyFilter();
+    }
+
+    private void ApplyFilter() => filteredItems = string.IsNullOrWhiteSpace(lifecycleFilter)
+        ? allItems
+        : allItems.Where(item => item.LifecycleStatus == lifecycleFilter).ToList();
+
+    private int Count(string status) => allItems.Count(item => item.LifecycleStatus == status);
+
+    private static string LifecycleBadge(string status) => status switch
+    {
+        ClientLifecycleStatuses.Current => "badge text-bg-success",
+        ClientLifecycleStatuses.Unreviewed => "badge text-bg-warning",
+        _ => "badge text-bg-secondary"
+    };
+}

@@ -1,0 +1,234 @@
+@page "/clients/{ClientId:int}/verification"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ClientsView)]
+@using KCAS.Admin.Data
+@inject ClientOperationalVerificationService VerificationService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Client verification</PageTitle>
+
+@if (model is null)
+{
+    <p>Loading client verification...</p>
+}
+else
+{
+    <div class="page-header">
+        <div>
+            <p class="eyebrow">Controlled operational review</p>
+            <h1>@model.Client.DisplayName</h1>
+            <p class="text-muted mb-0">Kanaan ID: @(model.Client.KanaanId ?? "Not captured")</p>
+        </div>
+        <div class="header-actions">
+            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/evidence")">Evidence readiness</a>
+            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}")">Client detail</a>
+            <a class="btn btn-outline-secondary" href="/clients/operational-review">Review list</a>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(statusMessage))
+    {
+        <div class="alert @(hasError ? "alert-danger" : "alert-info")">@statusMessage</div>
+    }
+
+    <section class="summary-grid">
+        <article class="summary-card"><span>Lifecycle</span><strong>@model.Client.LifecycleStatus</strong></article>
+        <article class="summary-card"><span>Awaiting verification</span><strong>@model.PendingCount</strong></article>
+        <article class="summary-card"><span>Blocking items</span><strong>@model.BlockingCount</strong></article>
+        <article class="summary-card"><span>Risk readiness</span><strong>@(model.Client.LifecycleStatus == ClientLifecycleStatuses.Current && model.BlockingCount == 0 ? "Verification clear" : "Not clear")</strong></article>
+    </section>
+
+    <section class="work-area">
+        <h2>1. Lifecycle classification</h2>
+        <p>Classify this imported record before treating it as part of Kanaan's current client population.</p>
+        <div class="workspace-grid">
+            <select class="form-select" @bind="lifecycleStatus" disabled="@(!canManage)">
+                <option value="@ClientLifecycleStatuses.Unreviewed">Select classification</option>
+                @foreach (var status in ClientLifecycleStatuses.All.Where(value => value != ClientLifecycleStatuses.Unreviewed))
+                {
+                    <option value="@status">@status</option>
+                }
+            </select>
+            @if (lifecycleStatus == ClientLifecycleStatuses.Duplicate)
+            {
+                <InputNumber class="form-control" @bind-Value="duplicateOfClientId" placeholder="Canonical client database ID" disabled="@(!canManage)" />
+            }
+        </div>
+        <textarea class="form-control mt-2" @bind="lifecycleReason" placeholder="Reason and source used for this classification" disabled="@(!canManage)"></textarea>
+        <button class="btn btn-primary mt-2" type="button" @onclick="ClassifyAsync" disabled="@(!canManage)">Save classification</button>
+        @if (model.Client.LifecycleReviewedAtUtc.HasValue)
+        {
+            <p class="text-muted mt-2 mb-0">Last reviewed by @model.Client.LifecycleReviewedBy on @model.Client.LifecycleReviewedAtUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm"): @model.Client.LifecycleReason</p>
+        }
+    </section>
+
+    <section class="work-area">
+        <h2>2. Add a fact for human verification</h2>
+        <p>A Codex/import recommendation remains pending here until an authorised Kanaan user accepts or rejects it.</p>
+        <div class="workspace-grid">
+            <select class="form-select" @bind="fieldCode" disabled="@(!canManage)">
+                @foreach (var field in ClientVerificationFields.Labels)
+                {
+                    <option value="@field.Key">@field.Value</option>
+                }
+            </select>
+            <select class="form-select" @bind="changeType" disabled="@(!canManage)">
+                <option value="@ClientVerificationChangeTypes.ConfirmExisting">Confirm current value</option>
+                <option value="@ClientVerificationChangeTypes.Replace">Recommend replacement</option>
+            </select>
+        </div>
+        @if (changeType == ClientVerificationChangeTypes.Replace)
+        {
+            <input class="form-control mt-2" @bind="proposedValue" placeholder="Proposed replacement value" disabled="@(!canManage)" />
+        }
+        <input class="form-control mt-2" @bind="sourceReference" placeholder="Source document, folder path or other reference" disabled="@(!canManage)" />
+        <textarea class="form-control mt-2" @bind="recommendation" placeholder="Finding and recommendation" disabled="@(!canManage)"></textarea>
+        <label class="form-check mt-2">
+            <InputCheckbox class="form-check-input" @bind-Value="isBlocking" disabled="@(!canManage)" />
+            <span class="form-check-label">Block final risk assessment until decided</span>
+        </label>
+        <button class="btn btn-outline-primary mt-2" type="button" @onclick="AddItemAsync" disabled="@(!canManage)">Add verification item</button>
+    </section>
+
+    <section class="detail-panel">
+        <h2>3. Verification register</h2>
+        @if (model.VerificationItems.Count == 0)
+        {
+            <p class="text-muted">No assisted or imported facts have been queued for this client.</p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead><tr><th>Field</th><th>Current</th><th>Proposed</th><th>Source and recommendation</th><th>Status</th><th>Decision</th></tr></thead>
+                    <tbody>
+                        @foreach (var item in model.VerificationItems)
+                        {
+                            <tr>
+                                <td>
+                                    @item.FieldLabel
+                                    @if (item.IsBlocking)
+                                    {
+                                        <span class="badge text-bg-warning d-block mt-1">Blocking</span>
+                                    }
+                                </td>
+                                <td>@Display(item.ExistingValue)</td>
+                                <td>@Display(item.ProposedValue)</td>
+                                <td><div>@item.SourceReference</div><small class="text-muted">@item.Recommendation</small></td>
+                                <td>
+                                    <span class="@StatusBadge(item.Status)">@item.Status</span>
+                                    @if (item.DecidedAtUtc.HasValue)
+                                    {
+                                        <small class="d-block text-muted">@item.DecidedBy · @item.DecidedAtUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</small>
+                                        <small class="d-block text-muted">@item.DecisionReason</small>
+                                    }
+                                </td>
+                                <td>
+                                    @if (item.Status == ClientVerificationStatuses.Pending && canManage)
+                                    {
+                                        <input class="form-control form-control-sm mb-1" @bind="decisionReasons[item.Id]" placeholder="Decision reason" />
+                                        <button class="btn btn-sm btn-success me-1" type="button" @onclick="@(() => DecideAsync(item.Id, true))">@(item.ChangeType == ClientVerificationChangeTypes.Replace ? "Accept & apply" : "Verify")</button>
+                                        <button class="btn btn-sm btn-outline-danger" type="button" @onclick="@(() => DecideAsync(item.Id, false))">Reject</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+}
+
+@code {
+    [Parameter] public int ClientId { get; set; }
+    private ClientOperationalReviewModel? model;
+    private string? currentUser;
+    private bool canManage;
+    private string lifecycleStatus = ClientLifecycleStatuses.Unreviewed;
+    private int? duplicateOfClientId;
+    private string? lifecycleReason;
+    private string fieldCode = ClientVerificationFields.KanaanId;
+    private string changeType = ClientVerificationChangeTypes.ConfirmExisting;
+    private string? proposedValue;
+    private string? sourceReference;
+    private string? recommendation;
+    private bool isBlocking = true;
+    private readonly Dictionary<int, string?> decisionReasons = [];
+    private string? statusMessage;
+    private bool hasError;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        currentUser = authState.User.Identity?.Name;
+        canManage = authState.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ClientsManage);
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        model = await VerificationService.LoadClientAsync(ClientId);
+        lifecycleStatus = model.Client.LifecycleStatus;
+        duplicateOfClientId = model.Client.DuplicateOfClientId;
+        lifecycleReason = model.Client.LifecycleReason;
+        foreach (var item in model.VerificationItems)
+        {
+            decisionReasons.TryAdd(item.Id, null);
+        }
+    }
+
+    private async Task ClassifyAsync() => await ExecuteAsync(async () =>
+        await VerificationService.ClassifyLifecycleAsync(ClientId, new(lifecycleStatus, duplicateOfClientId, lifecycleReason ?? ""), currentUser),
+        "Lifecycle classification saved.");
+
+    private async Task AddItemAsync() => await ExecuteAsync(async () =>
+        await VerificationService.AddVerificationItemAsync(ClientId, new(fieldCode, changeType, proposedValue, sourceReference ?? "", recommendation ?? "", isBlocking), currentUser),
+        "Verification item added.");
+
+    private async Task DecideAsync(int itemId, bool verify) => await ExecuteAsync(async () =>
+    {
+        decisionReasons.TryGetValue(itemId, out var reason);
+        if (verify)
+        {
+            await VerificationService.VerifyAsync(itemId, currentUser, reason ?? "");
+        }
+        else
+        {
+            await VerificationService.RejectAsync(itemId, currentUser, reason ?? "");
+        }
+    }, verify ? "Verification accepted." : "Verification rejected.");
+
+    private async Task ExecuteAsync(Func<Task> action, string successMessage)
+    {
+        if (!canManage)
+        {
+            statusMessage = "You do not have permission to change client verification.";
+            hasError = true;
+            return;
+        }
+        try
+        {
+            await action();
+            statusMessage = successMessage;
+            hasError = false;
+            proposedValue = null;
+            sourceReference = null;
+            recommendation = null;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = ex.Message;
+            hasError = true;
+        }
+    }
+
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "Not captured" : value;
+    private static string StatusBadge(string status) => status switch
+    {
+        ClientVerificationStatuses.Verified => "badge text-bg-success",
+        ClientVerificationStatuses.Rejected => "badge text-bg-secondary",
+        _ => "badge text-bg-warning"
+    };
+}

@@ -57,6 +57,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<ClientRiskAssessment> ClientRiskAssessments => Set<ClientRiskAssessment>();
     public DbSet<ClientRiskAssessmentResponse> ClientRiskAssessmentResponses => Set<ClientRiskAssessmentResponse>();
     public DbSet<ClientRiskAssessmentApproval> ClientRiskAssessmentApprovals => Set<ClientRiskAssessmentApproval>();
+    public DbSet<ClientVerificationItem> ClientVerificationItems => Set<ClientVerificationItem>();
     public DbSet<BusinessRiskAssessment> BusinessRiskAssessments => Set<BusinessRiskAssessment>();
     public DbSet<BusinessRiskItem> BusinessRiskItems => Set<BusinessRiskItem>();
     public DbSet<BusinessRiskApproval> BusinessRiskApprovals => Set<BusinessRiskApproval>();
@@ -251,10 +252,38 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.Property(client => client.LegacyReconciliationStatus)
                 .HasMaxLength(32)
                 .HasDefaultValue(LegacyReconciliationStatuses.Unscanned);
+            entity.Property(client => client.LifecycleStatus)
+                .HasMaxLength(32)
+                .HasDefaultValue(ClientLifecycleStatuses.Unreviewed);
+            entity.Property(client => client.LifecycleReason).HasMaxLength(1000);
+            entity.Property(client => client.LifecycleReviewedBy).HasMaxLength(191);
             entity.HasIndex(client => client.LegacyClientId).IsUnique();
             entity.HasIndex(client => client.KanaanId);
             entity.HasIndex(client => client.ClientCategory);
             entity.HasIndex(client => client.DisplayName);
+            entity.HasIndex(client => client.LifecycleStatus);
+            entity.HasOne<Client>()
+                .WithMany()
+                .HasForeignKey(client => client.DuplicateOfClientId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        builder.Entity<ClientVerificationItem>(entity =>
+        {
+            entity.Property(item => item.FieldCode).HasMaxLength(64);
+            entity.Property(item => item.FieldLabel).HasMaxLength(191);
+            entity.Property(item => item.ChangeType).HasMaxLength(32);
+            entity.Property(item => item.SourceReference).HasMaxLength(1024);
+            entity.Property(item => item.Status).HasMaxLength(32);
+            entity.Property(item => item.CreatedBy).HasMaxLength(191);
+            entity.Property(item => item.DecidedBy).HasMaxLength(191);
+            entity.Property(item => item.DecisionReason).HasMaxLength(1000);
+            entity.Property(item => item.AppliedBy).HasMaxLength(191);
+            entity.HasIndex(item => new { item.ClientId, item.Status, item.IsBlocking });
+            entity.HasOne(item => item.Client)
+                .WithMany(client => client.VerificationItems)
+                .HasForeignKey(item => item.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         builder.Entity<ClientPersonalProfile>(entity =>
