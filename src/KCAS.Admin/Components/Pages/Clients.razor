@@ -60,6 +60,16 @@
                         Status @SortIndicator("status")
                     </button>
                 </th>
+                <th>
+                    <button class="sort-header" type="button" @onclick="@(() => SortByAsync("investment"))">
+                        Investment position @SortIndicator("investment")
+                    </button>
+                </th>
+                <th class="text-end">
+                    <button class="sort-header" type="button" @onclick="@(() => SortByAsync("currentValue"))">
+                        Current value @SortIndicator("currentValue")
+                    </button>
+                </th>
             </tr>
             <tr class="filter-row">
                 <th>
@@ -78,8 +88,24 @@
                     <input class="form-control form-control-sm" @bind="phoneFilter" @bind:event="oninput" @bind:after="LoadClientsAsync" aria-label="Filter by phone" />
                 </th>
                 <th>
-                    <input class="form-control form-control-sm" @bind="statusFilter" @bind:event="oninput" @bind:after="LoadClientsAsync" aria-label="Filter by status" placeholder="Active" />
+                    <select class="form-select form-select-sm" @bind="statusFilter" @bind:after="LoadClientsAsync" aria-label="Filter by lifecycle status">
+                        <option value="">All lifecycle statuses</option>
+                        @foreach (var status in ClientLifecycleStatuses.All)
+                        {
+                            <option value="@status">@status</option>
+                        }
+                    </select>
                 </th>
+                <th>
+                    <select class="form-select form-select-sm" @bind="investmentPositionFilter" @bind:after="LoadClientsAsync" aria-label="Filter by investment position">
+                        <option value="">All investment positions</option>
+                        <option value="@ClientInvestmentPositionFilters.Current">Current investments</option>
+                        <option value="@ClientInvestmentPositionFilters.NoCurrent">No current investments</option>
+                        <option value="@ClientInvestmentPositionFilters.HistoricalOnly">Historical investments only</option>
+                        <option value="@ClientInvestmentPositionFilters.NeedsCorrection">Needs status correction</option>
+                    </select>
+                </th>
+                <th></th>
             </tr>
         </thead>
         <tbody>
@@ -93,7 +119,16 @@
                     <td>@client.Surname</td>
                     <td>@client.PrimaryEmail</td>
                     <td>@client.PrimaryPhone</td>
-                    <td>@(client.IsActive ? "Active" : "Inactive")</td>
+                    <td><span class="@LifecycleBadge(client.LifecycleStatus)">@client.LifecycleStatus</span></td>
+                    <td>
+                        <span>@client.InvestmentPosition</span>
+                        @if (client.LifecycleStatus == ClientLifecycleStatuses.Unreviewed &&
+                             !client.HasCurrentInvestments)
+                        {
+                            <div><span class="badge text-bg-warning">Lifecycle review required</span></div>
+                        }
+                    </td>
+                    <td class="text-end">@Money(client.TotalCurrentValueZar)</td>
                 </tr>
             }
         </tbody>
@@ -107,6 +142,7 @@
     private string? emailFilter;
     private string? phoneFilter;
     private string? statusFilter;
+    private string? investmentPositionFilter;
     private string sortColumn = "name";
     private bool sortDescending;
     private List<ClientSearchResult> clients = [];
@@ -140,6 +176,7 @@
             Email: emailFilter,
             Phone: phoneFilter,
             Status: statusFilter,
+            InvestmentPosition: investmentPositionFilter,
             SortColumn: sortColumn,
             SortDescending: sortDescending));
     }
@@ -153,4 +190,17 @@
 
         return sortDescending ? "down" : "up";
     }
+
+    private static string LifecycleBadge(string status) => status switch
+    {
+        ClientLifecycleStatuses.Current => "badge text-bg-success",
+        ClientLifecycleStatuses.Unreviewed => "badge text-bg-warning",
+        ClientLifecycleStatuses.Closed or ClientLifecycleStatuses.Historical => "badge text-bg-secondary",
+        ClientLifecycleStatuses.Deceased => "badge text-bg-dark",
+        ClientLifecycleStatuses.Duplicate => "badge text-bg-info",
+        _ => "badge text-bg-light"
+    };
+
+    private static string Money(decimal? value) =>
+        value.HasValue ? $"R {value.Value:N2}" : "—";
 }

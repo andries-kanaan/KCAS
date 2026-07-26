@@ -38,8 +38,8 @@
         <strong>@clientCount</strong>
     </div>
     <div class="metric-card">
-        <span class="metric-label">Active clients</span>
-        <strong>@activeClientCount</strong>
+        <span class="metric-label">Current clients</span>
+        <strong>@currentClientCount</strong>
     </div>
     <div class="metric-card">
         <span class="metric-label">Database</span>
@@ -67,13 +67,14 @@
 
 @code {
     private int clientCount;
-    private int activeClientCount;
+    private int currentClientCount;
     private string databaseStatus = "Pending";
 
     protected override async Task OnInitializedAsync()
     {
         clientCount = await Db.Clients.CountAsync();
-        activeClientCount = await Db.Clients.CountAsync(client => client.IsActive);
+        currentClientCount = await Db.Clients.CountAsync(
+            client => client.LifecycleStatus == ClientLifecycleStatuses.Current);
         databaseStatus = "Online";
     }
 }

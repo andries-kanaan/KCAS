@@ -16,7 +16,7 @@ public sealed class ClientRiskAssessmentServiceTests(KcasWebApplicationFactory f
         var compliance = scope.ServiceProvider.GetRequiredService<ComplianceService>();
         var evidence = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
         var service = scope.ServiceProvider.GetRequiredService<ClientRiskAssessmentService>();
-        await ActivateMethodologyAsync(compliance, "Routine methodology");
+        await ActivateMethodologyAsync(compliance, db, "Routine methodology");
         var clientId = await CreateReadyClientAsync(db, evidence, "Routine Risk Client");
 
         var assessmentId = await service.CreateDraftAsync(clientId, "rep@example.test", "Start routine assessment.");
@@ -71,7 +71,7 @@ public sealed class ClientRiskAssessmentServiceTests(KcasWebApplicationFactory f
         var compliance = scope.ServiceProvider.GetRequiredService<ComplianceService>();
         var evidence = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
         var service = scope.ServiceProvider.GetRequiredService<ClientRiskAssessmentService>();
-        await ActivateMethodologyAsync(compliance, "Elevated methodology");
+        await ActivateMethodologyAsync(compliance, db, "Elevated methodology");
         var clientId = await CreateReadyClientAsync(db, evidence, "Elevated Risk Client");
 
         var assessmentId = await service.CreateDraftAsync(clientId, "rep@example.test", "Start elevated assessment.");
@@ -100,7 +100,7 @@ public sealed class ClientRiskAssessmentServiceTests(KcasWebApplicationFactory f
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var compliance = scope.ServiceProvider.GetRequiredService<ComplianceService>();
         var service = scope.ServiceProvider.GetRequiredService<ClientRiskAssessmentService>();
-        await ActivateMethodologyAsync(compliance, "Blocking methodology");
+        await ActivateMethodologyAsync(compliance, db, "Blocking methodology");
         var clientId = await CreateClientAsync(db, "Blocked Risk Client");
         var assessmentId = await service.CreateDraftAsync(clientId, "rep@example.test", "Start blocked assessment.");
         var page = await service.LoadAsync(clientId);
@@ -125,9 +125,69 @@ public sealed class ClientRiskAssessmentServiceTests(KcasWebApplicationFactory f
             }).ToList()
         };
 
-    private static async Task ActivateMethodologyAsync(ComplianceService service, string name)
+    [Fact]
+    public async Task Submitted_methodology_can_be_used_provisionally_before_ki_signoff()
     {
-        var id = await service.SaveMethodologyAsync(new RiskMethodologyModel
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var compliance = scope.ServiceProvider.GetRequiredService<ComplianceService>();
+        var evidence = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var service = scope.ServiceProvider.GetRequiredService<ClientRiskAssessmentService>();
+
+        foreach (var active in await db.RiskMethodologyVersions
+                     .Where(item =>
+                         item.Status == ComplianceStatuses.Active ||
+                         item.Status == ComplianceStatuses.Approved ||
+                         item.Status == ComplianceStatuses.Review)
+                     .ToListAsync())
+        {
+            active.Status = ComplianceStatuses.Superseded;
+        }
+        await db.SaveChangesAsync();
+
+        var methodologyId = await CreateMethodologyAsync(compliance, "Provisional methodology");
+        await compliance.SubmitMethodologyAsync(methodologyId, "compliance@example.test", "Submit for operational use and later KI sign-off.");
+        var clientId = await CreateReadyClientAsync(db, evidence, "Provisional Risk Client");
+
+        var page = await service.LoadAsync(clientId);
+        Assert.True(page.HasUsableMethodology);
+        Assert.True(page.IsMethodologyProvisional);
+        Assert.Equal(ComplianceStatuses.Review, page.MethodologyStatus);
+
+        var assessmentId = await service.CreateDraftAsync(clientId, "compliance@example.test", "Start provisional assessment.");
+        page = await service.LoadAsync(clientId);
+        await service.SaveDraftAsync(assessmentId, BuildEdit(page, useHighOption: false), "compliance@example.test", "Complete provisional assessment.");
+        await service.FinaliseAsync(assessmentId, "compliance@example.test", "Finalise without blocking on later KI sign-off.");
+
+        var assessment = await db.ClientRiskAssessments.AsNoTracking().SingleAsync(item => item.Id == assessmentId);
+        Assert.Equal(methodologyId, assessment.RiskMethodologyVersionId);
+        Assert.Equal(ClientRiskAssessmentStatuses.Finalised, assessment.Status);
+    }
+
+    private static async Task ActivateMethodologyAsync(ComplianceService service, ApplicationDbContext db, string name)
+    {
+        var id = await CreateMethodologyAsync(service, name);
+        await service.SubmitMethodologyAsync(id, "preparer@example.test", "Submit test methodology.");
+        if (!await db.GovernanceRoleAssignments.AnyAsync(item =>
+                item.Email == "ki-one@example.test" &&
+                item.IsActive &&
+                item.RoleType == "Key Individual"))
+        {
+            db.GovernanceRoleAssignments.Add(new GovernanceRoleAssignment
+            {
+                RoleType = "Key Individual",
+                PersonName = "KI One",
+                Email = "ki-one@example.test",
+                IsActive = true
+            });
+            await db.SaveChangesAsync();
+        }
+        await service.ApproveMethodologyAsync(id, "ki-one@example.test", "KI methodology sign-off.");
+        await service.ActivateMethodologyAsync(id, "compliance@example.test", "Activate test methodology.");
+    }
+
+    private static Task<int> CreateMethodologyAsync(ComplianceService service, string name)
+        => service.SaveMethodologyAsync(new RiskMethodologyModel
         {
             Name = $"{name} {Guid.NewGuid():N}",
             VersionLabel = "v1",
@@ -151,11 +211,6 @@ public sealed class ClientRiskAssessmentServiceTests(KcasWebApplicationFactory f
                 new() { Name = "High", MinimumScore = 3, MaximumScore = 3, ReviewMonths = 12 }
             ]
         }, "preparer@example.test", "Create test methodology.");
-        await service.SubmitMethodologyAsync(id, "preparer@example.test", "Submit test methodology.");
-        await service.ApproveMethodologyAsync(id, "ki-one@example.test", "First KI approval.");
-        await service.ApproveMethodologyAsync(id, "ki-two@example.test", "Second KI approval.");
-        await service.ActivateMethodologyAsync(id, "ki-one@example.test", "Activate test methodology.");
-    }
 
     private static async Task<int> CreateReadyClientAsync(
         ApplicationDbContext db,

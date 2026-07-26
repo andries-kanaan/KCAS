@@ -79,6 +79,130 @@ public sealed class ClientSearchServiceTests(KcasWebApplicationFactory factory)
     }
 
     [Fact]
+    public async Task Search_keeps_lifecycle_separate_from_investment_position()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = new ClientSearchService(db);
+
+        var current = new Client
+        {
+            LegacyClientId = 95001,
+            KanaanId = "LIFECYCLE-CURRENT",
+            SurnameOrEntityName = "Current Holdings",
+            DisplayName = "Current Holdings",
+            LifecycleStatus = ClientLifecycleStatuses.Current,
+            IsActive = true,
+            InvestmentAccounts =
+            {
+                new ClientInvestmentAccount
+                {
+                    AccountNumber = "INV-95001",
+                    Administrator = "Test Platform"
+                }
+            },
+            FundValuations =
+            {
+                new ClientFundValuation
+                {
+                    LegacyFundId = 95001,
+                    InvestmentUniqueNumber = "INV-95001",
+                    Administrator = "Test Platform",
+                    FundName = "Test Fund",
+                    AmountZar = 125_000m
+                }
+            }
+        };
+        var historical = new Client
+        {
+            LegacyClientId = 95002,
+            KanaanId = "LIFECYCLE-HISTORICAL",
+            SurnameOrEntityName = "Historical Holdings",
+            DisplayName = "Historical Holdings",
+            LifecycleStatus = ClientLifecycleStatuses.Closed,
+            IsActive = false,
+            InvestmentAccounts =
+            {
+                new ClientInvestmentAccount
+                {
+                    AccountNumber = "INV-95002",
+                    Administrator = "Test Platform",
+                    SurrenderDate = new DateOnly(2025, 1, 1)
+                }
+            }
+        };
+        var correction = new Client
+        {
+            LegacyClientId = 95003,
+            KanaanId = "LIFECYCLE-CORRECTION",
+            SurnameOrEntityName = "Correction Holdings",
+            DisplayName = "Correction Holdings",
+            LifecycleStatus = ClientLifecycleStatuses.Unreviewed,
+            IsActive = true,
+            InvestmentAccounts =
+            {
+                new ClientInvestmentAccount
+                {
+                    AccountNumber = "INV-95003",
+                    Administrator = "Test Platform"
+                }
+            }
+        };
+        var noInvestments = new Client
+        {
+            LegacyClientId = 95004,
+            KanaanId = "LIFECYCLE-NONE",
+            SurnameOrEntityName = "No Holdings",
+            DisplayName = "No Holdings",
+            LifecycleStatus = ClientLifecycleStatuses.Unreviewed,
+            IsActive = true
+        };
+        db.Clients.AddRange(current, historical, correction, noInvestments);
+        await db.SaveChangesAsync();
+
+        var results = await service.SearchAsync(new ClientSearchRequest(Name: "Holdings"));
+
+        var currentResult = Assert.Single(results, item => item.Id == current.Id);
+        Assert.Equal(ClientLifecycleStatuses.Current, currentResult.LifecycleStatus);
+        Assert.Equal("Current investments", currentResult.InvestmentPosition);
+        Assert.True(currentResult.HasCurrentInvestments);
+        Assert.Equal(125_000m, currentResult.TotalCurrentValueZar);
+
+        var historicalResult = Assert.Single(results, item => item.Id == historical.Id);
+        Assert.Equal(ClientLifecycleStatuses.Closed, historicalResult.LifecycleStatus);
+        Assert.Equal("Historical investments only", historicalResult.InvestmentPosition);
+        Assert.False(historicalResult.HasCurrentInvestments);
+
+        var correctionResult = Assert.Single(results, item => item.Id == correction.Id);
+        Assert.Equal("No current investments · correction needed", correctionResult.InvestmentPosition);
+        Assert.Equal(1, correctionResult.InvestmentStatusCorrectionCount);
+
+        var noInvestmentsResult = Assert.Single(results, item => item.Id == noInvestments.Id);
+        Assert.Equal("No current investments", noInvestmentsResult.InvestmentPosition);
+        Assert.False(noInvestmentsResult.HasCurrentInvestments);
+
+        var closed = await service.SearchAsync(new ClientSearchRequest(
+            Name: "Holdings",
+            Status: ClientLifecycleStatuses.Closed));
+        Assert.Contains(closed, item => item.Id == historical.Id);
+        Assert.DoesNotContain(closed, item => item.Id == current.Id);
+
+        var noCurrent = await service.SearchAsync(new ClientSearchRequest(
+            Name: "Holdings",
+            InvestmentPosition: ClientInvestmentPositionFilters.NoCurrent));
+        Assert.DoesNotContain(noCurrent, item => item.Id == current.Id);
+        Assert.Contains(noCurrent, item => item.Id == historical.Id);
+        Assert.Contains(noCurrent, item => item.Id == correction.Id);
+        Assert.Contains(noCurrent, item => item.Id == noInvestments.Id);
+
+        var needsCorrection = await service.SearchAsync(new ClientSearchRequest(
+            Name: "Holdings",
+            InvestmentPosition: ClientInvestmentPositionFilters.NeedsCorrection));
+        Assert.Contains(needsCorrection, item => item.Id == correction.Id);
+        Assert.DoesNotContain(needsCorrection, item => item.Id == historical.Id);
+    }
+
+    [Fact]
     public async Task Client_can_load_imported_notes()
     {
         using var scope = factory.Services.CreateScope();

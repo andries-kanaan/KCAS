@@ -16,10 +16,18 @@ else
         <div>
             <p class="eyebrow">Controlled methodology review</p>
             <h1>@methodology.Name</h1>
-            <p class="text-muted mb-0">@methodology.VersionLabel | @methodology.Status | @approvalCount of 2 KI approvals</p>
+            <p class="text-muted mb-0">@methodology.VersionLabel | @methodology.Status | @approvalCount of 1 KI sign-off</p>
         </div>
         <div class="header-actions"><a class="btn btn-outline-secondary" href="/compliance/settings">Back to compliance settings</a></div>
     </div>
+
+    @if (methodology.Status == ComplianceStatuses.Review)
+    {
+        <div class="alert alert-warning">
+            Operational use is permitted while one Key Individual sign-off remains outstanding.
+            Assessments retain this exact methodology version in their audit record.
+        </div>
+    }
 
     <section class="work-area">
         <h2>Purpose and effective period</h2>

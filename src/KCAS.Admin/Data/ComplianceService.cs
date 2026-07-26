@@ -297,6 +297,7 @@ public sealed class ComplianceService(ApplicationDbContext db)
     {
         RequireReason(reason);
         var approver = Normalize(userName) ?? throw new ValidationException("Approver identity is required.");
+        await RequireActiveKeyIndividualAsync(approver);
         var methodology = await LoadMethodologyForStatusChangeAsync(methodologyId);
         if (methodology.Status != ComplianceStatuses.Review)
         {
@@ -321,27 +322,8 @@ public sealed class ComplianceService(ApplicationDbContext db)
             Approver = approver,
             Reason = reason.Trim()
         });
-
-        var existingApprovalCount = await db.ComplianceApprovals.CountAsync(approval =>
-            approval.TargetEntityType == nameof(RiskMethodologyVersion) &&
-            approval.TargetEntityId == methodology.Id &&
-            approval.Decision == ComplianceStatuses.Approved);
-        if (existingApprovalCount + 1 >= 2)
-        {
-            methodology.ApprovedAtUtc = DateTime.UtcNow;
-            await ChangeMethodologyStatusAsync(methodology, ComplianceStatuses.Approved, "ApprovedByBothKIs", userName, reason);
-            return;
-        }
-
-        db.ComplianceAuditEvents.Add(CreateAudit(
-            nameof(RiskMethodologyVersion),
-            methodology.Id,
-            "KiApprovalRecorded",
-            null,
-            Snapshot(new { Approver = approver, ApprovalNumber = existingApprovalCount + 1 }),
-            userName,
-            reason));
-        await db.SaveChangesAsync();
+        methodology.ApprovedAtUtc = DateTime.UtcNow;
+        await ChangeMethodologyStatusAsync(methodology, ComplianceStatuses.Approved, "ApprovedByKeyIndividual", userName, reason);
     }
 
     public async Task<int> CreateKanaanStarterMethodologyAsync(string? userName, string reason)
@@ -398,6 +380,9 @@ public sealed class ComplianceService(ApplicationDbContext db)
 
     public async Task RejectMethodologyAsync(int methodologyId, string? userName, string reason)
     {
+        RequireReason(reason);
+        var rejector = Normalize(userName) ?? throw new ValidationException("Rejector identity is required.");
+        await RequireActiveKeyIndividualAsync(rejector);
         var methodology = await LoadMethodologyForStatusChangeAsync(methodologyId);
         if (methodology.Status != ComplianceStatuses.Review)
         {
@@ -511,6 +496,20 @@ public sealed class ComplianceService(ApplicationDbContext db)
     private async Task<RiskMethodologyVersion> LoadMethodologyForStatusChangeAsync(int methodologyId)
         => await db.RiskMethodologyVersions.SingleAsync(methodology => methodology.Id == methodologyId);
 
+    private async Task RequireActiveKeyIndividualAsync(string approver)
+    {
+        var assignments = await db.GovernanceRoleAssignments
+            .AsNoTracking()
+            .Where(assignment => assignment.IsActive && assignment.Email != null)
+            .ToListAsync();
+        if (!assignments.Any(assignment =>
+                string.Equals(assignment.Email, approver, StringComparison.OrdinalIgnoreCase) &&
+                ComplianceApprovalRules.IsKeyIndividualRole(assignment.RoleType)))
+        {
+            throw new ValidationException("Only an active Key Individual recorded in the governance register may approve the client-risk methodology.");
+        }
+    }
+
     private async Task ChangeMethodologyStatusAsync(RiskMethodologyVersion methodology, string status, string action, string? userName, string reason)
     {
         RequireReason(reason);
@@ -557,6 +556,16 @@ public sealed class ComplianceService(ApplicationDbContext db)
         {
             throw new ValidationException(message);
         }
+    }
+}
+
+public static class ComplianceApprovalRules
+{
+    public static bool IsKeyIndividualRole(string? roleType)
+    {
+        var normalized = string.Join(' ', (roleType ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        return normalized.Equals("KI", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains("Key Individual", StringComparison.OrdinalIgnoreCase);
     }
 }
 

@@ -31,15 +31,23 @@ else
         <div class="alert @(hasError ? "alert-danger" : "alert-info")">@statusMessage</div>
     }
 
-    @if (!model.HasActiveMethodology && model.Assessment is null)
+    @if (!model.HasUsableMethodology && model.Assessment is null)
     {
         <div class="alert alert-warning">
-            No active client-risk methodology is available.
-            <a href="/compliance/settings">Create, review and activate the Kanaan starter draft</a> before starting assessments.
+            No submitted client-risk methodology is available.
+            <a href="/compliance/settings">Prepare and submit the Kanaan starter methodology</a> before starting assessments.
         </div>
     }
     else
     {
+        @if (model.IsMethodologyProvisional)
+        {
+            <div class="alert alert-warning">
+                This assessment uses methodology <strong>@model.ActiveMethodologyName</strong> provisionally
+                while one Key Individual sign-off and formal activation remain outstanding.
+                The assessment is not blocked, and its frozen record will retain this methodology version.
+            </div>
+        }
         <section class="summary-grid">
             <article class="summary-card">
                 <span>Evidence readiness</span>
@@ -51,7 +59,7 @@ else
             </article>
             <article class="summary-card">
                 <span>Methodology</span>
-                <strong>@(model.ActiveMethodologyName ?? "Unavailable")</strong>
+                <strong>@(model.ActiveMethodologyName ?? "Unavailable") · @(model.MethodologyStatus ?? "Unknown")</strong>
             </article>
             <article class="summary-card">
                 <span>Status</span>

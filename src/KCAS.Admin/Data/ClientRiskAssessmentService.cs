@@ -26,12 +26,7 @@ public sealed class ClientRiskAssessmentService(
             .OrderByDescending(item => item.Id)
             .FirstOrDefaultAsync();
 
-        var activeMethodology = assessment?.MethodologyVersion ?? await db.RiskMethodologyVersions.AsNoTracking()
-            .Include(methodology => methodology.Factors).ThenInclude(factor => factor.Options)
-            .Include(methodology => methodology.Bands)
-            .Where(methodology => methodology.Status == ComplianceStatuses.Active)
-            .OrderByDescending(methodology => methodology.ActivatedAtUtc)
-            .FirstOrDefaultAsync();
+        var activeMethodology = assessment?.MethodologyVersion ?? await FindAvailableMethodologyAsync(asNoTracking: true);
 
         var evidence = await db.ClientEvidenceItems.AsNoTracking()
             .Where(item => item.ClientId == clientId &&
@@ -75,8 +70,11 @@ public sealed class ClientRiskAssessmentService(
             BlockingEvidenceCount = readiness.BlockedCount,
             BlockingVerificationCount = blockingVerificationCount,
             LifecycleStatus = client.LifecycleStatus,
-            HasActiveMethodology = activeMethodology is not null,
+            HasActiveMethodology = activeMethodology?.Status == ComplianceStatuses.Active,
+            HasUsableMethodology = activeMethodology is not null,
             ActiveMethodologyName = activeMethodology is null ? null : $"{activeMethodology.Name} {activeMethodology.VersionLabel}".Trim(),
+            MethodologyStatus = activeMethodology?.Status,
+            IsMethodologyProvisional = activeMethodology?.Status is ComplianceStatuses.Review or ComplianceStatuses.Approved,
             Assessment = assessment is null ? null : MapAssessment(assessment),
             Factors = activeMethodology?.Factors
                 .OrderBy(factor => factor.SortOrder)
@@ -121,7 +119,7 @@ public sealed class ClientRiskAssessmentService(
             throw new InvalidOperationException("This client already has an assessment in progress.");
         }
 
-        var methodology = await LoadActiveMethodologyAsync();
+        var methodology = await LoadAvailableMethodologyAsync();
         ValidateMethodology(methodology);
         var assessment = new ClientRiskAssessment
         {
@@ -180,7 +178,7 @@ public sealed class ClientRiskAssessmentService(
             throw new InvalidOperationException("This client already has an assessment in progress.");
         }
 
-        var methodology = await LoadActiveMethodologyAsync();
+        var methodology = await LoadAvailableMethodologyAsync();
         ValidateMethodology(methodology);
         var priorResponses = previous.Responses
             .Where(item => item.FactorDefinition is not null)
@@ -346,6 +344,10 @@ public sealed class ClientRiskAssessmentService(
         if (assessment.Responses.Any(response => response.RiskFactorOptionId is null))
         {
             throw new ValidationException("Select an answer for every risk factor.");
+        }
+        if (assessment.MethodologyVersion?.Status is ComplianceStatuses.Draft or ComplianceStatuses.Rejected or ComplianceStatuses.Superseded)
+        {
+            throw new InvalidOperationException("The methodology attached to this assessment is no longer available for operational use.");
         }
         if (assessment.Responses.Any(response => string.IsNullOrWhiteSpace(response.Explanation)))
         {
@@ -556,14 +558,33 @@ public sealed class ClientRiskAssessmentService(
                 .ToList());
     }
 
-    private async Task<RiskMethodologyVersion> LoadActiveMethodologyAsync()
-        => await db.RiskMethodologyVersions
-               .Include(methodology => methodology.Factors).ThenInclude(factor => factor.Options)
-               .Include(methodology => methodology.Bands)
-               .Where(methodology => methodology.Status == ComplianceStatuses.Active)
-               .OrderByDescending(methodology => methodology.ActivatedAtUtc)
-               .FirstOrDefaultAsync()
-           ?? throw new InvalidOperationException("No active client-risk methodology is available. Review and activate one in Compliance Settings.");
+    private async Task<RiskMethodologyVersion> LoadAvailableMethodologyAsync()
+        => await FindAvailableMethodologyAsync(asNoTracking: false)
+           ?? throw new InvalidOperationException("No submitted client-risk methodology is available. Prepare and submit one in Compliance Settings.");
+
+    private async Task<RiskMethodologyVersion?> FindAvailableMethodologyAsync(bool asNoTracking)
+    {
+        IQueryable<RiskMethodologyVersion> query = db.RiskMethodologyVersions
+            .Include(methodology => methodology.Factors).ThenInclude(factor => factor.Options)
+            .Include(methodology => methodology.Bands);
+        if (asNoTracking)
+        {
+            query = query.AsNoTracking();
+        }
+
+        return await query
+                   .Where(methodology => methodology.Status == ComplianceStatuses.Active)
+                   .OrderByDescending(methodology => methodology.ActivatedAtUtc)
+                   .FirstOrDefaultAsync()
+               ?? await query
+                   .Where(methodology => methodology.Status == ComplianceStatuses.Approved)
+                   .OrderByDescending(methodology => methodology.ApprovedAtUtc)
+                   .FirstOrDefaultAsync()
+               ?? await query
+                   .Where(methodology => methodology.Status == ComplianceStatuses.Review)
+                   .OrderByDescending(methodology => methodology.SubmittedAtUtc)
+                   .FirstOrDefaultAsync();
+    }
 
     private async Task<ClientRiskAssessment> LoadAssessmentForMutationAsync(int assessmentId)
         => await db.ClientRiskAssessments
@@ -783,7 +804,10 @@ public sealed class ClientRiskAssessmentPageModel
     public int BlockingVerificationCount { get; init; }
     public string LifecycleStatus { get; init; } = ClientLifecycleStatuses.Unreviewed;
     public bool HasActiveMethodology { get; init; }
+    public bool HasUsableMethodology { get; init; }
     public string? ActiveMethodologyName { get; init; }
+    public string? MethodologyStatus { get; init; }
+    public bool IsMethodologyProvisional { get; init; }
     public ClientRiskAssessmentSummary? Assessment { get; init; }
     public IReadOnlyList<ClientRiskFactorEditModel> Factors { get; init; } = [];
     public IReadOnlyList<ClientRiskEvidenceOption> EvidenceOptions { get; init; } = [];

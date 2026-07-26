@@ -162,7 +162,7 @@ Do not resolve a material conflict merely by choosing the newest filename. Recor
 | 7 | Inspection readiness, reporting and rollout | Technical foundation delivered and browser-checked by the user on 2026-07-26; operational acceptance is part of Phase 8 | Inspection pack, security, recovery and rollout accepted |
 | 8 | Controlled operational population and verification | In progress: lifecycle and per-fact human-verification control implementation started after Phase 7 browser acceptance | Every current client is reviewed, verified and assessed |
 
-Current resume point: **begin Phase 8 controlled operational population and verification with the imported-record lifecycle classification, then work client by client under explicit user approval.**
+Current resume point: **continue Phase 8 client by client under explicit user approval, using the completed Prof Philip Nel Badenhorst pilot review as the operational pattern.**
 
 Phase 0 remains available for operational import acceptance and final data switch-over evidence, but it is no longer the active development blocker.
 
@@ -394,7 +394,7 @@ Produce consistent, explainable and repeatable client risk assessments suited to
 
 ### Deliverables
 
-- One compact assessment against a fixed, approved methodology version.
+- One compact assessment against a fixed methodology version. A submitted version may be used provisionally while operational KI sign-off is pending; every assessment remains pinned to that exact version.
 - Verified client and evidence facts presented for confirmation, with source links and required assessor explanations.
 - Explainable factor calculation and Low, Standard or High classification.
 - Kanaan's ordinary controls recorded in the methodology; only client-specific control failures, EDD and exceptions are repeated on an assessment.
@@ -407,8 +407,10 @@ Produce consistent, explainable and repeatable client risk assessments suited to
 
 ### Implemented in current Phase 3 branch
 
-- Audited client assessments pinned to an active immutable methodology version.
-- Controlled Kanaan starter methodology created only on request and retained as Draft until two distinct KI approvals and activation.
+- Audited client assessments pinned to an immutable submitted, approved or active methodology version.
+- Controlled Kanaan starter methodology created only on request. Drafts cannot be used; submission places a complete version into provisional operational use so client work is not blocked.
+- One active Key Individual recorded in the governance register provides the later operational methodology sign-off. The Compliance Officer may prepare, submit and use the methodology but cannot supply the KI sign-off.
+- Approval and activation remain visible governance milestones. Rejected, Draft or Superseded methodologies cannot be used to finalise assessments.
 - Six-factor 1–3 starter scale, configurable weighted score, Low/Standard/High bands and configurable review periods.
 - Compact per-client assessment page and searchable client-risk list.
 - Evidence-readiness finalisation gate and links to current, confirmed, verified client evidence.
@@ -426,6 +428,7 @@ Produce consistent, explainable and repeatable client risk assessments suited to
 - Every result is explainable from recorded evidence and methodology.
 - High-risk mandatory rules cannot be neutralised by ordinary weighting.
 - High-risk decisions, overrides and material exceptions contain both KI approvals and reasons.
+- Provisional methodology use is clearly labelled, does not block ordinary client assessments and retains the exact version used; one designated KI can sign it off later.
 - Historical assessments remain unchanged after methodology or client-data updates.
 
 ## 10. Phase 4 — Business Risk Assessment
@@ -604,6 +607,7 @@ Return deliberately to the client information and evidence population work only 
 ### Implemented Phase 8 control foundation
 
 - A portfolio review page shows lifecycle totals and outstanding verification counts before client-by-client work begins.
+- The main client register shows the controlled lifecycle separately from investment position and current ZAR value. It can filter current investments, no current investments, historical-only holdings and status corrections; an unreviewed client with no current investment is flagged for lifecycle review but is never closed automatically.
 - Each client has a controlled lifecycle classification with mandatory reason, reviewer and timestamp; duplicate classification requires a canonical client.
 - Assisted/imported facts and Codex recommendations are held in a pending register with current value, proposed value, source, recommendation and blocking flag.
 - Accepting a replacement applies only a supported field and fails safely if the underlying value changed after the recommendation was created.
@@ -611,13 +615,41 @@ Return deliberately to the client information and evidence population work only 
 - Client detail warns when lifecycle review or human verification remains outstanding.
 - Final client-risk assessment is blocked unless the client is classified Current and has no blocking verification items.
 - Technical delivery creates no lifecycle decisions or verification items for live clients.
-- Technical verification on 2026-07-26 passed 151 automated tests with zero build warnings and no pending EF model changes. Migration `20260726175421_AddClientOperationalVerification` was applied after backup; all 490 imported clients remained Unreviewed and the verification register remained empty.
+- Technical verification on 2026-07-26 passed 160 automated tests with zero failures and no pending EF model changes. Migration `20260726175421_AddClientOperationalVerification` was applied after backup; all 490 imported clients initially remained Unreviewed and the verification register remained empty before controlled live population began.
+
+### First live client pilot — Prof Philip Nel Badenhorst
+
+The first complete client-by-client review was performed collaboratively on 2026-07-26 and establishes the following operational order for later clients:
+
+1. Resolve the correct KCAS and legacy client records, confirm the lifecycle as Current and verify that the selected filesystem folder belongs to that client.
+2. Scan and link the folder. Report the linked, skipped, unmatched and ambiguous totals before relying on the scan.
+3. Reconcile material imported facts with the legacy source and documents before compliance assessment. For this pilot, the investment totals, underlying funds, historical holdings and offshore original currencies were corrected and presented accurately before the risk review continued.
+4. Inspect the linked documents by evidence category. Present the finding, source document, discrepancy and proposed treatment to the user; write or verify nothing until the user explicitly approves it.
+5. Record the approved evidence decisions with their source references, reviewer and review dates. The pilot verified identity, address, tax residency, product/service, delivery mandate, source of funds, source of wealth and geography evidence.
+6. Record a reasoned exception where the normal evidence category does not fit the client. The pilot used the proportionate natural-person beneficial-ownership exception after the family/co-policyholder funding context was confirmed.
+7. Perform current PEP/PIP, sanctions/TFS and adverse-information screening. Retain the search basis, source names, URLs, access date, finding and risk conclusion in KCAS rather than recording an unsupported checkbox result.
+8. Recheck evidence readiness and resolve every blocking item. Do not begin or finalise the assessment while lifecycle or blocking verification checks remain unresolved.
+9. Apply the fixed six-factor methodology collaboratively. Present the proposed option and explanation for ownership, geography, product/service, delivery channel, activity and source of funds/wealth, and ask the user to resolve any fact that cannot be established from the evidence. In this pilot the user confirmed that the relationship was established face to face.
+10. Save the selected options, evidence links, explanations, screening overlays and overall narrative, then finalise only after user approval. Retain the exact methodology version used, including a visible provisional status if KI sign-off is still pending.
+
+Pilot result:
+
+- Assessment status: Finalised.
+- Methodology: `Kanaan proportional client risk methodology Working draft v1`, used provisionally while operational KI sign-off remains pending.
+- Factor result: ownership 1, geography 2, product/service 2, delivery 1, activity 1 and source 2.
+- Total score and rating: 9, Standard.
+- EDD: not required; Kanaan's standard monitoring controls apply.
+- Effective date: 2026-07-26.
+- Next periodic review: 2029-07-26, subject to an earlier trigger-event reassessment.
+- Approval boundary: the Compliance Officer prepared and recorded the review after explicit user decisions. One active governance-register KI may later sign off the operational methodology; formal BRA and RMCP adoption remains a Board of Trustees decision.
+
+For every later client, repeat the same sequence and retain client-specific judgement. The pilot outcome is a workflow precedent, not a template conclusion or automatic risk score.
 
 ## 15. Cross-cutting requirements
 
 These apply to every phase:
 
-- Least-privilege permissions and proportionate approval: representatives or KIs may complete routine work; both KIs approve methodology, BRA, RMCP, High-risk clients and material exceptions.
+- Least-privilege permissions and proportionate approval: representatives, the Compliance Officer or KIs may complete routine work; one designated KI signs off the operational client-risk methodology; both KIs continue to approve High-risk clients and material exceptions under Kanaan's chosen control. Formal BRA and RMCP adoption remains with Kanaan's Board of Trustees as the documented highest authority and must follow the trust deed, quorum and resolution requirements.
 - Server-side authorisation, not menu hiding alone.
 - Immutable history for approved or effective records.
 - Effective dating and version pinning.
