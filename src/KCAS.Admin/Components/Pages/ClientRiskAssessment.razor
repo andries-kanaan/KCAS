@@ -139,6 +139,8 @@ else
                     <dt>Effective date</dt><dd>@Date(model.Assessment.EffectiveDate)</dd>
                     <dt>Next review</dt><dd>@Date(model.Assessment.NextReviewDate)</dd>
                     <dt>Finalised by</dt><dd>@Display(model.Assessment.FinalisedBy)</dd>
+                    <dt>Review trigger</dt><dd>@model.Assessment.ReviewTriggerType</dd>
+                    <dt>Trigger reason</dt><dd>@Display(model.Assessment.ReviewTriggerReason)</dd>
                     <dt>Narrative</dt><dd>@Display(model.Assessment.Narrative)</dd>
                 </dl>
                 @if (model.Assessment.Status == ClientRiskAssessmentStatuses.PendingKiApproval)
@@ -150,8 +152,17 @@ else
                 }
                 else if (model.Assessment.Status is ClientRiskAssessmentStatuses.Finalised or ClientRiskAssessmentStatuses.Approved)
                 {
-                    <input class="form-control" @bind="reason" placeholder="Reason for reassessment" />
-                    <button type="button" class="btn btn-outline-primary mt-2" @onclick="CreateDraftAsync" disabled="@(!canPrepare)">Start reassessment</button>
+                    <div class="workspace-grid">
+                        <select class="form-select" @bind="reassessmentTriggerType" disabled="@(!canPrepare)">
+                            @foreach (var trigger in ClientRiskReviewTriggerTypes.ReassessmentTypes)
+                            {
+                                <option value="@trigger">@trigger</option>
+                            }
+                        </select>
+                        <input class="form-control" @bind="reassessmentTriggerReason" placeholder="What triggered this reassessment?" disabled="@(!canPrepare)" />
+                    </div>
+                    <input class="form-control mt-2" @bind="reason" placeholder="Audit reason for starting reassessment" />
+                    <button type="button" class="btn btn-outline-primary mt-2" @onclick="StartReassessmentAsync" disabled="@(!canPrepare)">Start reassessment</button>
                 }
                 @if (model.Assessment.Approvals.Count > 0)
                 {
@@ -172,11 +183,14 @@ else
                 <h2>Assessment history</h2>
                 <div class="table-responsive">
                     <table class="table align-middle">
-                        <thead><tr><th>Status</th><th>Rating</th><th>Score</th><th>Effective</th><th>Next review</th><th>Finalised by</th></tr></thead>
+                        <thead><tr><th>Status</th><th>Trigger</th><th>Rating</th><th>Score</th><th>Effective</th><th>Next review</th><th>Finalised by</th><th></th></tr></thead>
                         <tbody>
                             @foreach (var item in model.History)
                             {
-                                <tr><td>@item.Status</td><td>@Display(item.Rating)</td><td>@item.Score</td><td>@Date(item.EffectiveDate)</td><td>@Date(item.NextReviewDate)</td><td>@Display(item.FinalisedBy)</td></tr>
+                                <tr>
+                                    <td>@item.Status</td><td>@item.ReviewTriggerType</td><td>@Display(item.Rating)</td><td>@item.Score</td><td>@Date(item.EffectiveDate)</td><td>@Date(item.NextReviewDate)</td><td>@Display(item.FinalisedBy)</td>
+                                    <td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="@($"/clients/{ClientId}/risk/{item.Id}")">View/print</a></td>
+                                </tr>
                             }
                         </tbody>
                     </table>
@@ -198,6 +212,8 @@ else
     private bool canPrepare;
     private bool canFinalise;
     private bool canApprove;
+    private string reassessmentTriggerType = ClientRiskReviewTriggerTypes.PeriodicReview;
+    private string? reassessmentTriggerReason;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -235,6 +251,14 @@ else
 
     private async Task CreateDraftAsync()
         => await ExecuteAsync(async () => await RiskService.CreateDraftAsync(ClientId, currentUser, reason ?? "Start client risk assessment."));
+
+    private async Task StartReassessmentAsync()
+        => await ExecuteAsync(async () => await RiskService.StartReassessmentAsync(
+            model!.Assessment!.Id,
+            reassessmentTriggerType,
+            reassessmentTriggerReason ?? "",
+            currentUser,
+            reason ?? ""));
 
     private async Task SaveDraftAsync()
         => await ExecuteAsync(async () => await RiskService.SaveDraftAsync(model!.Assessment!.Id, BuildEditModel(), currentUser, reason ?? ""));

@@ -9,6 +9,9 @@ public sealed class ClientRiskAssessment
     public Client? Client { get; set; }
     public int RiskMethodologyVersionId { get; set; }
     public RiskMethodologyVersion? MethodologyVersion { get; set; }
+    public int? PreviousAssessmentId { get; set; }
+    public ClientRiskAssessment? PreviousAssessment { get; set; }
+    public List<ClientRiskAssessment> Reassessments { get; set; } = [];
 
     [MaxLength(32)]
     public string Status { get; set; } = ClientRiskAssessmentStatuses.Draft;
@@ -35,12 +38,19 @@ public sealed class ClientRiskAssessment
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime? FinalisedAtUtc { get; set; }
     public DateTime? ApprovedAtUtc { get; set; }
+    [MaxLength(48)]
+    public string ReviewTriggerType { get; set; } = ClientRiskReviewTriggerTypes.Initial;
+    public string? ReviewTriggerReason { get; set; }
+    public DateTime? ReviewTriggeredAtUtc { get; set; }
 
     [MaxLength(191)]
     public string? PreparedBy { get; set; }
 
     [MaxLength(191)]
     public string? FinalisedBy { get; set; }
+
+    [MaxLength(191)]
+    public string? ReviewTriggeredBy { get; set; }
 
     public string? SnapshotJson { get; set; }
     public List<ClientRiskAssessmentResponse> Responses { get; set; } = [];
@@ -61,6 +71,9 @@ public sealed class ClientRiskAssessmentResponse
     public int Score { get; set; }
     public decimal WeightedScore { get; set; }
     public string? Explanation { get; set; }
+    public DateTime? ConfirmedAtUtc { get; set; }
+    [MaxLength(191)]
+    public string? ConfirmedBy { get; set; }
 }
 
 public sealed class ClientRiskAssessmentApproval
@@ -86,4 +99,29 @@ public static class ClientRiskAssessmentStatuses
     public const string PendingKiApproval = "PendingKIApproval";
     public const string Approved = "Approved";
     public const string Superseded = "Superseded";
+}
+
+public static class ClientRiskReviewTriggerTypes
+{
+    public const string Initial = "Initial";
+    public const string PeriodicReview = "PeriodicReview";
+    public const string ClientInformationChange = "ClientInformationChange";
+    public const string OwnershipChange = "OwnershipChange";
+    public const string ProductChange = "ProductChange";
+    public const string GeographyChange = "GeographyChange";
+    public const string ScreeningEvent = "ScreeningEvent";
+    public const string UnusualActivity = "UnusualActivity";
+    public const string Other = "Other";
+
+    public static readonly IReadOnlyList<string> ReassessmentTypes =
+    [
+        PeriodicReview,
+        ClientInformationChange,
+        OwnershipChange,
+        ProductChange,
+        GeographyChange,
+        ScreeningEvent,
+        UnusualActivity,
+        Other
+    ];
 }

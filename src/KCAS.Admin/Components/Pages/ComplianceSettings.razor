@@ -329,6 +329,11 @@ else
             builder.CloseElement();
             builder.OpenElement(index++, "td");
             builder.AddAttribute(index++, "class", "text-end");
+            builder.OpenElement(index++, "a");
+            builder.AddAttribute(index++, "class", "btn btn-sm btn-outline-secondary");
+            builder.AddAttribute(index++, "href", $"/compliance/methodologies/{item.Id}/review");
+            builder.AddContent(index++, "Review details");
+            builder.CloseElement();
             if (canManage && item.Status == ComplianceStatuses.Draft)
             {
                 builder.OpenElement(index++, "button");

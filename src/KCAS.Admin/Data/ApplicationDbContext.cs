@@ -812,17 +812,26 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
                 .WithMany(methodology => methodology.ClientAssessments)
                 .HasForeignKey(assessment => assessment.RiskMethodologyVersionId)
                 .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(assessment => assessment.PreviousAssessment)
+                .WithMany(assessment => assessment.Reassessments)
+                .HasForeignKey(assessment => assessment.PreviousAssessmentId)
+                .OnDelete(DeleteBehavior.Restrict);
             entity.Property(assessment => assessment.Status).HasMaxLength(32);
             entity.Property(assessment => assessment.CalculatedScore).HasPrecision(9, 4);
             entity.Property(assessment => assessment.CalculatedRating).HasMaxLength(96);
             entity.Property(assessment => assessment.FinalRating).HasMaxLength(96);
             entity.Property(assessment => assessment.PreparedBy).HasMaxLength(191);
             entity.Property(assessment => assessment.FinalisedBy).HasMaxLength(191);
+            entity.Property(assessment => assessment.ReviewTriggerType)
+                .HasMaxLength(48)
+                .HasDefaultValue(ClientRiskReviewTriggerTypes.Initial);
+            entity.Property(assessment => assessment.ReviewTriggeredBy).HasMaxLength(191);
             ConfigureDateOnly(entity.Property(assessment => assessment.EffectiveDate));
             ConfigureDateOnly(entity.Property(assessment => assessment.NextReviewDate));
             entity.HasIndex(assessment => new { assessment.ClientId, assessment.Status });
             entity.HasIndex(assessment => new { assessment.FinalRating, assessment.Status });
             entity.HasIndex(assessment => assessment.NextReviewDate);
+            entity.HasIndex(assessment => assessment.PreviousAssessmentId);
         });
 
         builder.Entity<ClientRiskAssessmentResponse>(entity =>
@@ -844,6 +853,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
                 .HasForeignKey(response => response.ClientEvidenceItemId)
                 .OnDelete(DeleteBehavior.SetNull);
             entity.Property(response => response.WeightedScore).HasPrecision(9, 4);
+            entity.Property(response => response.ConfirmedBy).HasMaxLength(191);
             entity.HasIndex(response => new { response.ClientRiskAssessmentId, response.RiskFactorDefinitionId }).IsUnique();
             entity.HasIndex(response => response.ClientEvidenceItemId);
         });

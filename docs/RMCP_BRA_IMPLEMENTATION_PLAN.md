@@ -155,14 +155,14 @@ Do not resolve a material conflict merely by choosing the newest filename. Recor
 | 0B | Reviewed field-by-field merge and reconciliation closure | Complete for delivery; live acceptance evidence remains operational follow-up | Review, apply, rejection, deferral and audit trail available |
 | 1 | Compliance foundation and controlled configuration | Complete for delivery; browser acceptance evidence remains operational follow-up | Configuration/versioning and permissions accepted |
 | 2 | Client profile and evidence readiness | Foundation delivered; operational population deferred to Phase 8 | Pilot clients pass completeness and evidence checks |
-| 3 | Proportional client risk assessment workflow | First controlled vertical slice implemented; live acceptance pending | Pilot assessments reproduce approved methodology |
+| 3 | Proportional client risk assessment workflow | Technical delivery complete; operational acceptance deferred to Phase 8 | Pilot assessments reproduce approved methodology |
 | 4 | Business Risk Assessment | Not started | BRA approved from traceable evidence and methodology |
 | 5 | RMCP control and approval management | Not started | Approved RMCP version links risks, controls and evidence |
 | 6 | Monitoring, reviews and remediation | Not started | End-to-end review and escalation cases pass |
 | 7 | Inspection readiness, reporting and rollout | Not started | Inspection pack, security, recovery and rollout accepted |
 | 8 | Controlled operational population and verification | Deferred until Phases 3–7 tools are delivered | Every current client is reviewed, verified and assessed |
 
-Current resume point: **verify and accept the first proportional Phase 3 client-risk slice, then continue the remaining Phase 3 reassessment and reporting work.**
+Current resume point: **begin the proportional Phase 4 Business Risk Assessment foundation without performing live client assessments.**
 
 Phase 0 remains available for operational import acceptance and final data switch-over evidence, but it is no longer the active development blocker.
 
@@ -183,6 +183,8 @@ Each phase must follow the same small-release loop:
 9. Update this document's status and resume point.
 
 A phase is not complete merely because pages or tables exist. Its business workflow, audit trail, permissions, reporting and acceptance evidence must work together.
+
+For Phases 3–7, distinguish technical delivery from operational acceptance. Technical delivery is proven with automated and synthetic data so the complete toolset can be built first. Live methodology activation, client population, representative client assessment, production BRA/RMCP approval and final inspection evidence are deliberately completed together in Phase 8.
 
 ## 6. Phase 0 — Historical data reconciliation gate
 
@@ -414,8 +416,11 @@ Produce consistent, explainable and repeatable client risk assessments suited to
 - Mandatory escalation for High risk, PEP, adverse information and overrides, with two distinct KI approvals.
 - Sanctions/TFS concerns block finalisation, and mandatory High triggers cannot be overridden downward.
 - Frozen assessment snapshot, effective and next-review dates, supersession and audited return-to-draft workflow.
+- Full read-only methodology review showing factors, options, weights, mandatory triggers, bands and review periods.
+- Structured reassessment triggers linked to the prior assessment, with copied answers remaining unconfirmed until reviewed again.
+- Due, overdue, status and rating filters plus a printable frozen assessment/history record.
 
-### Acceptance gate 3
+### Operational acceptance gate 3 — deferred to Phase 8
 
 - An agreed pilot sample is scored manually and in KCAS with matching results.
 - Every result is explainable from recorded evidence and methodology.
