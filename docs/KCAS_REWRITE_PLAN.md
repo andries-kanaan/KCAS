@@ -304,7 +304,7 @@ Verified locally after the security, import, compliance foundation and client ev
 - `dotnet build` succeeds.
 - `dotnet test tests\KCAS.Admin.Tests\KCAS.Admin.Tests.csproj` passes.
 - `dotnet ef migrations has-pending-model-changes` reports no pending model changes.
-- `src\KCAS.Admin\Data\Migrations\kcas_blazor_schema.sql` includes the shared-evidence ownership model and records latest migration `20260726085802_AddSharedEvidenceOwnership`.
+- `src\KCAS.Admin\Data\Migrations\kcas_blazor_schema.sql` includes the entity ownership and related-party register and records latest migration `20260726120259_AddClientEntityOwnershipRegister`.
 - Kestrel starts on `http://127.0.0.1:5143`.
 - WAMP HTTPS proxy reaches the app at `https://kcas.test:8443`.
 - `https://kcas.test:8443/clients` redirects unauthenticated users to login.
@@ -316,6 +316,7 @@ Verified locally after the security, import, compliance foundation and client ev
 - Compliance foundation routes, permissions, service workflow and audit events are covered by automated tests.
 - Client evidence readiness, server-folder scanner idempotence, unmatched-file handling, evidence verification and exception logic are covered by automated tests.
 - Shared client-folder aliases, conservative ownership assignment, multi-client evidence confirmation and category false-positive prevention are covered by automated tests.
+- Trust/legal-person entity profiles, multi-role related parties, party evidence links, screening subjects and ownership readiness blockers are covered by automated tests.
 - The live shared-folder pilot retains 195 generic Bodenstein documents for explicit ownership review; no generic file is accepted into readiness automatically.
 
 Still to verify manually in browser:
@@ -328,6 +329,7 @@ Still to verify manually in browser:
 - `/compliance` and `/compliance/settings` support the full Phase 1 controlled configuration workflow in the deployed browser environment.
 - `/compliance/client-evidence` can configure and scan the live server client document root.
 - `/clients/{id}/evidence` supports per-client evidence readiness review.
+- `/clients/{id}/ownership` supports audited trust/legal-person ownership, control, authority, evidence and screening traceability.
 - Client create/edit, contact/address editing, relationship editing, note create/edit/finalize/delete.
 - Investment account create/edit/delete and transaction create/edit/finalize/delete.
 - Fund summary filtering/totals and unmatched valuation handling.
@@ -359,7 +361,9 @@ Still to verify manually in browser:
    - Reconcile counts and spot-check representative clients, notes, KYC, investments, fund valuations, and reference choices.
 
 4. Richer domain modules.
-   - Accept the Phase 1 compliance foundation workflow and Phase 2 client evidence readiness workflow in browser before building full client risk assessments.
+   - Build the proportional client-risk, annual BRA, controlled RMCP, common compliance worklist and inspection-pack tools described in the authoritative RMCP/BRA roadmap.
+   - Design for Kanaan's small operating structure rather than bank-scale approval, case-management and analytics workflows.
+   - After those tools are complete, return to the mandatory client-by-client operational population and human-verification gate; do not allow that deferred work to disappear from the programme.
    - Add reference-data administration screens only if operational users need to maintain values inside KCAS.
    - Build report/export workflows.
    - Continue administration/security refinements after acceptance review.

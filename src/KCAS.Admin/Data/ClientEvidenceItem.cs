@@ -59,6 +59,10 @@ public sealed class ClientEvidenceItem
     [MaxLength(32)]
     public string? ScreeningRiskSignal { get; set; }
 
+    public int? ClientRelatedPartyId { get; set; }
+
+    public ClientRelatedParty? RelatedParty { get; set; }
+
     public bool EscalationRequired { get; set; }
 
     [MaxLength(32)]
@@ -102,6 +106,8 @@ public sealed class ClientEvidenceItem
     public int? ClientEvidenceScanFileId { get; set; }
 
     public ClientEvidenceScanFile? ScanFile { get; set; }
+
+    public ICollection<ClientRelatedPartyEvidenceLink> RelatedPartyEvidenceLinks { get; } = [];
 
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 

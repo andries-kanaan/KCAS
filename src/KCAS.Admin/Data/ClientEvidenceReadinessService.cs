@@ -36,18 +36,32 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         var requirements = await LoadActiveRequirementsAsync();
         var items = await db.ClientEvidenceItems.AsNoTracking().ToListAsync();
         var exceptions = await db.ClientEvidenceExceptions.AsNoTracking().Where(item => item.IsActive).ToListAsync();
+        var entityProfiles = await db.ClientEntityProfiles.AsNoTracking().ToListAsync();
+        var relatedParties = await db.ClientRelatedParties
+            .AsNoTracking()
+            .AsSplitQuery()
+            .Include(party => party.Roles)
+            .Include(party => party.EvidenceLinks).ThenInclude(link => link.EvidenceItem)
+            .ToListAsync();
         var today = DateOnly.FromDateTime(DateTime.Today);
 
         foreach (var client in clients)
         {
             var readiness = CalculateReadiness(client.ClientId, client.ClientCategory, requirements, items, exceptions, today);
+            var ownershipBlockers = EntityOwnershipRules.CalculateBlockers(
+                client.ClientCategory,
+                entityProfiles.FirstOrDefault(profile => profile.ClientId == client.ClientId),
+                relatedParties.Where(party => party.ClientId == client.ClientId),
+                items.Where(item => item.ClientId == client.ClientId),
+                today);
             client.RequiredCount = readiness.RequiredCount;
             client.CompleteCount = readiness.CompleteCount;
-            client.BlockedCount = readiness.BlockedCount;
+            client.OwnershipBlockedCount = ownershipBlockers.Count;
+            client.BlockedCount = readiness.BlockedCount + ownershipBlockers.Count;
             client.ExceptionCount = readiness.ExceptionCount;
             client.LinkedEvidenceCount = items.Count(item => item.ClientId == client.ClientId && ClientEvidenceOwnershipStatuses.IsActive(item.OwnershipStatus));
             client.VerifiedEvidenceCount = items.Count(item => item.ClientId == client.ClientId && ClientEvidenceOwnershipStatuses.IsActive(item.OwnershipStatus) && item.VerifiedDate is not null);
-            client.IsReadyForRiskAssessment = readiness.IsReadyForRiskAssessment;
+            client.IsReadyForRiskAssessment = readiness.IsReadyForRiskAssessment && ownershipBlockers.Count == 0;
         }
 
         var latestRun = await db.ClientEvidenceScanRuns
@@ -151,7 +165,11 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
 
         var client = await db.Clients
             .AsNoTracking()
+            .AsSplitQuery()
             .Include(client => client.Relationships)
+            .Include(client => client.EntityProfile)
+            .Include(client => client.RelatedParties).ThenInclude(party => party.Roles)
+            .Include(client => client.RelatedParties).ThenInclude(party => party.EvidenceLinks).ThenInclude(link => link.EvidenceItem)
             .SingleOrDefaultAsync(client => client.Id == clientId)
             ?? throw new InvalidOperationException("Client not found.");
 
@@ -169,6 +187,12 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             .Where(exception => exception.ClientId == clientId && exception.IsActive)
             .ToListAsync();
         var today = DateOnly.FromDateTime(DateTime.Today);
+        var ownershipBlockers = EntityOwnershipRules.CalculateBlockers(
+            client.ClientCategory,
+            client.EntityProfile,
+            client.RelatedParties,
+            items,
+            today);
 
         var requirementRows = requirements
             .Select(requirement =>
@@ -214,15 +238,16 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             ClientCategory = client.ClientCategory,
             ClientFolder = client.ClientFolder,
             ScreeningSubjects = BuildScreeningSubjects(client),
+            OwnershipBlockers = ownershipBlockers,
             Requirements = requirementRows,
             EvidenceItems = items.Select(ClientEvidenceItemModel.FromItem).ToList(),
             RequiredCount = requirementRows.Count,
             CompleteCount = requirementRows.Count(row => row.IsComplete),
             ExceptionCount = requirementRows.Count(row => row.IsExceptioned),
-            BlockedCount = requirementRows.Count(row => row.IsBlocked),
+            BlockedCount = requirementRows.Count(row => row.IsBlocked) + ownershipBlockers.Count,
             LinkedEvidenceCount = items.Count(item => ClientEvidenceOwnershipStatuses.IsActive(item.OwnershipStatus)),
             VerifiedEvidenceCount = items.Count(item => ClientEvidenceOwnershipStatuses.IsActive(item.OwnershipStatus) && item.VerifiedDate is not null),
-            IsReadyForRiskAssessment = requirementRows.All(row => !row.IsBlocked)
+            IsReadyForRiskAssessment = requirementRows.All(row => !row.IsBlocked) && ownershipBlockers.Count == 0
         };
     }
 
@@ -958,6 +983,17 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         var outcome = Normalize(request.Outcome) ?? throw new ValidationException("Screening outcome is required.");
         var riskSignal = Normalize(request.RiskSignal) ?? throw new ValidationException("Risk signal is required.");
         var notes = Normalize(request.Notes);
+        ClientRelatedParty? relatedParty = null;
+        if (request.ClientRelatedPartyId is not null)
+        {
+            relatedParty = await db.ClientRelatedParties
+                .AsNoTracking()
+                .Include(party => party.Roles)
+                .SingleOrDefaultAsync(party => party.Id == request.ClientRelatedPartyId && party.ClientId == clientId && party.IsActive)
+                ?? throw new ValidationException("The selected related party is not active for this client.");
+            subjectName = relatedParty.DisplayName;
+            subjectType = MapRelatedPartySubjectType(relatedParty.Roles.Select(role => role.RoleCode));
+        }
         ValidateScreeningReview(requirement.EvidenceType, client.ClientCategory, subjectType, outcome, riskSignal, notes);
         var escalationRequired = IsSanctionsEscalation(requirement.EvidenceType, outcome);
         var item = new ClientEvidenceItem
@@ -973,6 +1009,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             ScreeningReviewDate = reviewDate,
             ScreeningSubjectType = subjectType,
             ScreeningSubjectName = subjectName,
+            ClientRelatedPartyId = relatedParty?.Id,
             ScreeningOutcome = outcome,
             ScreeningRiskSignal = riskSignal,
             EscalationRequired = escalationRequired,
@@ -1796,6 +1833,16 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                 SubjectName = relationship.Name!.Trim()
             }));
 
+        subjects.AddRange(client.RelatedParties
+            .Where(party => party.IsActive && !string.IsNullOrWhiteSpace(party.DisplayName))
+            .OrderBy(party => party.DisplayName)
+            .Select(party => new ClientEvidenceScreeningSubjectModel
+            {
+                ClientRelatedPartyId = party.Id,
+                SubjectType = MapRelatedPartySubjectType(party.Roles.Select(role => role.RoleCode)),
+                SubjectName = party.DisplayName
+            }));
+
         return subjects
             .DistinctBy(subject => $"{subject.SubjectType}|{NormalizeToken(subject.SubjectName)}")
             .ToList();
@@ -1809,6 +1856,18 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         if (normalized.Contains("DIRECTOR")) return ClientEvidenceScreeningSubjectTypes.Director;
         if (normalized.Contains("CONTROLLER") || normalized.Contains("OWNER")) return ClientEvidenceScreeningSubjectTypes.Controller;
         if (normalized.Contains("AUTHORISED") || normalized.Contains("AUTHORIZED") || normalized.Contains("SIGNATORY")) return ClientEvidenceScreeningSubjectTypes.AuthorisedPerson;
+        return ClientEvidenceScreeningSubjectTypes.Other;
+    }
+
+    private static string MapRelatedPartySubjectType(IEnumerable<string> roles)
+    {
+        var roleSet = roles.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (roleSet.Contains(ClientRelatedPartyRoles.Trustee)) return ClientEvidenceScreeningSubjectTypes.Trustee;
+        if (roleSet.Contains(ClientRelatedPartyRoles.Beneficiary)) return ClientEvidenceScreeningSubjectTypes.Beneficiary;
+        if (roleSet.Contains(ClientRelatedPartyRoles.Director)) return ClientEvidenceScreeningSubjectTypes.Director;
+        if (roleSet.Overlaps([ClientRelatedPartyRoles.Controller, ClientRelatedPartyRoles.BeneficialOwner, ClientRelatedPartyRoles.MemberShareholder]))
+            return ClientEvidenceScreeningSubjectTypes.Controller;
+        if (roleSet.Contains(ClientRelatedPartyRoles.AuthorisedPerson)) return ClientEvidenceScreeningSubjectTypes.AuthorisedPerson;
         return ClientEvidenceScreeningSubjectTypes.Other;
     }
 
@@ -1927,6 +1986,7 @@ public sealed class ClientEvidenceClientSummaryModel
     public int CompleteCount { get; set; }
     public int ExceptionCount { get; set; }
     public int BlockedCount { get; set; }
+    public int OwnershipBlockedCount { get; set; }
     public int LinkedEvidenceCount { get; set; }
     public int VerifiedEvidenceCount { get; set; }
     public bool IsReadyForRiskAssessment { get; set; }
@@ -1946,6 +2006,7 @@ public sealed class ClientEvidenceReadinessModel
     public int LinkedEvidenceCount { get; set; }
     public int VerifiedEvidenceCount { get; set; }
     public bool IsReadyForRiskAssessment { get; set; }
+    public List<string> OwnershipBlockers { get; set; } = [];
     public List<ClientEvidenceScreeningSubjectModel> ScreeningSubjects { get; set; } = [];
     public List<ClientEvidenceRequirementStatusModel> Requirements { get; set; } = [];
     public List<ClientEvidenceItemModel> EvidenceItems { get; set; } = [];
@@ -2042,6 +2103,7 @@ public sealed class ClientEvidenceItemModel
 
 public sealed class ClientEvidenceScreeningSubjectModel
 {
+    public int? ClientRelatedPartyId { get; set; }
     public string SubjectType { get; set; } = "";
     public string SubjectName { get; set; } = "";
     public string Label => $"{SubjectName} ({SubjectType})";
@@ -2049,6 +2111,7 @@ public sealed class ClientEvidenceScreeningSubjectModel
 
 public sealed class ClientEvidenceScreeningReviewRequest
 {
+    public int? ClientRelatedPartyId { get; set; }
     public string? SubjectType { get; set; }
     public string? SubjectName { get; set; }
     public string? Outcome { get; set; }

@@ -50,6 +50,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<ClientEvidenceScanFile> ClientEvidenceScanFiles => Set<ClientEvidenceScanFile>();
 
     public DbSet<ClientEvidenceOwnershipAlias> ClientEvidenceOwnershipAliases => Set<ClientEvidenceOwnershipAlias>();
+    public DbSet<ClientEntityProfile> ClientEntityProfiles => Set<ClientEntityProfile>();
+    public DbSet<ClientRelatedParty> ClientRelatedParties => Set<ClientRelatedParty>();
+    public DbSet<ClientRelatedPartyRole> ClientRelatedPartyRoles => Set<ClientRelatedPartyRole>();
+    public DbSet<ClientRelatedPartyEvidenceLink> ClientRelatedPartyEvidenceLinks => Set<ClientRelatedPartyEvidenceLink>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -612,6 +616,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
                 .WithMany()
                 .HasForeignKey(item => item.SupersededByClientEvidenceItemId)
                 .OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne(item => item.RelatedParty)
+                .WithMany(party => party.ScreeningEvidenceItems)
+                .HasForeignKey(item => item.ClientRelatedPartyId)
+                .OnDelete(DeleteBehavior.Restrict);
             entity.Property(item => item.EvidenceType).HasMaxLength(96);
             entity.Property(item => item.Title).HasMaxLength(240);
             entity.Property(item => item.SourcePath).HasMaxLength(512);
@@ -650,6 +658,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.HasIndex(item => item.FileSha256);
             entity.HasIndex(item => item.ExpiryDate);
             entity.HasIndex(item => item.SupersededByClientEvidenceItemId);
+            entity.HasIndex(item => item.ClientRelatedPartyId);
         });
 
         builder.Entity<ClientEvidenceException>(entity =>
@@ -717,6 +726,76 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.Property(alias => alias.CreatedBy).HasMaxLength(191);
             entity.HasIndex(alias => new { alias.FolderPath, alias.IsActive });
             entity.HasIndex(alias => new { alias.ClientId, alias.FolderPath, alias.Alias }).IsUnique();
+        });
+
+        builder.Entity<ClientEntityProfile>(entity =>
+        {
+            entity.HasOne(profile => profile.Client)
+                .WithOne(client => client.EntityProfile)
+                .HasForeignKey<ClientEntityProfile>(profile => profile.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(profile => profile.LegalForm).HasMaxLength(64);
+            entity.Property(profile => profile.RegistrationNumber).HasMaxLength(128);
+            entity.Property(profile => profile.RegistrationCountry).HasMaxLength(96);
+            entity.Property(profile => profile.NatureOfBusinessOrPurpose).HasMaxLength(500);
+            entity.Property(profile => profile.OwnershipReviewStatus).HasMaxLength(32);
+            entity.Property(profile => profile.ControlConclusion).HasMaxLength(32);
+            entity.Property(profile => profile.OwnershipReviewedBy).HasMaxLength(191);
+            entity.Property(profile => profile.UpdatedBy).HasMaxLength(191);
+            ConfigureDateOnly(entity.Property(profile => profile.EstablishmentDate));
+            ConfigureDateOnly(entity.Property(profile => profile.NextOwnershipReviewDate));
+            entity.HasIndex(profile => profile.ClientId).IsUnique();
+            entity.HasIndex(profile => new { profile.OwnershipReviewStatus, profile.NextOwnershipReviewDate });
+        });
+
+        builder.Entity<ClientRelatedParty>(entity =>
+        {
+            entity.HasOne(party => party.Client)
+                .WithMany(client => client.RelatedParties)
+                .HasForeignKey(party => party.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(party => party.PartyType).HasMaxLength(32);
+            entity.Property(party => party.DisplayName).HasMaxLength(240);
+            entity.Property(party => party.SouthAfricanIdNumber).HasMaxLength(13);
+            entity.Property(party => party.PassportNumber).HasMaxLength(64);
+            entity.Property(party => party.PassportCountry).HasMaxLength(96);
+            entity.Property(party => party.RegistrationNumber).HasMaxLength(128);
+            entity.Property(party => party.Nationality).HasMaxLength(96);
+            entity.Property(party => party.CountryOfResidence).HasMaxLength(96);
+            entity.Property(party => party.OwnershipPercent).HasPrecision(5, 2);
+            entity.Property(party => party.UpdatedBy).HasMaxLength(191);
+            ConfigureDateOnly(entity.Property(party => party.BirthDate));
+            ConfigureDateOnly(entity.Property(party => party.EffectiveFrom));
+            ConfigureDateOnly(entity.Property(party => party.EffectiveTo));
+            entity.HasIndex(party => new { party.ClientId, party.IsActive });
+            entity.HasIndex(party => party.DisplayName);
+        });
+
+        builder.Entity<ClientRelatedPartyRole>(entity =>
+        {
+            entity.HasOne(role => role.RelatedParty)
+                .WithMany(party => party.Roles)
+                .HasForeignKey(role => role.ClientRelatedPartyId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(role => role.RoleCode).HasMaxLength(64);
+            entity.HasIndex(role => new { role.ClientRelatedPartyId, role.RoleCode }).IsUnique();
+            entity.HasIndex(role => role.RoleCode);
+        });
+
+        builder.Entity<ClientRelatedPartyEvidenceLink>(entity =>
+        {
+            entity.HasOne(link => link.RelatedParty)
+                .WithMany(party => party.EvidenceLinks)
+                .HasForeignKey(link => link.ClientRelatedPartyId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(link => link.EvidenceItem)
+                .WithMany(item => item.RelatedPartyEvidenceLinks)
+                .HasForeignKey(link => link.ClientEvidenceItemId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.Property(link => link.Purpose).HasMaxLength(32);
+            entity.Property(link => link.LinkedBy).HasMaxLength(191);
+            entity.HasIndex(link => new { link.ClientRelatedPartyId, link.ClientEvidenceItemId, link.Purpose }).IsUnique();
+            entity.HasIndex(link => new { link.ClientEvidenceItemId, link.Purpose });
         });
     }
 

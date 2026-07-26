@@ -21,6 +21,10 @@ else
             <p class="text-muted mb-0">Kanaan ID: @(model.KanaanId ?? "Not captured") | Category: @model.ClientCategory</p>
         </div>
         <div class="header-actions">
+            @if (model.ClientCategory is ClientCategories.Trust or ClientCategories.LegalPerson)
+            {
+                <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/ownership")">Ownership register</a>
+            }
             <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}")">Client detail</a>
             <a class="btn btn-outline-secondary" href="/compliance/client-evidence">Evidence dashboard</a>
         </div>
@@ -63,6 +67,19 @@ else
         <p class="lead mb-0">@(model.IsReadyForRiskAssessment ? "Ready for risk assessment" : "Not ready for risk assessment")</p>
         <p class="text-muted mb-0">Client folder: @Display(model.ClientFolder)</p>
     </section>
+
+    @if (model.OwnershipBlockers.Count > 0)
+    {
+        <section class="work-area">
+            <h2>Ownership and control blockers</h2>
+            <ul class="mb-0">
+                @foreach (var blocker in model.OwnershipBlockers)
+                {
+                    <li>@blocker</li>
+                }
+            </ul>
+        </section>
+    }
 
     <section class="work-area">
         <h2>Action reason</h2>
@@ -565,6 +582,7 @@ else
         selectedReviewSubjectKey = subject is null ? ManualSubjectKey : SubjectKey(subject);
         reviewForm = new ClientEvidenceScreeningReviewRequest
         {
+            ClientRelatedPartyId = subject?.ClientRelatedPartyId,
             SubjectType = subject?.SubjectType ?? ClientEvidenceScreeningSubjectTypes.Client,
             SubjectName = subject?.SubjectName ?? model.DisplayName,
             Outcome = ClientEvidenceScreeningOutcomes.ForEvidenceType(requirement.EvidenceType).FirstOrDefault(),
@@ -643,7 +661,7 @@ else
         _ => "badge text-bg-secondary"
     };
 
-    private static string SubjectKey(ClientEvidenceScreeningSubjectModel subject) => $"{subject.SubjectType}|{subject.SubjectName}";
+    private static string SubjectKey(ClientEvidenceScreeningSubjectModel subject) => $"{subject.ClientRelatedPartyId}|{subject.SubjectType}|{subject.SubjectName}";
 
     private static string DisplaySubjectType(string? value) => value switch
     {
@@ -664,6 +682,10 @@ else
     private void ChangeReviewSubject(ChangeEventArgs eventArgs)
     {
         selectedReviewSubjectKey = eventArgs.Value?.ToString() ?? ManualSubjectKey;
+        if (selectedReviewSubjectKey == ManualSubjectKey)
+        {
+            reviewForm.ClientRelatedPartyId = null;
+        }
         ApplySelectedReviewSubject();
     }
 
@@ -677,6 +699,7 @@ else
         var subject = model.ScreeningSubjects.FirstOrDefault(subject => SubjectKey(subject) == selectedReviewSubjectKey);
         if (subject is not null)
         {
+            reviewForm.ClientRelatedPartyId = subject.ClientRelatedPartyId;
             reviewForm.SubjectType = subject.SubjectType;
             reviewForm.SubjectName = subject.SubjectName;
         }
