@@ -2,7 +2,7 @@
 
 Status: Active source of truth  
 Plan owner: Kanaan / KCAS  
-Last updated: 2026-07-22  
+Last updated: 2026-07-26
 Implementation approach: gated, incremental releases
 
 ## 1. Purpose
@@ -154,14 +154,15 @@ Do not resolve a material conflict merely by choosing the newest filename. Recor
 | 0A | Safe scan and add-new reconciliation foundation | Complete for delivery; live acceptance evidence remains operational follow-up | Controlled scan/apply-new workflow available |
 | 0B | Reviewed field-by-field merge and reconciliation closure | Complete for delivery; live acceptance evidence remains operational follow-up | Review, apply, rejection, deferral and audit trail available |
 | 1 | Compliance foundation and controlled configuration | Complete for delivery; browser acceptance evidence remains operational follow-up | Configuration/versioning and permissions accepted |
-| 2 | Client profile and evidence readiness | In implementation | Pilot clients pass completeness and evidence checks |
-| 3 | Client risk assessment workflow | Not started | Pilot assessments reproduce approved methodology |
+| 2 | Client profile and evidence readiness | Foundation delivered; operational population deferred to Phase 8 | Pilot clients pass completeness and evidence checks |
+| 3 | Proportional client risk assessment workflow | Next implementation phase | Pilot assessments reproduce approved methodology |
 | 4 | Business Risk Assessment | Not started | BRA approved from traceable evidence and methodology |
 | 5 | RMCP control and approval management | Not started | Approved RMCP version links risks, controls and evidence |
 | 6 | Monitoring, reviews and remediation | Not started | End-to-end review and escalation cases pass |
 | 7 | Inspection readiness, reporting and rollout | Not started | Inspection pack, security, recovery and rollout accepted |
+| 8 | Controlled operational population and verification | Deferred until Phases 3–7 tools are delivered | Every current client is reviewed, verified and assessed |
 
-Current resume point: **Phase 2 client evidence readiness implementation and acceptance.**
+Current resume point: **finalise the Phase 2 ownership-register release, then begin the proportional Phase 3 client-risk workflow.**
 
 Phase 0 remains available for operational import acceptance and final data switch-over evidence, but it is no longer the active development blocker.
 
@@ -343,6 +344,12 @@ Make KCAS the reliable evidence base from which client risk can be assessed.
 - Audited evidence ownership confirmation, multi-client assignment and exclusion without deleting scan history.
 - Ownership state is enforced by readiness and verification so unresolved or excluded files cannot satisfy requirements.
 - Evidence-path category inference no longer treats ordinary estate or asset-distribution filenames as proof of client legal form.
+- Dedicated ownership and related-party register for trust and legal-person clients.
+- Entity profiles capture legal form, registration details, establishment date and business or trust purpose.
+- Multi-role related parties capture founders, trustees, beneficiaries, directors, members/shareholders, beneficial owners, controllers, authorised persons and senior-managing-official fallbacks.
+- Party-specific identity, authority and ownership/control evidence links, with related-party screening traceability.
+- Audited ownership/control completion requires a documented conclusion, next review date and verified supporting evidence; percentage ownership alone does not prove control.
+- Trust and legal-person readiness now includes structured ownership, party evidence, screening and review-date blockers.
 
 ### Current Phase 2 acceptance position
 
@@ -351,6 +358,8 @@ Make KCAS the reliable evidence base from which client risk can be assessed.
 - The shared Bodenstein dossier is configured for wife, husband and joint aliases.
 - Explicitly named files were reconciled; 195 generic shared-folder documents remain queued for ownership review.
 - Representative legal-person scanning, evidence verification, screening review, exceptions/tasks and final natural-person/trust/legal-person acceptance remain outstanding.
+- The entity-ownership register is deployed without inferred live parties; Tomora Trust remains deliberately blocked until its reviewed registration, party, evidence and screening facts are captured.
+- No accessible legal-person document folder is currently available under the downloaded pilot root, and the legacy `Z:` folders are unavailable; the company/CC pilot remains pending a reviewed accessible folder.
 
 ### Acceptance gate 2
 
@@ -362,11 +371,11 @@ Make KCAS the reliable evidence base from which client risk can be assessed.
 - A live server client document root can be scanned without copying files, and repeated scans do not duplicate unchanged evidence links.
 - Unmatched or ambiguous files remain visible for manual review.
 
-## 9. Phase 3 — Client risk assessment workflow
+## 9. Phase 3 — Proportional client risk assessment workflow
 
 ### Objective
 
-Produce consistent, explainable, reviewable and repeatable client risk assessments from the actual client profile and evidence.
+Produce consistent, explainable and repeatable client risk assessments suited to Kanaan's small operating structure: two KIs, three representatives, an accountant and an administrator. The workflow must preserve the statutory evidence chain without imposing bank-scale role, case-management or approval structures.
 
 ### Risk dimensions
 
@@ -383,47 +392,39 @@ Produce consistent, explainable, reviewable and repeatable client risk assessmen
 
 ### Deliverables
 
-- Draft assessment created against a fixed methodology version.
-- Automatic evidence-derived answers where reliable, with source links.
-- Required assessor answers and narrative justification.
-- Inherent risk, relevant controls and residual risk.
-- Explainable calculation showing factor scores, weight/rule and result.
-- Low, medium and high risk classification using approved thresholds and mandatory high-risk rules.
-- Authorised override with mandatory reason and approval.
-- EDD requirements and actions for elevated risk.
-- Maker/reviewer approval workflow.
-- Effective date, next review date, supersession and trigger-event reassessment.
-- Frozen assessment snapshot so later client edits do not rewrite history.
-- Client risk report and portfolio distribution dashboard.
+- One compact assessment against a fixed, approved methodology version.
+- Verified client and evidence facts presented for confirmation, with source links and required assessor explanations.
+- Explainable factor calculation and Low, Standard or High classification.
+- Kanaan's ordinary controls recorded in the methodology; only client-specific control failures, EDD and exceptions are repeated on an assessment.
+- Sanctions/TFS concerns stop finalisation and require escalation; PEP and designated elevated-risk cases require EDD.
+- A representative or KI may finalise ordinary Low or Standard assessments.
+- Both KIs must approve High-risk clients, overrides, material evidence exceptions and acceptance of escalated relationships.
+- Effective date, next review date, supersession and event-triggered reassessment.
+- Frozen assessment snapshot so later methodology, evidence or client edits do not rewrite history.
+- A simple searchable client-risk list and counts by classification; no bank-scale portfolio analytics.
 
 ### Acceptance gate 3
 
 - An agreed pilot sample is scored manually and in KCAS with matching results.
 - Every result is explainable from recorded evidence and methodology.
 - High-risk mandatory rules cannot be neutralised by ordinary weighting.
-- Overrides and exceptions require permission, reason and approval.
+- High-risk decisions, overrides and material exceptions contain both KI approvals and reasons.
 - Historical assessments remain unchanged after methodology or client-data updates.
 
 ## 10. Phase 4 — Business Risk Assessment
 
 ### Objective
 
-Create and approve Kanaan's entity-wide BRA using traceable operational evidence and explicit management judgement.
+Create one concise annual Kanaan entity-wide BRA using traceable operational evidence and explicit management judgement.
 
 ### Deliverables
 
-- Versioned BRA period, scope, methodology, preparer, reviewers and approvers.
-- Risk universe covering clients, products/services, channels, geography, transactions/activity, delivery model and relevant external threats.
-- Quantitative portfolio evidence drawn from approved client assessments.
-- Qualitative business risk statements and supporting evidence.
-- Inherent likelihood/impact or other approved risk method.
-- Existing controls, control effectiveness and residual risk.
-- Risk appetite/tolerance comparison.
-- Required treatment actions, owners and due dates.
-- Management judgement and limitations section.
-- Review comments, approval workflow and immutable approved version.
-- Comparison against the prior BRA and change explanations.
-- Export matching the approved Kanaan BRA format.
+- One versioned annual record covering clients, products/services, channels, geography, activity and relevant external threats.
+- Simple portfolio counts and concentrations drawn from approved client assessments.
+- A compact 3-by-3 likelihood/impact risk table showing inherent risk, key controls, control effectiveness and residual risk.
+- Management judgement, limitations, risk tolerance and required actions with owners and due dates.
+- Both KI approvals and an immutable approved version.
+- Reproducible export matching the approved Kanaan BRA format.
 
 The BRA must not be a simple average of client scores. Client results are evidence inputs; concentration, products, channels, external threats, controls and management judgement remain independently assessed.
 
@@ -439,49 +440,38 @@ The BRA must not be a simple average of client scores. Client results are eviden
 
 ### Objective
 
-Manage the RMCP as a controlled, approved programme linked to assessed risks and operational evidence.
+Manage the RMCP as a controlled document and concise risk/control register linked to Kanaan's BRA and operational evidence.
 
 ### Deliverables
 
-- Versioned RMCP record with scope, effective date, owner, status and review cycle.
-- Structured sections aligned to the approved document structure and section 42 review analysis.
-- Risk-to-control mapping from BRA risks to RMCP clauses and procedures.
-- Control owner, frequency, evidence requirement, monitoring method and escalation path.
-- Linkage to client-risk rules, EDD, screening, record keeping, reporting, training, governance and review procedures.
-- Gap register between approved requirements and implemented controls.
-- Draft, internal review, compliance review, board approval, effective and superseded states.
-- Review comments and tracked change rationale.
-- Board resolution metadata and signed-document attachment.
-- Controlled RMCP export and version comparison.
-- Review-date reminders and change-trigger workflow.
+- Versioned RMCP record with scope, effective date, owner, review cycle and signed Word/PDF source.
+- One concise register mapping BRA risks to RMCP controls, owners, frequency, evidence, monitoring and escalation.
+- Coverage for client risk, CDD, EDD, screening, records, reporting, training, governance and review procedures.
+- Gap or treatment actions recorded in the common compliance work register.
+- Draft, approved, effective and superseded states, with change reason and both KI approvals.
+- The signed document remains authoritative; KCAS will not become a custom word processor or bank-scale clause-management system.
 
 ### Acceptance gate 5
 
 - Every material BRA risk maps to one or more controls or an approved treatment action.
 - Every control has an owner, evidence expectation and monitoring frequency.
-- Approval stages and signed resolution are traceable.
+- Both KI approvals and the signed resolution/document are traceable.
 - The effective RMCP cannot be edited; revisions create a new version.
-- The generated document reconciles with the approved KCAS record.
+- The controlled document reconciles with the approved KCAS record.
 
 ## 12. Phase 6 — Monitoring, reviews and remediation
 
 ### Objective
 
-Turn approved assessments and controls into recurring operational compliance work.
+Turn approved assessments and controls into a single manageable compliance worklist.
 
 ### Deliverables
 
-- Periodic client-review schedule based on risk and policy.
-- Trigger-event reviews for material client, ownership, product, geography, screening or activity changes.
-- EDD case workflow and evidence checklist.
-- Screening review and escalation records.
-- Control-test schedule and sample/evidence results.
-- BRA and RMCP treatment-action register.
-- Findings, remediation actions, owner, due date, escalation and closure approval.
-- Training assignment/evidence links where relevant to controls.
-- Exception, breach and management-decision registers.
-- Human-authorised suspicious/unusual activity case and decision record where later approved for scope; no autonomous regulatory filing.
-- Overdue, high-risk and unresolved-item dashboards and notifications.
+- Extend the existing compliance task model into one work register with task types for periodic review, trigger review, EDD, screening escalation, control test, treatment action, finding, training, exception and remediation.
+- Record owner, due date, evidence, outcome, closure reason and linked client/BRA/RMCP/control.
+- Calculate client review dates from approved risk and create work for material changes in client, ownership, product, geography, screening or activity.
+- Provide simple overdue, High-risk and unresolved filters.
+- Keep suspicious/unusual activity decisions human-authorised; KCAS performs no autonomous regulatory filing.
 
 ### Acceptance gate 6
 
@@ -495,38 +485,54 @@ Turn approved assessments and controls into recurring operational compliance wor
 
 ### Objective
 
-Produce a defensible inspection evidence pack and put the complete solution into controlled operational use.
+Produce a defensible inspection evidence pack and put the proportional Kanaan solution into controlled operational use.
 
 ### Deliverables
 
-- Inspection/case record for the FSCA notice and future reviews.
-- Request register mapped to notice items, owner, due date, status and evidence.
-- Document readiness register and gap dashboard.
-- Evidence index linking clients, assessments, BRA versions, RMCP versions, approvals, training, monitoring and remediation.
-- As-at-date reporting and reproducible exports.
-- Read-only inspector/auditor access where approved.
-- Access review, segregation-of-duties review and sensitive-data controls.
-- Audit-log completeness and tamper-resistance verification.
-- Backup, restore, rollback, retention and disaster-recovery rehearsal.
-- Performance and volume testing using representative data.
-- User acceptance testing with compliance and operational users.
-- Pilot rollout, training, support procedure and staged production rollout.
-- Post-implementation review and unresolved-risk register.
+- One inspection workspace with request items, owner, due date, status and evidence.
+- A reproducible evidence index linking clients, assessments, BRA, RMCP, approvals, training, monitoring and remediation.
+- As-at-date reports and controlled exports rather than a permanent external-auditor portal.
+- Access, audit-log, sensitive-data, backup, restore and rollback verification.
+- Proportionate performance testing and a single Kanaan acceptance/training exercise rather than staged enterprise rollout.
 
 ### Acceptance gate 7
 
 - A mock inspection request can be answered from KCAS with a complete evidence index.
 - Reports reproduce the approved records as at the selected date.
-- Permissions and segregation of duties pass review.
+- Permissions and the Kanaan-specific approval rules pass review.
 - Backup restore and rollback are demonstrated.
-- Pilot users approve the workflows and training.
-- Production rollout and support ownership are formally accepted.
+- Kanaan's operational users approve the workflows, training and support ownership.
 
-## 14. Cross-cutting requirements
+## 14. Phase 8 — Controlled operational population and verification
+
+### Objective
+
+Return deliberately to the client information and evidence population work only after the Phase 3–7 tools provide a destination and control for every relevant fact.
+
+### Deliverables
+
+- Validate the 490 imported records first and classify each as current, closed, deceased, duplicate or historical.
+- Preserve historical records, but fully populate and assess the confirmed current population.
+- Work client by client: select the folder, scan and link documents, compare the documents with KCAS, and record Codex findings and recommendations.
+- Apply no recommended change until the user explicitly accepts it.
+- Mark assisted or imported values as awaiting human verification and show the outstanding count on the client record.
+- Let an authorised Kanaan user verify or reject each item in KCAS with source, user, date and reason.
+- Complete the real client assessment only after its blocking information is verified.
+- After the current population is complete, finalise the production BRA, effective RMCP, monitoring baseline and inspection evidence pack.
+
+### Acceptance gate 8
+
+- Every imported record has a confirmed lifecycle classification.
+- Every current client has a completed evidence/readiness review and an approved or finalised risk assessment.
+- No assisted value is treated as verified merely because it was extracted or proposed by Codex.
+- The production BRA reconciles to the verified current-client population.
+- The programme is not marked complete while any current client has unresolved blocking verification items.
+
+## 15. Cross-cutting requirements
 
 These apply to every phase:
 
-- Least-privilege permissions and explicit separation of preparation and approval where required.
+- Least-privilege permissions and proportionate approval: representatives or KIs may complete routine work; both KIs approve methodology, BRA, RMCP, High-risk clients and material exceptions.
 - Server-side authorisation, not menu hiding alone.
 - Immutable history for approved or effective records.
 - Effective dating and version pinning.
@@ -539,7 +545,7 @@ These apply to every phase:
 - Representative business acceptance tests recorded per phase.
 - POPIA-conscious handling of personal and special personal information.
 
-## 15. Definition of done for the full programme
+## 16. Definition of done for the full programme
 
 The programme is complete only when:
 
@@ -551,8 +557,9 @@ The programme is complete only when:
 6. Reviews, EDD, control testing and remediation operate in KCAS.
 7. An inspection evidence pack can be reproduced for a stated date.
 8. Security, audit, backup, recovery, training and operational ownership are accepted.
+9. Every imported client is lifecycle-classified and every confirmed current client has completed the controlled population, verification and assessment workflow.
 
-## 16. How to pause and resume
+## 17. How to pause and resume
 
 Before pausing:
 
@@ -568,15 +575,14 @@ When resuming, use this instruction:
 
 Do not infer completion from code alone. Recheck the acceptance evidence and deployment state first.
 
-## 17. Current open decisions
+## 18. Current open decisions
 
 These decisions are deliberately deferred until their phase starts:
 
-- The precise authorised roles and whether reviewer/approver separation is mandatory for every workflow.
 - The approved client-risk factors, weights, mandatory rules, bands and review frequencies.
 - The evidence-storage approach for sensitive client documents.
 - The final BRA scoring methodology and risk appetite/tolerance formulation.
-- The exact structured RMCP section model and generated document template.
+- The final signed RMCP document format and export requirements.
 - Which external screening or compliance systems, if any, will integrate with KCAS.
 - Notification channels and escalation timeframes.
 - Retention periods and read-only inspector access policy.

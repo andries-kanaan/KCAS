@@ -25,6 +25,10 @@ else
             <p class="text-muted mb-0">Kanaan ID: @(client.KanaanId ?? "Not captured")</p>
         </div>
         <div class="header-actions">
+            @if (client.ClientCategory is ClientCategories.Trust or ClientCategories.LegalPerson)
+            {
+                <a class="btn btn-outline-secondary" href="@($"/clients/{Id}/ownership")">Ownership register</a>
+            }
             <a class="btn btn-outline-secondary" href="@($"/clients/{Id}/evidence")">Evidence readiness</a>
             <a class="btn btn-outline-secondary" href="@($"/clients/{Id}#investments")">Investments</a>
             <a class="btn btn-outline-secondary" href="@($"/clients/{Id}#notes")">Notes</a>

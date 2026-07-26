@@ -59,6 +59,8 @@ public class Client
 
     public ClientFinancialProfile? FinancialProfile { get; set; }
 
+    public ClientEntityProfile? EntityProfile { get; set; }
+
     public ICollection<ClientContactPoint> ContactPoints { get; } = [];
 
     public ICollection<ClientAddress> Addresses { get; } = [];
@@ -82,6 +84,8 @@ public class Client
     public ICollection<ClientEvidenceException> EvidenceExceptions { get; } = [];
 
     public ICollection<ClientEvidenceOwnershipAlias> EvidenceOwnershipAliases { get; } = [];
+
+    public ICollection<ClientRelatedParty> RelatedParties { get; } = [];
 }
 
 public static class LegacyReconciliationStatuses
