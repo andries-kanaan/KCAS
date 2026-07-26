@@ -1,0 +1,96 @@
+@page "/compliance/business-risk/{Id:int}/print"
+@attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
+@using System.Text.Json
+@using KCAS.Admin.Data
+@inject BusinessRiskAssessmentService BusinessRiskService
+
+<PageTitle>Approved Business Risk Assessment</PageTitle>
+
+<div class="print-actions mb-3">
+    <a class="btn btn-outline-secondary" href="@($"/compliance/business-risk/{Id}")">Back</a>
+    <button class="btn btn-primary ms-2" onclick="window.print()">Print</button>
+</div>
+
+@if (document is null)
+{
+    <p>Loading approved record...</p>
+}
+else
+{
+    var root = document.RootElement;
+    <article class="approved-record">
+        <p class="eyebrow">Frozen approved record</p>
+        <h1>@root.GetProperty("name").GetString()</h1>
+        <p>Assessment year: @root.GetProperty("assessmentYear").GetInt32() · As at: @root.GetProperty("asAtDate").GetString()</p>
+
+        <h2>Scope</h2>
+        <p>@root.GetProperty("scope").GetString()</p>
+        <h2>Methodology</h2>
+        <p>@root.GetProperty("methodologyNarrative").GetString()</p>
+        <h2>Management judgement</h2>
+        <p>@root.GetProperty("managementJudgement").GetString()</p>
+        <h2>Limitations</h2>
+        <p>@root.GetProperty("limitations").GetString()</p>
+        <h2>Risk tolerance</h2>
+        <p>@root.GetProperty("riskTolerance").GetString()</p>
+
+        <h2>Portfolio evidence</h2>
+        <pre class="border rounded p-3">@JsonSerializer.Serialize(root.GetProperty("portfolio"), prettyJson)</pre>
+
+        <h2>Risk register</h2>
+        <div class="table-responsive">
+            <table class="table table-bordered align-middle">
+                <thead>
+                    <tr><th>Risk</th><th>Evidence</th><th>Inherent</th><th>Controls</th><th>Residual</th><th>Treatment</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var risk in root.GetProperty("risks").EnumerateArray())
+                    {
+                        <tr>
+                            <td><strong>@BusinessRiskCategories.Display(risk.GetProperty("category").GetString() ?? "")</strong><br />@risk.GetProperty("riskStatement").GetString()</td>
+                            <td>@risk.GetProperty("evidenceAndRationale").GetString()</td>
+                            <td>@risk.GetProperty("inherentScore").GetInt32() · @risk.GetProperty("inherentRating").GetString()<br />L @risk.GetProperty("likelihood").GetInt32() × I @risk.GetProperty("impact").GetInt32()</td>
+                            <td>@risk.GetProperty("keyControls").GetString()<br /><em>@risk.GetProperty("controlEffectiveness").GetString()</em></td>
+                            <td>@risk.GetProperty("residualRating").GetString()<br />@risk.GetProperty("residualRationale").GetString()</td>
+                            <td>@risk.GetProperty("treatmentDecision").GetString()<br />@risk.GetProperty("owner").GetString() @Date(risk)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <h2>KI approvals</h2>
+        <ul>
+            @foreach (var approval in root.GetProperty("approvals").EnumerateArray())
+            {
+                <li>@approval.GetProperty("approver").GetString() — @approval.GetProperty("approvedAtUtc").GetDateTime().ToLocalTime().ToString("yyyy-MM-dd HH:mm") — @approval.GetProperty("reason").GetString()</li>
+            }
+        </ul>
+    </article>
+}
+
+<style>
+    @@media print {
+        .print-actions, .sidebar, header { display: none !important; }
+        .approved-record { font-size: 10pt; }
+        .approved-record table { font-size: 8pt; }
+    }
+</style>
+
+@code {
+    [Parameter] public int Id { get; set; }
+    private JsonDocument? document;
+    private static readonly JsonSerializerOptions prettyJson = new() { WriteIndented = true };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        document?.Dispose();
+        var model = await BusinessRiskService.LoadPrintableAsync(Id);
+        document = JsonDocument.Parse(model.SnapshotJson);
+    }
+
+    private static string Date(JsonElement risk)
+        => risk.TryGetProperty("dueDate", out var dueDate) && dueDate.ValueKind == JsonValueKind.String
+            ? $"· due {dueDate.GetString()}"
+            : "";
+}

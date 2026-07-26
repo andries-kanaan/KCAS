@@ -1,0 +1,98 @@
+@page "/compliance/business-risk"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
+@using KCAS.Admin.Data
+@inject BusinessRiskAssessmentService BusinessRiskService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager NavigationManager
+
+<PageTitle>Business risk</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Compliance</p>
+        <h1>Business Risk Assessments</h1>
+        <p class="lede">Kanaan's concise annual entity-wide risk view, supported by portfolio evidence and explicit management judgement.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="/compliance">Compliance dashboard</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(message))
+{
+    <div class="alert alert-info">@message</div>
+}
+
+@if (canManage)
+{
+    <section class="work-area">
+        <h2>Start annual assessment</h2>
+        <p class="text-muted">This creates six proportional risk headings as a draft. It does not approve or activate anything.</p>
+        <div class="workspace-grid">
+            <InputNumber class="form-control" @bind-Value="year" />
+            <InputDate class="form-control" @bind-Value="asAtDate" />
+            <input class="form-control" @bind="reason" placeholder="Reason for creating this draft" />
+            <button type="button" class="btn btn-primary" @onclick="CreateAsync">Create draft</button>
+        </div>
+    </section>
+}
+
+<section class="work-area">
+    <h2>Annual versions</h2>
+    @if (items.Count == 0)
+    {
+        <p>No Business Risk Assessment has been created yet.</p>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead><tr><th>Assessment</th><th>As at</th><th>Status</th><th>KI approvals</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var item in items)
+                    {
+                        <tr>
+                            <td>@item.Name</td>
+                            <td>@item.AsAtDate.ToString("yyyy-MM-dd")</td>
+                            <td>@item.Status</td>
+                            <td>@item.Approvals.Count / 2</td>
+                            <td class="text-end"><a class="btn btn-sm btn-outline-primary" href="@($"/compliance/business-risk/{item.Id}")">Open</a></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@code {
+    private IReadOnlyList<BusinessRiskAssessment> items = [];
+    private int year = DateTime.Today.Year;
+    private DateOnly asAtDate = DateOnly.FromDateTime(DateTime.Today);
+    private string reason = "";
+    private string? currentUser;
+    private string? message;
+    private bool canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        currentUser = state.User.Identity?.Name;
+        canManage = state.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage);
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync() => items = await BusinessRiskService.LoadListAsync();
+
+    private async Task CreateAsync()
+    {
+        try
+        {
+            var id = await BusinessRiskService.CreateDraftAsync(year, asAtDate, currentUser, reason);
+            NavigationManager.NavigateTo($"/compliance/business-risk/{id}");
+        }
+        catch (Exception ex)
+        {
+            message = ex.Message;
+        }
+    }
+}
