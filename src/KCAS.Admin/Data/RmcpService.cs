@@ -145,6 +145,7 @@ public sealed class RmcpService(ApplicationDbContext db)
         {
             var task = new ComplianceTask
             {
+                TaskType = ComplianceTaskTypes.TreatmentAction,
                 Title = $"RMCP treatment: {control.Code} {control.Title}",
                 Description = control.GapDescription,
                 Owner = control.TreatmentOwner,
@@ -153,6 +154,9 @@ public sealed class RmcpService(ApplicationDbContext db)
                 Status = ComplianceStatuses.Draft,
                 LinkedEntityType = nameof(RmcpControl),
                 LinkedEntityId = control.Id,
+                BusinessRiskAssessmentId = version.BusinessRiskAssessmentId,
+                RmcpVersionId = version.Id,
+                RmcpControlId = control.Id,
                 UpdatedBy = user
             };
             db.ComplianceTasks.Add(task);

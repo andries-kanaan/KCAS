@@ -435,6 +435,10 @@ public sealed class ComplianceService(ApplicationDbContext db)
     {
         RequireReason(reason);
         RequireValue(model.Title, "Task title is required.");
+        if (string.Equals(model.Status, ComplianceStatuses.Closed, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Use the Monitoring work register to record evidence and obtain authorised closure approval.");
+        }
         ComplianceTask task;
         string? oldJson = null;
         var action = "Created";
@@ -451,6 +455,7 @@ public sealed class ComplianceService(ApplicationDbContext db)
         }
 
         task.Title = Normalize(model.Title)!;
+        task.TaskType = string.IsNullOrWhiteSpace(task.TaskType) ? ComplianceTaskTypes.Remediation : task.TaskType;
         task.Description = Normalize(model.Description);
         task.Owner = Normalize(model.Owner);
         task.DueDate = model.DueDate;

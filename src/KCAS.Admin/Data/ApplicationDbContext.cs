@@ -631,15 +631,25 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 
         builder.Entity<ComplianceTask>(entity =>
         {
+            entity.Property(task => task.TaskType).HasMaxLength(48).HasDefaultValue(ComplianceTaskTypes.Remediation);
             entity.Property(task => task.Title).HasMaxLength(240);
             entity.Property(task => task.Owner).HasMaxLength(191);
             entity.Property(task => task.Priority).HasMaxLength(32);
             entity.Property(task => task.Status).HasMaxLength(32);
             entity.Property(task => task.LinkedEntityType).HasMaxLength(128);
+            entity.Property(task => task.EscalatedBy).HasMaxLength(191);
+            entity.Property(task => task.ClosureRequestedBy).HasMaxLength(191);
+            entity.Property(task => task.ClosedBy).HasMaxLength(191);
             entity.Property(task => task.UpdatedBy).HasMaxLength(191);
             ConfigureDateOnly(entity.Property(task => task.DueDate));
             entity.HasIndex(task => new { task.Status, task.DueDate });
+            entity.HasIndex(task => new { task.TaskType, task.Status, task.DueDate });
             entity.HasIndex(task => new { task.LinkedEntityType, task.LinkedEntityId });
+            entity.HasOne(task => task.Client).WithMany().HasForeignKey(task => task.ClientId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(task => task.ClientRiskAssessment).WithMany().HasForeignKey(task => task.ClientRiskAssessmentId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(task => task.BusinessRiskAssessment).WithMany().HasForeignKey(task => task.BusinessRiskAssessmentId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(task => task.RmcpVersion).WithMany().HasForeignKey(task => task.RmcpVersionId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(task => task.RmcpControl).WithMany().HasForeignKey(task => task.RmcpControlId).OnDelete(DeleteBehavior.Restrict);
         });
 
         builder.Entity<ComplianceEvidence>(entity =>

@@ -118,6 +118,19 @@ public sealed class ComplianceServiceTests(KcasWebApplicationFactory factory)
         Assert.True(await db.ComplianceAuditEvents.AnyAsync(audit => audit.EntityType == nameof(ComplianceEvidence) && audit.EntityId == evidenceId));
     }
 
+    [Fact]
+    public async Task Legacy_task_editor_cannot_bypass_evidence_gated_closure()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ComplianceService>();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.SaveTaskAsync(new ComplianceTaskModel
+        {
+            Title = "Attempt direct closure",
+            Status = ComplianceStatuses.Closed
+        }, "compliance@example.test", "Try to bypass work-register closure."));
+    }
+
     private static async Task<int> CreateApprovedMethodologyAsync(ComplianceService service, string name)
     {
         var methodologyId = await service.SaveMethodologyAsync(new RiskMethodologyModel

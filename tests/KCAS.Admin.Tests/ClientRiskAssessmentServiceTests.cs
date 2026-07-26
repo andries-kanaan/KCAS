@@ -41,6 +41,10 @@ public sealed class ClientRiskAssessmentServiceTests(KcasWebApplicationFactory f
             .ToListAsync();
         Assert.All(copiedResponses, item => Assert.NotNull(item.RiskFactorOptionId));
         Assert.All(copiedResponses, item => Assert.Null(item.ConfirmedAtUtc));
+        Assert.True(await db.ComplianceTasks.AnyAsync(item =>
+            item.ClientRiskAssessmentId == reassessmentId &&
+            item.TaskType == ComplianceTaskTypes.PeriodicReview &&
+            item.Status == ComplianceWorkStatuses.Open));
         await Assert.ThrowsAsync<ValidationException>(() =>
             service.FinaliseAsync(reassessmentId, "rep@example.test", "Attempt without reconfirming."));
 
