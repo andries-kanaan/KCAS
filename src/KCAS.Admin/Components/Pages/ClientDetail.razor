@@ -506,10 +506,10 @@ else
         <div class="section-heading-row">
             <div>
                 <h2>Investments</h2>
-                <p class="section-subtitle">@InvestmentAccounts.Count account@(InvestmentAccounts.Count == 1 ? "" : "s") and @FundValuations.Count current fund value@(FundValuations.Count == 1 ? "" : "s") available</p>
+                <p class="section-subtitle">@CurrentInvestmentAccounts.Count current account@(CurrentInvestmentAccounts.Count == 1 ? "" : "s") containing @CurrentFundHoldingCount underlying fund holding@(CurrentFundHoldingCount == 1 ? "" : "s"), and @HistoricalInvestmentAccounts.Count historical account@(HistoricalInvestmentAccounts.Count == 1 ? "" : "s")</p>
             </div>
             <div class="row-actions">
-                <a class="btn btn-outline-secondary btn-sm" href="@($"/clients/{Id}/fund-summary")">Fund summary</a>
+                <a class="btn btn-outline-secondary btn-sm" href="@($"/clients/{Id}/fund-summary")">Underlying fund summary</a>
                 <AuthorizeView Policy="@KcasPermissions.InvestmentsManage">
                     <Authorized>
                         <a class="btn btn-outline-secondary btn-sm" href="@($"/clients/{Id}/investments/new")">Add account</a>
@@ -523,12 +523,20 @@ else
                 <strong>@Money(TotalInvestmentCurrentValueZar)</strong>
             </div>
             <div>
-                <span>Valuation matched accounts</span>
-                <strong>@ValuationMatchedAccountCount</strong>
+                <span>Current accounts</span>
+                <strong>@CurrentInvestmentAccounts.Count</strong>
             </div>
             <div>
-                <span>History fallback accounts</span>
-                <strong>@HistoryFallbackAccountCount</strong>
+                <span>Underlying fund holdings</span>
+                <strong>@CurrentFundHoldingCount</strong>
+            </div>
+            <div>
+                <span>Historical accounts</span>
+                <strong>@HistoricalInvestmentAccounts.Count</strong>
+            </div>
+            <div>
+                <span>Status corrections</span>
+                <strong>@HistoricalStatusCorrectionCount</strong>
             </div>
             <div>
                 <span>Unmatched fund values</span>
@@ -543,6 +551,10 @@ else
         {
             <p class="text-muted">No investment account records available for this client.</p>
         }
+        else if (CurrentInvestmentAccounts.Count == 0)
+        {
+            <p class="text-muted">No investment accounts have a current fund valuation.</p>
+        }
         else
         {
             <div class="table-responsive">
@@ -552,9 +564,9 @@ else
                             <th>Account</th>
                             <th>Administrator</th>
                             <th>Product</th>
-                            <th>Fund</th>
+                            <th>Underlying funds</th>
                             <th>Dates</th>
-                            <th>Current value</th>
+                            <th>Account total</th>
                             <th>Transactions</th>
                             <AuthorizeView Policy="@KcasPermissions.InvestmentsManage">
                                 <Authorized>
@@ -564,19 +576,18 @@ else
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var account in InvestmentAccounts)
+                        @foreach (var account in CurrentInvestmentAccounts)
                         {
                             var activeTransactions = account.Transactions.Where(transaction => !transaction.IsDeleted).ToList();
                             var latestTransaction = LatestTransaction(account);
                             var currentValuations = CurrentValuations(account).ToList();
-                            var latestBalanceTransaction = LatestBalanceTransaction(account);
-                            var currentValueZar = currentValuations.Count > 0 ? SumValues(currentValuations, valuation => valuation.AmountZar) : latestBalanceTransaction?.BalanceZar;
-                            var currentValueForeign = currentValuations.Count > 0 ? SumValues(currentValuations, valuation => valuation.AmountForeign) : latestBalanceTransaction?.BalanceForeign;
+                            var currentValueZar = SumValues(currentValuations, valuation => valuation.AmountZar);
+                            var currentValueForeign = ForeignAccountTotal(currentValuations);
                             var currentValueDate = currentValuations
                                 .Where(valuation => valuation.ValuationDate.HasValue)
                                 .OrderByDescending(valuation => valuation.ValuationDate)
                                 .Select(valuation => valuation.ValuationDate)
-                                .FirstOrDefault() ?? latestBalanceTransaction?.TransactionDate;
+                                .FirstOrDefault();
                             <tr>
                                 <td>
                                     <strong>@Display(account.AccountNumber)</strong>
@@ -587,18 +598,57 @@ else
                                     @Display(account.ProductName)
                                     <div class="text-muted small">@Display(account.ProductType)</div>
                                 </td>
-                                <td>@Display(account.FundName)</td>
+                                <td>
+                                    <table class="table table-sm mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th>Fund</th>
+                                                <th class="text-end">Value</th>
+                                                <th class="text-end">Date</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var valuation in currentValuations
+                                                .OrderBy(valuation => valuation.FundName)
+                                                .ThenBy(valuation => valuation.LegacyFundId))
+                                            {
+                                                <tr>
+                                                    <td>@Display(valuation.FundName)</td>
+                                                    <td class="text-end">
+                                                        @if (valuation.AmountForeign.HasValue && valuation.AmountForeign.Value != 0)
+                                                        {
+                                                            <div><strong>@ForeignMoney(valuation.AmountForeign, ForeignCurrencyCode(valuation.FundName))</strong></div>
+                                                            <div class="text-muted small">@Money(valuation.AmountZar) converted ZAR</div>
+                                                        }
+                                                        else
+                                                        {
+                                                            <div>@Money(valuation.AmountZar)</div>
+                                                        }
+                                                    </td>
+                                                    <td class="text-end">@Date(valuation.ValuationDate)</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </td>
                                 <td>
                                     <div>Started: @Date(account.InvestmentDate)</div>
                                     <div>Surrender: @Date(account.SurrenderDate)</div>
                                 </td>
                                 <td>
-                                    <div>@Money(currentValueZar)</div>
-                                    <div class="text-muted small">@Money(currentValueForeign)</div>
+                                    @if (currentValueForeign is not null)
+                                    {
+                                        <div><strong>@currentValueForeign</strong></div>
+                                        <div class="text-muted small">@Money(currentValueZar) converted ZAR</div>
+                                    }
+                                    else
+                                    {
+                                        <div>@Money(currentValueZar)</div>
+                                    }
                                     @if (currentValueDate.HasValue)
                                     {
                                         <div class="text-muted small">
-                                            @(currentValuations.Count > 0 ? "Valuation" : "History balance"): @Date(currentValueDate)
+                                            Valuation: @Date(currentValueDate)
                                         </div>
                                     }
                                     @if (currentValuations.Count > 1)
@@ -658,15 +708,24 @@ else
                                                                 <td>@Display(transaction.InvestmentFrequency)</td>
                                                                 <td>
                                                                     <div>@Money(transaction.InvestmentAmountZar)</div>
-                                                                    <div class="text-muted small">@Money(transaction.InvestmentAmountForeign)</div>
+                                                                    @if (transaction.InvestmentAmountForeign.HasValue && transaction.InvestmentAmountForeign.Value != 0)
+                                                                    {
+                                                                        <div class="text-muted small">@ForeignMoney(transaction.InvestmentAmountForeign, ForeignCurrencyCode(account.FundName))</div>
+                                                                    }
                                                                 </td>
                                                                 <td>
                                                                     <div>@Money(transaction.WithdrawalAmountZar)</div>
-                                                                    <div class="text-muted small">@Money(transaction.WithdrawalAmountForeign)</div>
+                                                                    @if (transaction.WithdrawalAmountForeign.HasValue && transaction.WithdrawalAmountForeign.Value != 0)
+                                                                    {
+                                                                        <div class="text-muted small">@ForeignMoney(transaction.WithdrawalAmountForeign, ForeignCurrencyCode(account.FundName))</div>
+                                                                    }
                                                                 </td>
                                                                 <td>
                                                                     <div>@Money(transaction.BalanceZar)</div>
-                                                                    <div class="text-muted small">@Money(transaction.BalanceForeign)</div>
+                                                                    @if (transaction.BalanceForeign.HasValue && transaction.BalanceForeign.Value != 0)
+                                                                    {
+                                                                        <div class="text-muted small">@ForeignMoney(transaction.BalanceForeign, ForeignCurrencyCode(account.FundName))</div>
+                                                                    }
                                                                 </td>
                                                                 <td>@(transaction.IsFinal ? "Final" : "Preliminary")</td>
                                                                 <AuthorizeView Policy="@KcasPermissions.InvestmentsManage">
@@ -696,6 +755,129 @@ else
                     </tbody>
                 </table>
             </div>
+        }
+        @if (HistoricalInvestmentAccounts.Count > 0)
+        {
+            <details class="mt-3">
+                <summary>
+                    Historical investments (@HistoricalInvestmentAccounts.Count)
+                    @if (HistoricalStatusCorrectionCount > 0)
+                    {
+                        <span class="badge text-bg-warning ms-2">@HistoricalStatusCorrectionCount need status correction</span>
+                    }
+                </summary>
+                <p class="text-muted mt-2">These accounts are excluded from current investments because they are surrendered or do not have a current fund valuation.</p>
+                @if (HistoricalStatusCorrectionCount > 0)
+                {
+                    <div class="alert alert-warning">
+                        Accounts without a current value or an effective surrender date require review. Capture the surrender date if the investment has ended, or correct the current valuation link if it remains active.
+                    </div>
+                }
+                <div class="table-responsive">
+                    <table class="table align-middle">
+                        <thead>
+                            <tr>
+                                <th>Account</th>
+                                <th>Administrator</th>
+                                <th>Product / fund</th>
+                                <th>Dates</th>
+                                <th>Last recorded value</th>
+                                <th>Historical reason</th>
+                                <th>Transactions</th>
+                                <AuthorizeView Policy="@KcasPermissions.InvestmentsManage">
+                                    <Authorized>
+                                        <th></th>
+                                    </Authorized>
+                                </AuthorizeView>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var account in HistoricalInvestmentAccounts)
+                            {
+                                var status = InvestmentStatus(account);
+                                var activeTransactions = account.Transactions.Where(transaction => !transaction.IsDeleted).ToList();
+                                var latestTransaction = LatestTransaction(account);
+                                var latestBalance = LatestBalanceTransaction(account);
+                                <tr class="@(status.NeedsStatusCorrection ? "table-warning" : "")">
+                                    <td>
+                                        <strong>@Display(account.AccountNumber)</strong>
+                                        <div class="text-muted small">@InvestmentAccountSource(account)</div>
+                                    </td>
+                                    <td>@Display(account.Administrator)</td>
+                                    <td>
+                                        <div>@Display(account.ProductName)</div>
+                                        <div class="text-muted small">@Display(account.FundName)</div>
+                                    </td>
+                                    <td>
+                                        <div>Started: @Date(account.InvestmentDate)</div>
+                                        <div>Surrender: @Date(account.SurrenderDate)</div>
+                                    </td>
+                                    <td>
+                                        <div>@Money(latestBalance?.BalanceZar)</div>
+                                        @if (latestBalance?.BalanceForeign is not null && latestBalance.BalanceForeign.Value != 0)
+                                        {
+                                            <div class="text-muted small">@ForeignMoney(latestBalance.BalanceForeign, ForeignCurrencyCode(account.FundName))</div>
+                                        }
+                                        @if (latestBalance?.TransactionDate is not null)
+                                        {
+                                            <div class="text-muted small">History balance: @Date(latestBalance.TransactionDate)</div>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div>@status.Reason</div>
+                                        @if (status.NeedsStatusCorrection)
+                                        {
+                                            <span class="badge text-bg-warning">Correction required</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div>@activeTransactions.Count</div>
+                                        @if (latestTransaction is not null)
+                                        {
+                                            <div class="text-muted small">Latest: @Date(latestTransaction.TransactionDate)</div>
+                                        }
+                                        @if (activeTransactions.Count > 0)
+                                        {
+                                            <details>
+                                                <summary>Show history</summary>
+                                                <ul class="list-unstyled small mt-2 mb-0">
+                                                    @foreach (var transaction in activeTransactions
+                                                        .OrderByDescending(transaction => transaction.TransactionDate)
+                                                        .ThenByDescending(transaction => transaction.LegacyInvestmentHistoryId)
+                                                        .Take(10))
+                                                    {
+                                                        <li class="mb-2">
+                                                            <strong>@Date(transaction.TransactionDate)</strong> — @Display(transaction.Description)
+                                                            <div>
+                                                                Balance: @Money(transaction.BalanceZar)
+                                                                @if (transaction.BalanceForeign.HasValue && transaction.BalanceForeign.Value != 0)
+                                                                {
+                                                                    <span> / @ForeignMoney(transaction.BalanceForeign, ForeignCurrencyCode(account.FundName))</span>
+                                                                }
+                                                            </div>
+                                                        </li>
+                                                    }
+                                                </ul>
+                                            </details>
+                                        }
+                                    </td>
+                                    <AuthorizeView Policy="@KcasPermissions.InvestmentsManage">
+                                        <Authorized>
+                                            <td class="text-end">
+                                                <div class="row-actions">
+                                                    <a class="btn btn-outline-secondary btn-sm" href="@($"/clients/{Id}/investments/{account.Id}/edit")">Edit</a>
+                                                    <a class="btn btn-outline-secondary btn-sm" href="@($"/clients/{Id}/investments/{account.Id}/transactions/new")">Add transaction</a>
+                                                    <button class="btn btn-outline-danger btn-sm" type="button" @onclick="() => DeleteInvestmentAccountAsync(account.Id)">Delete</button>
+                                                </div>
+                                            </td>
+                                        </Authorized>
+                                    </AuthorizeView>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </details>
         }
     </section>
 
@@ -822,6 +1004,7 @@ else
 
     private const int NotePageSize = 10;
     private Client? client;
+    private List<InvestmentFundReference> investmentFundReferences = [];
     private string? noteFilter;
     private string? statusMessage;
     private int notePage = 1;
@@ -852,6 +1035,9 @@ else
                 .ThenInclude(account => account.Transactions)
             .Include(client => client.VerificationItems)
             .SingleOrDefaultAsync(client => client.Id == Id);
+        investmentFundReferences = await Db.InvestmentFundReferences
+            .AsNoTracking()
+            .ToListAsync();
     }
 
     private List<ClientNote> ActiveNotes => client?.Notes
@@ -881,32 +1067,40 @@ else
         .ThenBy(account => account.AccountNumber)
         .ToList() ?? [];
 
+    private List<ClientInvestmentAccount> CurrentInvestmentAccounts => InvestmentAccounts
+        .Where(account => InvestmentStatus(account).IsCurrent)
+        .ToList();
+
+    private List<ClientInvestmentAccount> HistoricalInvestmentAccounts => InvestmentAccounts
+        .Where(account => !InvestmentStatus(account).IsCurrent)
+        .ToList();
+
+    private int HistoricalStatusCorrectionCount => HistoricalInvestmentAccounts
+        .Count(account => InvestmentStatus(account).NeedsStatusCorrection);
+
+    private int CurrentFundHoldingCount => CurrentInvestmentAccounts
+        .Sum(account => CurrentValuations(account).Count());
+
     private List<ClientFundValuation> FundValuations => client?.FundValuations
         .OrderBy(valuation => valuation.InvestmentUniqueNumber)
         .ThenBy(valuation => valuation.FundName)
         .ToList() ?? [];
 
     private decimal? TotalInvestmentCurrentValueZar =>
-        SumValues(InvestmentAccounts, CurrentValueZar);
-
-    private int ValuationMatchedAccountCount =>
-        InvestmentAccounts.Count(account => CurrentValuations(account).Any());
-
-    private int HistoryFallbackAccountCount =>
-        InvestmentAccounts.Count(account => !CurrentValuations(account).Any() && LatestBalanceTransaction(account) is not null);
+        SumValues(CurrentInvestmentAccounts, CurrentValueZar);
 
     private int UnmatchedFundValuationCount
     {
         get
         {
             var accountNumbers = InvestmentAccounts
-                .Select(account => NormalizeAccountNumber(account.AccountNumber))
+                .Select(account => ClientInvestmentStatusClassifier.NormalizeAccountNumber(account.AccountNumber))
                 .Where(accountNumber => accountNumber is not null)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             return FundValuations.Count(valuation =>
             {
-                var valuationAccountNumber = NormalizeAccountNumber(valuation.InvestmentUniqueNumber);
+                var valuationAccountNumber = ClientInvestmentStatusClassifier.NormalizeAccountNumber(valuation.InvestmentUniqueNumber);
                 return valuationAccountNumber is null || !accountNumbers.Contains(valuationAccountNumber);
             });
         }
@@ -997,6 +1191,42 @@ else
 
     private static string Money(decimal? value) => value is null ? "Not captured" : value.Value.ToString("C");
 
+    private static string ForeignMoney(decimal? value, string? currencyCode) =>
+        value is null ? "Not captured" : $"{currencyCode ?? "Foreign"} {value.Value:N2}";
+
+    private string? ForeignAccountTotal(IReadOnlyCollection<ClientFundValuation> valuations)
+    {
+        var foreignValuations = valuations
+            .Where(valuation => valuation.AmountForeign.HasValue && valuation.AmountForeign.Value != 0)
+            .ToList();
+        if (foreignValuations.Count == 0)
+        {
+            return null;
+        }
+
+        var currencies = foreignValuations
+            .Select(valuation => ForeignCurrencyCode(valuation.FundName))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (currencies.Count != 1)
+        {
+            return "Mixed foreign currencies — see underlying funds";
+        }
+
+        return ForeignMoney(foreignValuations.Sum(valuation => valuation.AmountForeign!.Value), currencies[0]);
+    }
+
+    private string ForeignCurrencyCode(string? fundName)
+    {
+        var referenceCurrency = investmentFundReferences
+            .Where(reference => string.Equals(reference.Name, fundName, StringComparison.OrdinalIgnoreCase))
+            .Select(reference => reference.Currency)
+            .FirstOrDefault(currency => !string.IsNullOrWhiteSpace(currency));
+
+        return referenceCurrency
+            ?? (fundName?.Contains("GBP", StringComparison.OrdinalIgnoreCase) == true ? "GBP" : "USD");
+    }
+
     private static string Percent(decimal? value) => value is null ? "Not captured" : $"{value:0.####}%";
 
     private static string Date(DateOnly? value) => value is null ? "Not captured" : value.Value.ToString("yyyy-MM-dd");
@@ -1085,53 +1315,14 @@ else
 
     private decimal? CurrentValueZar(ClientInvestmentAccount account)
     {
-        var currentValuations = CurrentValuations(account).ToList();
-        if (currentValuations.Count > 0)
-        {
-            return SumValues(currentValuations, valuation => valuation.AmountZar);
-        }
-
-        return LatestBalanceTransaction(account)?.BalanceZar;
+        return SumValues(CurrentValuations(account), valuation => valuation.AmountZar);
     }
 
-    private IEnumerable<ClientFundValuation> CurrentValuations(ClientInvestmentAccount account)
-    {
-        var accountNumber = NormalizeAccountNumber(account.AccountNumber);
-        if (accountNumber is null)
-        {
-            return [];
-        }
+    private IEnumerable<ClientFundValuation> CurrentValuations(ClientInvestmentAccount account) =>
+        ClientInvestmentStatusClassifier.MatchingValuations(account, FundValuations);
 
-        var matches = FundValuations
-            .Where(valuation => string.Equals(NormalizeAccountNumber(valuation.InvestmentUniqueNumber), accountNumber, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        var administrator = NormalizeLookup(account.Administrator);
-        if (administrator is null)
-        {
-            return matches;
-        }
-
-        var administratorMatches = matches
-            .Where(valuation => AdministratorsMatch(administrator, NormalizeLookup(valuation.Administrator)))
-            .ToList();
-
-        return administratorMatches.Count > 0 ? administratorMatches : matches;
-    }
-
-    private static bool AdministratorsMatch(string accountAdministrator, string? valuationAdministrator) =>
-        valuationAdministrator is not null &&
-        (string.Equals(accountAdministrator, valuationAdministrator, StringComparison.OrdinalIgnoreCase) ||
-         accountAdministrator.Contains(valuationAdministrator, StringComparison.OrdinalIgnoreCase) ||
-         valuationAdministrator.Contains(accountAdministrator, StringComparison.OrdinalIgnoreCase));
-
-    private static string? NormalizeAccountNumber(string? value) =>
-        string.IsNullOrWhiteSpace(value)
-            ? null
-            : new string(value.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
-
-    private static string? NormalizeLookup(string? value) =>
-        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    private ClientInvestmentStatus InvestmentStatus(ClientInvestmentAccount account) =>
+        ClientInvestmentStatusClassifier.Evaluate(account, FundValuations);
 
     private static decimal? SumValues<T>(IEnumerable<T> items, Func<T, decimal?> selector)
     {

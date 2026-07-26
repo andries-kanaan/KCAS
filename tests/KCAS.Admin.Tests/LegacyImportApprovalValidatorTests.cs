@@ -22,6 +22,26 @@ public sealed class LegacyImportApprovalValidatorTests
     }
 
     [Fact]
+    public void Baseline_approval_includes_fund_valuations_and_kyc_policies()
+    {
+        var run = Scan("stage", new string('a', 64));
+        run.Rows.Add(Row("tbl_client", 1, LegacyImportClassifications.New, "client"));
+        run.Rows.Add(Row("tbl_fund", 2, LegacyImportClassifications.New, "fund"));
+        run.Rows.Add(Row("tbl_kyc", 3, LegacyImportClassifications.New, "kyc"));
+
+        var approved = LegacyImportApprovalValidator.GetApprovedNewRows(
+            run,
+            "stage",
+            new string('a', 64),
+            includeReviewOnlyRows: true);
+
+        Assert.Equal(3, approved.Count);
+        Assert.Equal("client", approved[("tbl_client", 1)]);
+        Assert.Equal("fund", approved[("tbl_fund", 2)]);
+        Assert.Equal("kyc", approved[("tbl_kyc", 3)]);
+    }
+
+    [Fact]
     public void Rejects_snapshot_or_database_mismatch()
     {
         var run = Scan("stage", new string('a', 64));

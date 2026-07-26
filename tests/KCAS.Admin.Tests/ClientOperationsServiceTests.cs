@@ -350,7 +350,7 @@ public sealed class ClientOperationsServiceTests(KcasWebApplicationFactory facto
     }
 
     [Fact]
-    public async Task Fund_summary_groups_matched_history_fallback_and_unmatched_values()
+    public async Task Fund_summary_excludes_history_balances_from_current_total_and_flags_uncorrected_status()
     {
         using var scope = factory.Services.CreateScope();
         var service = scope.ServiceProvider.GetRequiredService<ClientOperationsService>();
@@ -398,6 +398,7 @@ public sealed class ClientOperationsServiceTests(KcasWebApplicationFactory facto
                 Administrator = "Admin",
                 FundName = "Alpha Fund",
                 AmountZar = 300m,
+                AmountForeign = 20m,
                 ValuationDate = new DateOnly(2026, 4, 1)
             },
             new ClientFundValuation
@@ -415,13 +416,21 @@ public sealed class ClientOperationsServiceTests(KcasWebApplicationFactory facto
         var summary = await service.LoadFundSummaryAsync(clientId);
 
         Assert.Equal(3, summary.Rows.Count);
-        Assert.Equal(900m, summary.TotalCurrentValueZar);
+        Assert.Equal(700m, summary.TotalCurrentValueZar);
         Assert.Equal(1, summary.MatchedValuationCount);
-        Assert.Equal(1, summary.HistoryFallbackCount);
+        Assert.Equal(1, summary.HistoricalAccountCount);
+        Assert.Equal(1, summary.StatusCorrectionCount);
         Assert.Equal(1, summary.UnmatchedValuationCount);
-        Assert.Contains(summary.Rows, row => row.Source == "Fund valuation" && row.CurrentValueZar == 300m);
-        Assert.Contains(summary.Rows, row => row.Source == "History balance" && row.CurrentValueZar == 200m);
-        Assert.Contains(summary.Rows, row => row.Source == "Unmatched fund valuation" && row.CurrentValueZar == 400m);
+        Assert.Contains(summary.CurrentRows, row =>
+            row.Source == "Fund valuation" &&
+            row.CurrentValueZar == 300m &&
+            row.CurrentValueForeign == 20m &&
+            row.ForeignCurrencyCode == "USD");
+        Assert.Contains(summary.HistoricalRows, row =>
+            row.Source == "History balance" &&
+            row.CurrentValueZar == 200m &&
+            row.NeedsStatusCorrection);
+        Assert.Contains(summary.CurrentRows, row => row.Source == "Unmatched fund valuation" && row.CurrentValueZar == 400m);
 
         var filtered = await service.LoadFundSummaryAsync(clientId, "Alpha");
         Assert.Single(filtered.Rows);
