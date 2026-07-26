@@ -63,10 +63,10 @@ public sealed class ComplianceServiceTests(KcasWebApplicationFactory factory)
         var service = scope.ServiceProvider.GetRequiredService<ComplianceService>();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-        var firstId = await CreateApprovedMethodologyAsync(service, "Methodology One");
+        var firstId = await CreateApprovedMethodologyAsync(service, db, "Methodology One");
         await service.ActivateMethodologyAsync(firstId, "approver@example.test", "Activate first version.");
 
-        var secondId = await CreateApprovedMethodologyAsync(service, "Methodology Two");
+        var secondId = await CreateApprovedMethodologyAsync(service, db, "Methodology Two");
         await service.ActivateMethodologyAsync(secondId, "approver@example.test", "Activate second version.");
 
         var methodologies = await db.RiskMethodologyVersions.AsNoTracking()
@@ -84,8 +84,9 @@ public sealed class ComplianceServiceTests(KcasWebApplicationFactory factory)
     {
         using var scope = factory.Services.CreateScope();
         var service = scope.ServiceProvider.GetRequiredService<ComplianceService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-        var methodologyId = await CreateApprovedMethodologyAsync(service, "Locked Methodology");
+        var methodologyId = await CreateApprovedMethodologyAsync(service, db, "Locked Methodology");
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.SaveMethodologyAsync(new RiskMethodologyModel
         {
@@ -131,7 +132,7 @@ public sealed class ComplianceServiceTests(KcasWebApplicationFactory factory)
         }, "compliance@example.test", "Try to bypass work-register closure."));
     }
 
-    private static async Task<int> CreateApprovedMethodologyAsync(ComplianceService service, string name)
+    private static async Task<int> CreateApprovedMethodologyAsync(ComplianceService service, ApplicationDbContext db, string name)
     {
         var methodologyId = await service.SaveMethodologyAsync(new RiskMethodologyModel
         {
@@ -151,20 +152,33 @@ public sealed class ComplianceServiceTests(KcasWebApplicationFactory factory)
         }, "preparer@example.test", "Create methodology.");
 
         await service.SubmitMethodologyAsync(methodologyId, "preparer@example.test", "Submit for review.");
-        await service.ApproveMethodologyAsync(methodologyId, "ki-one@example.test", "First KI approval.");
-        await service.ApproveMethodologyAsync(methodologyId, "ki-two@example.test", "Second KI approval.");
+        if (!await db.GovernanceRoleAssignments.AnyAsync(item =>
+                item.Email == "ki-one@example.test" &&
+                item.IsActive &&
+                item.RoleType == "Key Individual"))
+        {
+            db.GovernanceRoleAssignments.Add(new GovernanceRoleAssignment
+            {
+                RoleType = "Key Individual",
+                PersonName = "KI One",
+                Email = "ki-one@example.test",
+                IsActive = true
+            });
+            await db.SaveChangesAsync();
+        }
+        await service.ApproveMethodologyAsync(methodologyId, "ki-one@example.test", "KI methodology sign-off.");
         return methodologyId;
     }
 
     [Fact]
-    public async Task Methodology_requires_two_distinct_ki_approvals()
+    public async Task Methodology_requires_one_active_ki_and_rejects_compliance_officer()
     {
         using var scope = factory.Services.CreateScope();
         var service = scope.ServiceProvider.GetRequiredService<ComplianceService>();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var methodologyId = await service.SaveMethodologyAsync(new RiskMethodologyModel
         {
-            Name = $"Two KI methodology {Guid.NewGuid():N}",
+            Name = $"One KI methodology {Guid.NewGuid():N}",
             Factors =
             [
                 new()
@@ -176,17 +190,28 @@ public sealed class ComplianceServiceTests(KcasWebApplicationFactory factory)
                 }
             ],
             Bands = [new() { Name = "Low", MinimumScore = 0, MaximumScore = 2 }]
-        }, "preparer@example.test", "Create two-KI test.");
-        await service.SubmitMethodologyAsync(methodologyId, "preparer@example.test", "Submit two-KI test.");
-        await service.ApproveMethodologyAsync(methodologyId, "ki-one@example.test", "First KI approval.");
+        }, "preparer@example.test", "Create one-KI test.");
+        await service.SubmitMethodologyAsync(methodologyId, "preparer@example.test", "Submit one-KI test.");
+        db.GovernanceRoleAssignments.AddRange(
+            new GovernanceRoleAssignment
+            {
+                RoleType = "Internal Compliance Officer",
+                PersonName = "Compliance Officer",
+                Email = "compliance@example.test",
+                IsActive = true
+            },
+            new GovernanceRoleAssignment
+            {
+                RoleType = "Key Individual / MLCO",
+                PersonName = "KI One",
+                Email = "ki-one-methodology@example.test",
+                IsActive = true
+            });
+        await db.SaveChangesAsync();
 
-        Assert.Equal(
-            ComplianceStatuses.Review,
-            await db.RiskMethodologyVersions.Where(item => item.Id == methodologyId).Select(item => item.Status).SingleAsync());
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.ApproveMethodologyAsync(methodologyId, "ki-one@example.test", "Duplicate first KI approval."));
-
-        await service.ApproveMethodologyAsync(methodologyId, "ki-two@example.test", "Second KI approval.");
+        await Assert.ThrowsAsync<ValidationException>(() =>
+            service.ApproveMethodologyAsync(methodologyId, "compliance@example.test", "CO must not supply KI sign-off."));
+        await service.ApproveMethodologyAsync(methodologyId, "ki-one-methodology@example.test", "KI methodology sign-off.");
         Assert.Equal(
             ComplianceStatuses.Approved,
             await db.RiskMethodologyVersions.Where(item => item.Id == methodologyId).Select(item => item.Status).SingleAsync());

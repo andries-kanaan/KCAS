@@ -138,7 +138,10 @@ else
         </div>
         <button type="button" class="btn btn-primary mt-2" @onclick="SaveMethodologyAsync" disabled="@(!canManage)">Save methodology</button>
         <button type="button" class="btn btn-outline-primary mt-2 ms-1" @onclick="CreateStarterMethodologyAsync" disabled="@(!canManage)">Create Kanaan starter draft</button>
-        <p class="form-text">Risk-band review period is entered in months. The Kanaan starter is a draft and requires two distinct KI approvals before activation.</p>
+        <p class="form-text">
+            Risk-band review period is entered in months. Once submitted, a methodology may be used provisionally so client work is not blocked.
+            One active Key Individual recorded in the governance register must sign it off before activation.
+        </p>
         @RenderMethodologies()
     </section>
 
@@ -224,14 +227,15 @@ else
     private string? currentUser;
     private string? statusMessage;
     private bool canManage;
-    private bool canApprove;
+    private bool canKiApprove;
+    private bool hasApprovePermission;
 
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
         currentUser = authState.User.Identity?.Name;
         canManage = authState.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage);
-        canApprove = authState.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceApprove);
+        hasApprovePermission = authState.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceApprove);
         await LoadAsync();
     }
 
@@ -239,6 +243,11 @@ else
     {
         model = await ComplianceService.LoadManageModelAsync();
         profile = model.Profile;
+        canKiApprove = hasApprovePermission &&
+                       model.GovernanceRoles.Any(role =>
+                           role.IsActive &&
+                           string.Equals(role.Email, currentUser, StringComparison.OrdinalIgnoreCase) &&
+                           ComplianceApprovalRules.IsKeyIndividualRole(role.RoleType));
     }
 
     private async Task SaveProfileAsync() => await ExecuteAsync(async () => { await ComplianceService.SaveProfileAsync(profile, currentUser, reason ?? ""); });
@@ -342,7 +351,7 @@ else
                 builder.AddContent(index++, "Submit");
                 builder.CloseElement();
             }
-            if (canApprove && item.Status == ComplianceStatuses.Review)
+            if (canKiApprove && item.Status == ComplianceStatuses.Review)
             {
                 builder.OpenElement(index++, "button");
                 builder.AddAttribute(index++, "class", "btn btn-sm btn-outline-primary ms-1");
@@ -355,7 +364,7 @@ else
                 builder.AddContent(index++, "Reject");
                 builder.CloseElement();
             }
-            if (canApprove && item.Status == ComplianceStatuses.Approved)
+            if (canManage && item.Status == ComplianceStatuses.Approved)
             {
                 builder.OpenElement(index++, "button");
                 builder.AddAttribute(index++, "class", "btn btn-sm btn-outline-success ms-1");
