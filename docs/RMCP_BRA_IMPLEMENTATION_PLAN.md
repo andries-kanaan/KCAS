@@ -156,13 +156,13 @@ Do not resolve a material conflict merely by choosing the newest filename. Recor
 | 1 | Compliance foundation and controlled configuration | Complete for delivery; browser acceptance evidence remains operational follow-up | Configuration/versioning and permissions accepted |
 | 2 | Client profile and evidence readiness | Foundation delivered; operational population deferred to Phase 8 | Pilot clients pass completeness and evidence checks |
 | 3 | Proportional client risk assessment workflow | Technical delivery complete; operational acceptance deferred to Phase 8 | Pilot assessments reproduce approved methodology |
-| 4 | Business Risk Assessment | Not started | BRA approved from traceable evidence and methodology |
+| 4 | Business Risk Assessment | Technical foundation delivered; action integration continues in Phase 6 and operational acceptance is deferred to Phase 8 | BRA approved from traceable evidence and methodology |
 | 5 | RMCP control and approval management | Not started | Approved RMCP version links risks, controls and evidence |
 | 6 | Monitoring, reviews and remediation | Not started | End-to-end review and escalation cases pass |
 | 7 | Inspection readiness, reporting and rollout | Not started | Inspection pack, security, recovery and rollout accepted |
 | 8 | Controlled operational population and verification | Deferred until Phases 3–7 tools are delivered | Every current client is reviewed, verified and assessed |
 
-Current resume point: **begin the proportional Phase 4 Business Risk Assessment foundation without performing live client assessments.**
+Current resume point: **begin Phase 5 RMCP control and approval management without creating or approving live BRA or client records.**
 
 Phase 0 remains available for operational import acceptance and final data switch-over evidence, but it is no longer the active development blocker.
 
@@ -445,12 +445,22 @@ Create one concise annual Kanaan entity-wide BRA using traceable operational evi
 
 The BRA must not be a simple average of client scores. Client results are evidence inputs; concentration, products, channels, external threats, controls and management judgement remain independently assessed.
 
-### Acceptance gate 4
+### Implemented technical foundation
+
+- Separate Business Risk workspace, annual version list and six-category Kanaan starter draft.
+- Proportional 3-by-3 likelihood/impact matrix with visible inherent score and rating.
+- Separately recorded controls, control effectiveness, residual rating, rationale, treatment decision, owner and due date.
+- As-at portfolio evidence snapshot using approved client assessments plus investment-account administrator and product concentrations.
+- Draft, KI review, approved, effective and superseded states with two distinct KI approvals and reasoned audit events.
+- Frozen approved JSON record and reproducible printable view.
+- No live BRA was created, submitted, approved or activated during technical delivery.
+
+### Operational acceptance gate 4 — deferred to Phase 8
 
 - Portfolio totals reconcile to approved client assessments as at a stated date.
 - Every BRA conclusion links to evidence, methodology and recorded judgement.
 - Control effectiveness and residual risk are separately visible.
-- Treatment actions flow into the remediation workflow.
+- Treatment actions flow into the Phase 6 remediation workflow.
 - The approved export is reproducible from the frozen BRA version.
 
 ## 11. Phase 5 — RMCP control and approval management

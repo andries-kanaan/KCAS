@@ -57,6 +57,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<ClientRiskAssessment> ClientRiskAssessments => Set<ClientRiskAssessment>();
     public DbSet<ClientRiskAssessmentResponse> ClientRiskAssessmentResponses => Set<ClientRiskAssessmentResponse>();
     public DbSet<ClientRiskAssessmentApproval> ClientRiskAssessmentApprovals => Set<ClientRiskAssessmentApproval>();
+    public DbSet<BusinessRiskAssessment> BusinessRiskAssessments => Set<BusinessRiskAssessment>();
+    public DbSet<BusinessRiskItem> BusinessRiskItems => Set<BusinessRiskItem>();
+    public DbSet<BusinessRiskApproval> BusinessRiskApprovals => Set<BusinessRiskApproval>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -74,6 +77,42 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.Property(user => user.ApprovedByUserId).HasMaxLength(64);
             entity.Property(user => user.CreatedAtUtc).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
             entity.HasIndex(user => user.WindowsAccountName);
+        });
+
+        builder.Entity<BusinessRiskAssessment>(entity =>
+        {
+            entity.Property(item => item.Name).HasMaxLength(191);
+            entity.Property(item => item.Status).HasMaxLength(32);
+            entity.Property(item => item.PreparedBy).HasMaxLength(191);
+            entity.Property(item => item.UpdatedBy).HasMaxLength(191);
+            ConfigureDateOnly(entity.Property(item => item.AsAtDate));
+            entity.HasIndex(item => new { item.AssessmentYear, item.Status });
+            entity.HasMany(item => item.Items)
+                .WithOne(item => item.Assessment)
+                .HasForeignKey(item => item.BusinessRiskAssessmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(item => item.Approvals)
+                .WithOne(item => item.Assessment)
+                .HasForeignKey(item => item.BusinessRiskAssessmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<BusinessRiskItem>(entity =>
+        {
+            entity.Property(item => item.Category).HasMaxLength(48);
+            entity.Property(item => item.InherentRating).HasMaxLength(32);
+            entity.Property(item => item.ControlEffectiveness).HasMaxLength(32);
+            entity.Property(item => item.ResidualRating).HasMaxLength(32);
+            entity.Property(item => item.TreatmentDecision).HasMaxLength(32);
+            entity.Property(item => item.Owner).HasMaxLength(191);
+            ConfigureDateOnly(entity.Property(item => item.DueDate));
+            entity.HasIndex(item => new { item.BusinessRiskAssessmentId, item.Category });
+        });
+
+        builder.Entity<BusinessRiskApproval>(entity =>
+        {
+            entity.Property(item => item.Approver).HasMaxLength(191);
+            entity.HasIndex(item => new { item.BusinessRiskAssessmentId, item.Approver }).IsUnique();
         });
 
         builder.Entity<IdentityRole>(entity =>
@@ -872,7 +911,15 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 
     private static void ConfigureDateOnly<TProperty>(Microsoft.EntityFrameworkCore.Metadata.Builders.PropertyBuilder<TProperty> propertyBuilder)
     {
-        if (typeof(TProperty) == typeof(DateOnly?))
+        if (typeof(TProperty) == typeof(DateOnly))
+        {
+            ((Microsoft.EntityFrameworkCore.Metadata.Builders.PropertyBuilder<DateOnly>)(object)propertyBuilder)
+                .HasColumnType("date")
+                .HasConversion(new ValueConverter<DateOnly, DateTime>(
+                    value => value.ToDateTime(TimeOnly.MinValue),
+                    value => DateOnly.FromDateTime(value)));
+        }
+        else if (typeof(TProperty) == typeof(DateOnly?))
         {
             ((Microsoft.EntityFrameworkCore.Metadata.Builders.PropertyBuilder<DateOnly?>)(object)propertyBuilder)
                 .HasColumnType("date")
