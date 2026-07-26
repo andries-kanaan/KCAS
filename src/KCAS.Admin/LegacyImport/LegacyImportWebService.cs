@@ -279,7 +279,15 @@ public sealed class LegacyImportWebService(
         {
             job.Update(message, resetImportedDataFirst ? 75 : 65);
             return Task.CompletedTask;
-        }, cancellationToken, alreadyLocked: true, skipBackup: resetImportedDataFirst);
+        }, cancellationToken,
+            alreadyLocked: true,
+            skipBackup: resetImportedDataFirst,
+            includeReviewOnlyNewRows: resetImportedDataFirst);
+
+        if (resetImportedDataFirst)
+        {
+            LegacyBaselineImportValidator.EnsureComplete(verificationRun);
+        }
 
         return new LegacyImportWebResult(verificationRun.Id, resetImportedDataFirst
             ? $"Imported a clean mapped legacy baseline from {sourceFileName}."
@@ -694,7 +702,8 @@ public sealed class LegacyImportWebService(
         Func<string, Task>? progress,
         CancellationToken cancellationToken,
         bool alreadyLocked = false,
-        bool skipBackup = false)
+        bool skipBackup = false,
+        bool includeReviewOnlyNewRows = false)
     {
         if (!alreadyLocked && !await ImportGate.WaitAsync(0, cancellationToken))
         {
@@ -733,7 +742,8 @@ public sealed class LegacyImportWebService(
             approvedRows,
             tableScopes,
             cancellationToken,
-            skipBackup);
+            skipBackup,
+            includeReviewOnlyNewRows);
 
         await ReportProgressAsync(progress, "Running the verification scan after apply...");
         return await RunImportAsync(
@@ -764,7 +774,8 @@ public sealed class LegacyImportWebService(
         IReadOnlySet<(string Table, long Id)>? approvedRows,
         IReadOnlySet<string> tableScopes,
         CancellationToken cancellationToken,
-        bool skipBackup = false)
+        bool skipBackup = false,
+        bool includeReviewOnlyNewRows = false)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -789,7 +800,8 @@ public sealed class LegacyImportWebService(
                 approvedScan,
                 stagedDatabase,
                 snapshotSha256,
-                approvedRows);
+                approvedRows,
+                includeReviewOnlyNewRows);
         }
 
         await using var legacyConnection = new MySqlConnection(BuildSourceConnectionString(stagedDatabase));

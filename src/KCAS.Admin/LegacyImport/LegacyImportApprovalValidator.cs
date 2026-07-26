@@ -14,7 +14,8 @@ public static class LegacyImportApprovalValidator
         LegacyImportRun approvedScan,
         string sourceLabel,
         string sourceSnapshotSha256,
-        IReadOnlySet<(string Table, long Id)>? approvedRows = null)
+        IReadOnlySet<(string Table, long Id)>? approvedRows = null,
+        bool includeReviewOnlyRows = false)
     {
         if (approvedScan.Mode != LegacyImportModes.Scan || approvedScan.CompletedAtUtc is null ||
             approvedScan.Status is not (LegacyImportRunStatuses.Completed or LegacyImportRunStatuses.AwaitingReview))
@@ -28,7 +29,9 @@ public static class LegacyImportApprovalValidator
         }
 
         var eligibleRows = approvedScan.Rows
-            .Where(row => row.Classification == LegacyImportClassifications.New && !ReviewOnlySourceTables.Contains(row.SourceTable))
+            .Where(row =>
+                row.Classification == LegacyImportClassifications.New &&
+                (includeReviewOnlyRows || !ReviewOnlySourceTables.Contains(row.SourceTable)))
             .ToDictionary(row => (row.SourceTable, row.SourceId), row => row.IncomingFingerprint);
 
         if (approvedRows is null)

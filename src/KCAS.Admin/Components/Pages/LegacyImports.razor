@@ -66,7 +66,7 @@
         }
         else
         {
-            <p class="section-subtitle">Backs up KCAS, clears previous imported baseline and compliance operational review/scan history, then imports the mapped baseline again.</p>
+            <p class="section-subtitle">Backs up KCAS, clears previous imported baseline and compliance operational review/scan history, then imports every mapped baseline table, including current fund valuations and KYC policies. The import fails verification if mapped rows remain pending.</p>
         }
         <div class="form-actions">
             <button type="button" class="btn btn-primary" @onclick="UploadAndScanAsync" disabled="@isBusy">
@@ -160,7 +160,7 @@ else
                 Orphaned @selectedRun.OrphanedCount · Failed @selectedRun.FailedCount
             </p>
             <p class="text-muted mb-1">Source database: @selectedRun.SourceLabel · Snapshot SHA-256: @ShortHash(selectedRun.SourceSnapshotSha256)</p>
-            <p class="text-muted">Fund valuations and KYC policies are review-only where legacy replacement workflows create new primary IDs.</p>
+            <p class="text-muted">During incremental reconciliation, fund valuations and KYC policies remain review-only where legacy replacement workflows create new primary IDs.</p>
             @if (selectedRun.ApprovedScanRunId.HasValue)
             {
                 <p class="text-muted">Approved scan: #@selectedRun.ApprovedScanRunId</p>

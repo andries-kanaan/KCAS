@@ -807,9 +807,10 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
 
         foreach (var account in accountList)
         {
-            var matchedValuations = CurrentValuations(account, valuationList).ToList();
+            var status = ClientInvestmentStatusClassifier.Evaluate(account, valuationList);
+            var matchedValuations = ClientInvestmentStatusClassifier.MatchingValuations(account, valuationList);
             var latestBalance = LatestBalanceTransaction(account);
-            if (matchedValuations.Count == 0)
+            if (!status.IsCurrent)
             {
                 rows.Add(new ClientFundSummaryRowModel
                 {
@@ -823,7 +824,11 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
                     CurrentValueForeign = latestBalance?.BalanceForeign,
                     CurrentValueDate = latestBalance?.TransactionDate,
                     Source = latestBalance is null ? "No current value" : "History balance",
-                    TransactionCount = account.Transactions.Count(transaction => !transaction.IsDeleted)
+                    TransactionCount = account.Transactions.Count(transaction => !transaction.IsDeleted),
+                    IsHistorical = true,
+                    NeedsStatusCorrection = status.NeedsStatusCorrection,
+                    StatusReason = status.Reason,
+                    ForeignCurrencyCode = ForeignCurrencyCode(account.FundName, latestBalance?.BalanceForeign)
                 });
                 continue;
             }
@@ -842,19 +847,21 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
                     CurrentValueForeign = valuation.AmountForeign,
                     CurrentValueDate = valuation.ValuationDate,
                     Source = "Fund valuation",
-                    TransactionCount = account.Transactions.Count(transaction => !transaction.IsDeleted)
+                    TransactionCount = account.Transactions.Count(transaction => !transaction.IsDeleted),
+                    StatusReason = status.Reason,
+                    ForeignCurrencyCode = ForeignCurrencyCode(valuation.FundName, valuation.AmountForeign)
                 });
             }
         }
 
         var accountNumbers = accountList
-            .Select(account => NormalizeAccountNumber(account.AccountNumber))
+            .Select(account => ClientInvestmentStatusClassifier.NormalizeAccountNumber(account.AccountNumber))
             .Where(accountNumber => accountNumber is not null)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         foreach (var valuation in valuationList)
         {
-            var valuationAccountNumber = NormalizeAccountNumber(valuation.InvestmentUniqueNumber);
+            var valuationAccountNumber = ClientInvestmentStatusClassifier.NormalizeAccountNumber(valuation.InvestmentUniqueNumber);
             if (valuationAccountNumber is not null && accountNumbers.Contains(valuationAccountNumber))
             {
                 continue;
@@ -870,7 +877,8 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
                 CurrentValueZar = valuation.AmountZar,
                 CurrentValueForeign = valuation.AmountForeign,
                 CurrentValueDate = valuation.ValuationDate,
-                Source = "Unmatched fund valuation"
+                Source = "Unmatched fund valuation",
+                ForeignCurrencyCode = ForeignCurrencyCode(valuation.FundName, valuation.AmountForeign)
             });
         }
 
@@ -892,30 +900,10 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
             .ThenByDescending(transaction => transaction.LegacyInvestmentHistoryId)
             .FirstOrDefault();
 
-    private static IEnumerable<ClientFundValuation> CurrentValuations(ClientInvestmentAccount account, IEnumerable<ClientFundValuation> valuations)
-    {
-        var accountNumber = NormalizeAccountNumber(account.AccountNumber);
-        if (accountNumber is null)
-        {
-            return [];
-        }
-
-        var matches = valuations
-            .Where(valuation => string.Equals(NormalizeAccountNumber(valuation.InvestmentUniqueNumber), accountNumber, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        var administrator = NormalizeLookup(account.Administrator);
-        if (administrator is null)
-        {
-            return matches;
-        }
-
-        var administratorMatches = matches
-            .Where(valuation => AdministratorsMatch(administrator, NormalizeLookup(valuation.Administrator)))
-            .ToList();
-
-        return administratorMatches.Count > 0 ? administratorMatches : matches;
-    }
+    private static string? ForeignCurrencyCode(string? fundName, decimal? foreignAmount) =>
+        foreignAmount.HasValue && foreignAmount.Value != 0
+            ? fundName?.Contains("GBP", StringComparison.OrdinalIgnoreCase) == true ? "GBP" : "USD"
+            : null;
 
     private static ClientKycPolicy CopyPolicy(ClientKycPolicy source, Client target, string? userName) => new()
     {
@@ -1127,19 +1115,6 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
     private static bool Contains(string? value, string filter) =>
         value?.Contains(filter, StringComparison.OrdinalIgnoreCase) == true;
 
-    private static bool AdministratorsMatch(string accountAdministrator, string? valuationAdministrator) =>
-        valuationAdministrator is not null &&
-        (string.Equals(accountAdministrator, valuationAdministrator, StringComparison.OrdinalIgnoreCase) ||
-         accountAdministrator.Contains(valuationAdministrator, StringComparison.OrdinalIgnoreCase) ||
-         valuationAdministrator.Contains(accountAdministrator, StringComparison.OrdinalIgnoreCase));
-
-    private static string? NormalizeAccountNumber(string? value) =>
-        string.IsNullOrWhiteSpace(value)
-            ? null
-            : new string(value.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
-
-    private static string? NormalizeLookup(string? value) =>
-        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
 
 public sealed class ClientEditModel
@@ -1487,12 +1462,15 @@ public sealed class ClientFundSummaryModel
     public string ClientDisplayName { get; set; } = string.Empty;
     public string? Filter { get; set; }
     public List<ClientFundSummaryRowModel> Rows { get; set; } = [];
-    public decimal? TotalCurrentValueZar => Sum(Rows.Select(row => row.CurrentValueZar));
-    public decimal? TotalCurrentValueForeign => Sum(Rows.Select(row => row.CurrentValueForeign));
-    public int MatchedValuationCount => Rows.Count(row => row.Source == "Fund valuation");
-    public int HistoryFallbackCount => Rows.Count(row => row.Source == "History balance");
-    public int UnmatchedValuationCount => Rows.Count(row => row.Source == "Unmatched fund valuation");
-    public DateOnly? LatestValueDate => Rows
+    public List<ClientFundSummaryRowModel> CurrentRows => Rows.Where(row => !row.IsHistorical).ToList();
+    public List<ClientFundSummaryRowModel> HistoricalRows => Rows.Where(row => row.IsHistorical).ToList();
+    public decimal? TotalCurrentValueZar => Sum(CurrentRows.Select(row => row.CurrentValueZar));
+    public decimal? TotalCurrentValueForeign => Sum(CurrentRows.Select(row => row.CurrentValueForeign));
+    public int MatchedValuationCount => CurrentRows.Count(row => row.Source == "Fund valuation");
+    public int HistoricalAccountCount => HistoricalRows.Count;
+    public int StatusCorrectionCount => HistoricalRows.Count(row => row.NeedsStatusCorrection);
+    public int UnmatchedValuationCount => CurrentRows.Count(row => row.Source == "Unmatched fund valuation");
+    public DateOnly? LatestValueDate => CurrentRows
         .Where(row => row.CurrentValueDate.HasValue)
         .OrderByDescending(row => row.CurrentValueDate)
         .Select(row => row.CurrentValueDate)
@@ -1518,6 +1496,10 @@ public sealed class ClientFundSummaryRowModel
     public DateOnly? CurrentValueDate { get; set; }
     public string Source { get; set; } = string.Empty;
     public int TransactionCount { get; set; }
+    public bool IsHistorical { get; set; }
+    public bool NeedsStatusCorrection { get; set; }
+    public string StatusReason { get; set; } = string.Empty;
+    public string? ForeignCurrencyCode { get; set; }
 }
 
 public sealed class ClientKycRecommendationEditModel

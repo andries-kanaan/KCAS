@@ -36,8 +36,12 @@ else if (summary is not null)
                 <strong>@summary.MatchedValuationCount</strong>
             </div>
             <div>
-                <span>History fallback</span>
-                <strong>@summary.HistoryFallbackCount</strong>
+                <span>Historical accounts</span>
+                <strong>@summary.HistoricalAccountCount</strong>
+            </div>
+            <div>
+                <span>Status corrections</span>
+                <strong>@summary.StatusCorrectionCount</strong>
             </div>
             <div>
                 <span>Unmatched valuations</span>
@@ -48,8 +52,14 @@ else if (summary is not null)
                 <strong>@Date(summary.LatestValueDate)</strong>
             </div>
         </div>
-        <div class="table-responsive">
-            <table class="table align-middle">
+        @if (summary.CurrentRows.Count == 0)
+        {
+            <p class="text-muted">No current investment values match this filter.</p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table align-middle">
                 <thead>
                     <tr>
                         <th>Account</th>
@@ -62,7 +72,7 @@ else if (summary is not null)
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var row in summary.Rows)
+                    @foreach (var row in summary.CurrentRows)
                     {
                         <tr>
                             <td>@Display(row.AccountNumber)</td>
@@ -73,8 +83,15 @@ else if (summary is not null)
                             </td>
                             <td>@Display(row.FundName)</td>
                             <td>
-                                <div>@Money(row.CurrentValueZar)</div>
-                                <div class="text-muted small">@Money(row.CurrentValueForeign)</div>
+                                @if (row.CurrentValueForeign.HasValue && row.CurrentValueForeign.Value != 0)
+                                {
+                                    <div><strong>@ForeignMoney(row.CurrentValueForeign, row.ForeignCurrencyCode)</strong></div>
+                                    <div class="text-muted small">@Money(row.CurrentValueZar) converted ZAR</div>
+                                }
+                                else
+                                {
+                                    <div>@Money(row.CurrentValueZar)</div>
+                                }
                                 <div class="text-muted small">@Date(row.CurrentValueDate)</div>
                             </td>
                             <td>@row.Source</td>
@@ -82,8 +99,76 @@ else if (summary is not null)
                         </tr>
                     }
                 </tbody>
-            </table>
-        </div>
+                </table>
+            </div>
+        }
+        @if (summary.HistoricalRows.Count > 0)
+        {
+            <details class="mt-3">
+                <summary>
+                    Historical investments (@summary.HistoricalRows.Count)
+                    @if (summary.StatusCorrectionCount > 0)
+                    {
+                        <span class="badge text-bg-warning ms-2">@summary.StatusCorrectionCount need status correction</span>
+                    }
+                </summary>
+                @if (summary.StatusCorrectionCount > 0)
+                {
+                    <div class="alert alert-warning mt-2">
+                        Accounts without a current value or an effective surrender date require correction.
+                    </div>
+                }
+                <div class="table-responsive mt-2">
+                    <table class="table align-middle">
+                        <thead>
+                            <tr>
+                                <th>Account</th>
+                                <th>Administrator</th>
+                                <th>Product</th>
+                                <th>Fund</th>
+                                <th>Last recorded value</th>
+                                <th>Historical reason</th>
+                                <th>Transactions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in summary.HistoricalRows)
+                            {
+                                <tr class="@(row.NeedsStatusCorrection ? "table-warning" : "")">
+                                    <td>@Display(row.AccountNumber)</td>
+                                    <td>@Display(row.Administrator)</td>
+                                    <td>
+                                        @Display(row.ProductName)
+                                        <div class="text-muted small">@Display(row.ProductType)</div>
+                                    </td>
+                                    <td>@Display(row.FundName)</td>
+                                    <td>
+                                        @if (row.CurrentValueForeign.HasValue && row.CurrentValueForeign.Value != 0)
+                                        {
+                                            <div><strong>@ForeignMoney(row.CurrentValueForeign, row.ForeignCurrencyCode)</strong></div>
+                                            <div class="text-muted small">@Money(row.CurrentValueZar) converted ZAR</div>
+                                        }
+                                        else
+                                        {
+                                            <div>@Money(row.CurrentValueZar)</div>
+                                        }
+                                        <div class="text-muted small">@Date(row.CurrentValueDate)</div>
+                                    </td>
+                                    <td>
+                                        <div>@row.StatusReason</div>
+                                        @if (row.NeedsStatusCorrection)
+                                        {
+                                            <span class="badge text-bg-warning">Correction required</span>
+                                        }
+                                    </td>
+                                    <td>@row.TransactionCount</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </details>
+        }
     </section>
 }
 
@@ -121,6 +206,9 @@ else if (summary is not null)
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "Not captured" : value;
 
     private static string Money(decimal? value) => value is null ? "Not captured" : value.Value.ToString("C");
+
+    private static string ForeignMoney(decimal? value, string? currencyCode) =>
+        value is null ? "Not captured" : $"{currencyCode ?? "Foreign"} {value.Value:N2}";
 
     private static string Date(DateOnly? value) => value is null ? "Not captured" : value.Value.ToString("yyyy-MM-dd");
 }
