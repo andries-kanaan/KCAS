@@ -1,0 +1,169 @@
+@page "/compliance/rmcp/{Id:int}"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
+@using KCAS.Admin.Data
+@inject RmcpService RmcpService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>RMCP version</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Controlled RMCP version</p>
+        <h1>@(model?.Version.Title ?? "Loading...")</h1>
+        @if (model is not null)
+        {
+            <p class="text-muted mb-0">@model.Version.VersionReference · @model.Version.Status · @model.Approvals.Count of 2 KI approvals</p>
+        }
+    </div>
+    <a class="btn btn-outline-secondary" href="/compliance/rmcp">All versions</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(message)) { <div class="alert alert-info">@message</div> }
+
+@if (model is null || edit is null)
+{
+    <p>Loading RMCP version...</p>
+}
+else
+{
+    <section class="work-area">
+        <h2>Controlled action reason</h2>
+        <input class="form-control" @bind="reason" placeholder="Required for every save, submission, approval or activation" />
+    </section>
+
+    <section class="work-area">
+        <h2>Document control</h2>
+        <p class="text-muted">KCAS records the control structure and approval evidence. It does not replace the signed RMCP document.</p>
+        <div class="workspace-grid">
+            <input class="form-control" @bind="edit.Title" disabled="@(!CanEdit)" placeholder="Title" />
+            <input class="form-control" @bind="edit.VersionReference" disabled="@(!CanEdit)" placeholder="Version/reference" />
+            <input class="form-control" @bind="edit.Owner" disabled="@(!CanEdit)" placeholder="Owner" />
+            <label>Review cycle (months)<InputNumber class="form-control" @bind-Value="edit.ReviewMonths" disabled="@(!CanEdit)" /></label>
+        </div>
+        <label class="form-label mt-3">Scope</label>
+        <textarea class="form-control" rows="2" @bind="edit.Scope" disabled="@(!CanEdit)"></textarea>
+        <label class="form-label mt-3">Signed Word/PDF source location</label>
+        <input class="form-control" @bind="edit.SignedDocumentLocation" disabled="@(!CanEdit)" />
+        <label class="form-label mt-3">Signed approval resolution location</label>
+        <input class="form-control" @bind="edit.ApprovalResolutionLocation" disabled="@(!CanEdit)" />
+        <label class="form-label mt-3">Change summary</label>
+        <textarea class="form-control" rows="2" @bind="edit.ChangeSummary" disabled="@(!CanEdit)"></textarea>
+        <p class="mt-3 mb-0"><strong>Linked BRA:</strong> @model.Version.BusinessRiskAssessment?.Name, as at @model.Version.BusinessRiskAssessment?.AsAtDate.ToString("yyyy-MM-dd")</p>
+    </section>
+
+    @foreach (var control in edit.Controls)
+    {
+        <section class="work-area">
+            <h2>@control.Code · @RmcpControlDomains.Display(control.Domain)</h2>
+            <div class="workspace-grid">
+                <input class="form-control" @bind="control.Code" disabled="@(!CanEdit)" placeholder="Control code" />
+                <input class="form-control" @bind="control.Title" disabled="@(!CanEdit)" placeholder="Control title" />
+                <input class="form-control" @bind="control.Owner" disabled="@(!CanEdit)" placeholder="Owner" />
+                <input class="form-control" @bind="control.Frequency" disabled="@(!CanEdit)" placeholder="Frequency" />
+            </div>
+            <label class="form-label mt-3">Linked BRA risk</label>
+            <select class="form-select" @bind="control.BusinessRiskItemId" disabled="@(!CanEdit)">
+                <option value="">Not linked</option>
+                @foreach (var risk in model.Version.BusinessRiskAssessment?.Items.OrderBy(item => item.SortOrder) ?? Enumerable.Empty<BusinessRiskItem>())
+                {
+                    <option value="@risk.Id">@BusinessRiskCategories.Display(risk.Category): @risk.RiskStatement</option>
+                }
+            </select>
+            <label class="form-label mt-3">Procedure summary</label>
+            <textarea class="form-control" rows="2" @bind="control.ProcedureSummary" disabled="@(!CanEdit)"></textarea>
+            <label class="form-label mt-3">Expected evidence</label>
+            <textarea class="form-control" rows="2" @bind="control.EvidenceExpectation" disabled="@(!CanEdit)"></textarea>
+            <label class="form-label mt-3">Monitoring method</label>
+            <textarea class="form-control" rows="2" @bind="control.MonitoringMethod" disabled="@(!CanEdit)"></textarea>
+            <label class="form-label mt-3">Escalation procedure</label>
+            <textarea class="form-control" rows="2" @bind="control.EscalationProcedure" disabled="@(!CanEdit)"></textarea>
+            <label class="form-check mt-3">
+                <InputCheckbox class="form-check-input" @bind-Value="control.HasGap" disabled="@(!CanEdit)" />
+                <span class="form-check-label">Control gap requires a treatment task</span>
+            </label>
+            @if (control.HasGap)
+            {
+                <div class="workspace-grid mt-2">
+                    <input class="form-control" @bind="control.GapDescription" disabled="@(!CanEdit)" placeholder="Gap description" />
+                    <input class="form-control" @bind="control.TreatmentOwner" disabled="@(!CanEdit)" placeholder="Treatment owner" />
+                    <InputDate class="form-control" @bind-Value="control.TreatmentDueDate" disabled="@(!CanEdit)" />
+                </div>
+            }
+        </section>
+    }
+
+    <section class="work-area">
+        <h2>Approval and version control</h2>
+        @if (model.Approvals.Count == 0) { <p>No KI approvals recorded.</p> }
+        else
+        {
+            <ul>
+                @foreach (var approval in model.Approvals)
+                {
+                    <li>@approval.Approver — @approval.DecidedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm") — @approval.Reason</li>
+                }
+            </ul>
+        }
+        <div class="d-flex flex-wrap gap-2">
+            @if (CanEdit)
+            {
+                <button class="btn btn-primary" @onclick="SaveAsync">Save draft</button>
+                <button class="btn btn-outline-primary" @onclick="SubmitAsync">Submit for KI approval</button>
+            }
+            @if (canApprove && model.Version.Status == ComplianceStatuses.Review)
+            {
+                <button class="btn btn-success" @onclick="ApproveAsync">Record my KI approval</button>
+            }
+            @if (canApprove && model.Version.Status == ComplianceStatuses.Approved)
+            {
+                <InputDate class="form-control w-auto" @bind-Value="effectiveDate" />
+                <button class="btn btn-success" @onclick="ActivateAsync">Make effective</button>
+            }
+            @if (model.Version.Status is ComplianceStatuses.Approved or ComplianceStatuses.Active or ComplianceStatuses.Superseded)
+            {
+                <a class="btn btn-outline-secondary" href="@($"/compliance/rmcp/{Id}/print")">View approved record</a>
+            }
+        </div>
+    </section>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+    private RmcpPageModel? model;
+    private RmcpEditModel? edit;
+    private string reason = "";
+    private string? currentUser;
+    private string? message;
+    private bool canManage;
+    private bool canApprove;
+    private DateOnly effectiveDate = DateOnly.FromDateTime(DateTime.Today);
+    private bool CanEdit => canManage && model?.Version.Status == ComplianceStatuses.Draft;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        currentUser = state.User.Identity?.Name;
+        canManage = state.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage);
+        canApprove = state.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceApprove);
+        await LoadAsync();
+    }
+    private async Task LoadAsync()
+    {
+        model = await RmcpService.LoadAsync(Id);
+        edit = model is null ? null : RmcpEditModel.FromEntity(model.Version);
+    }
+    private async Task SaveAsync() => await ExecuteAsync(() => RmcpService.SaveDraftAsync(edit!, currentUser, reason), "Draft saved.");
+    private async Task SubmitAsync() => await ExecuteAsync(async () =>
+    {
+        await RmcpService.SaveDraftAsync(edit!, currentUser, reason);
+        await RmcpService.SubmitAsync(Id, currentUser, reason);
+    }, "Submitted for two KI approvals.");
+    private async Task ApproveAsync() => await ExecuteAsync(() => RmcpService.ApproveAsync(Id, currentUser, reason), "KI approval recorded.");
+    private async Task ActivateAsync() => await ExecuteAsync(() => RmcpService.ActivateAsync(Id, effectiveDate, currentUser, reason), "RMCP is now effective.");
+    private async Task ExecuteAsync(Func<Task> action, string success)
+    {
+        try { await action(); message = success; await LoadAsync(); }
+        catch (Exception ex) { message = ex.Message; }
+    }
+}

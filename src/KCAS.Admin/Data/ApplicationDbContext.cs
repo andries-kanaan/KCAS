@@ -60,6 +60,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<BusinessRiskAssessment> BusinessRiskAssessments => Set<BusinessRiskAssessment>();
     public DbSet<BusinessRiskItem> BusinessRiskItems => Set<BusinessRiskItem>();
     public DbSet<BusinessRiskApproval> BusinessRiskApprovals => Set<BusinessRiskApproval>();
+    public DbSet<RmcpVersion> RmcpVersions => Set<RmcpVersion>();
+    public DbSet<RmcpControl> RmcpControls => Set<RmcpControl>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -113,6 +115,49 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         {
             entity.Property(item => item.Approver).HasMaxLength(191);
             entity.HasIndex(item => new { item.BusinessRiskAssessmentId, item.Approver }).IsUnique();
+        });
+
+        builder.Entity<RmcpVersion>(entity =>
+        {
+            entity.Property(item => item.Title).HasMaxLength(191);
+            entity.Property(item => item.VersionReference).HasMaxLength(64);
+            entity.Property(item => item.Status).HasMaxLength(32);
+            entity.Property(item => item.Owner).HasMaxLength(191);
+            entity.Property(item => item.SignedDocumentLocation).HasMaxLength(1024);
+            entity.Property(item => item.ApprovalResolutionLocation).HasMaxLength(1024);
+            entity.Property(item => item.PreparedBy).HasMaxLength(191);
+            entity.Property(item => item.UpdatedBy).HasMaxLength(191);
+            ConfigureDateOnly(entity.Property(item => item.EffectiveDate));
+            ConfigureDateOnly(entity.Property(item => item.NextReviewDate));
+            entity.HasIndex(item => new { item.Status, item.VersionReference });
+            entity.HasOne(item => item.BusinessRiskAssessment)
+                .WithMany()
+                .HasForeignKey(item => item.BusinessRiskAssessmentId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasMany(item => item.Controls)
+                .WithOne(item => item.RmcpVersion)
+                .HasForeignKey(item => item.RmcpVersionId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<RmcpControl>(entity =>
+        {
+            entity.Property(item => item.Domain).HasMaxLength(48);
+            entity.Property(item => item.Code).HasMaxLength(64);
+            entity.Property(item => item.Title).HasMaxLength(191);
+            entity.Property(item => item.Owner).HasMaxLength(191);
+            entity.Property(item => item.Frequency).HasMaxLength(64);
+            entity.Property(item => item.TreatmentOwner).HasMaxLength(191);
+            ConfigureDateOnly(entity.Property(item => item.TreatmentDueDate));
+            entity.HasIndex(item => new { item.RmcpVersionId, item.Code }).IsUnique();
+            entity.HasOne(item => item.BusinessRiskItem)
+                .WithMany()
+                .HasForeignKey(item => item.BusinessRiskItemId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ComplianceTask>()
+                .WithMany()
+                .HasForeignKey(item => item.ComplianceTaskId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         builder.Entity<IdentityRole>(entity =>
