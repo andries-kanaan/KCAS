@@ -1,0 +1,92 @@
+@page "/compliance/methodologies/{MethodologyId:int}/review"
+@attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
+@using KCAS.Admin.Data
+@using Microsoft.EntityFrameworkCore
+@inject ApplicationDbContext Db
+
+<PageTitle>Risk methodology review</PageTitle>
+
+@if (methodology is null)
+{
+    <p>Loading risk methodology...</p>
+}
+else
+{
+    <div class="page-header">
+        <div>
+            <p class="eyebrow">Controlled methodology review</p>
+            <h1>@methodology.Name</h1>
+            <p class="text-muted mb-0">@methodology.VersionLabel | @methodology.Status | @approvalCount of 2 KI approvals</p>
+        </div>
+        <div class="header-actions"><a class="btn btn-outline-secondary" href="/compliance/settings">Back to compliance settings</a></div>
+    </div>
+
+    <section class="work-area">
+        <h2>Purpose and effective period</h2>
+        <dl>
+            <dt>Summary</dt><dd>@Display(methodology.Summary)</dd>
+            <dt>Effective from</dt><dd>@Date(methodology.EffectiveFrom)</dd>
+            <dt>Effective to</dt><dd>@Date(methodology.EffectiveTo)</dd>
+            <dt>Last updated by</dt><dd>@Display(methodology.UpdatedBy)</dd>
+        </dl>
+    </section>
+
+    <section class="work-area">
+        <h2>Factors and answer options</h2>
+        @foreach (var factor in methodology.Factors.OrderBy(item => item.SortOrder))
+        {
+            <article class="detail-panel mb-3">
+                <h3 class="h5">@factor.Code — @factor.Name</h3>
+                <p>@Display(factor.Description)</p>
+                <p><strong>Weight:</strong> @factor.Weight</p>
+                <div class="table-responsive">
+                    <table class="table align-middle">
+                        <thead><tr><th>Option</th><th>Code</th><th>Score</th><th>Mandatory High</th></tr></thead>
+                        <tbody>
+                            @foreach (var option in factor.Options.OrderBy(item => item.SortOrder))
+                            {
+                                <tr><td>@option.Label</td><td>@option.Code</td><td>@option.Score</td><td>@(option.TriggersHighRisk ? "Yes" : "No")</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </article>
+        }
+    </section>
+
+    <section class="work-area">
+        <h2>Risk bands and review periods</h2>
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead><tr><th>Band</th><th>Minimum</th><th>Maximum</th><th>Review period</th></tr></thead>
+                <tbody>
+                    @foreach (var band in methodology.Bands.OrderBy(item => item.SortOrder))
+                    {
+                        <tr><td>@band.Name</td><td>@band.MinimumScore</td><td>@(band.MaximumScore?.ToString() ?? "No maximum")</td><td>@band.ReviewMonths months</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}
+
+@code {
+    [Parameter] public int MethodologyId { get; set; }
+    private RiskMethodologyVersion? methodology;
+    private int approvalCount;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        methodology = await Db.RiskMethodologyVersions.AsNoTracking()
+            .Include(item => item.Factors).ThenInclude(factor => factor.Options)
+            .Include(item => item.Bands)
+            .SingleOrDefaultAsync(item => item.Id == MethodologyId);
+        approvalCount = await Db.ComplianceApprovals.AsNoTracking().CountAsync(item =>
+            item.TargetEntityType == nameof(RiskMethodologyVersion) &&
+            item.TargetEntityId == MethodologyId &&
+            item.Decision == ComplianceStatuses.Approved);
+    }
+
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "Not captured" : value;
+    private static string Date(DateOnly? value) => value?.ToString("yyyy-MM-dd") ?? "Not set";
+}

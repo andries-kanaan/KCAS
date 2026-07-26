@@ -54,7 +54,9 @@ public sealed class ClientRiskAssessmentService(
                 item.CalculatedScore,
                 item.EffectiveDate,
                 item.NextReviewDate,
-                item.FinalisedBy))
+                item.FinalisedBy,
+                item.ReviewTriggerType,
+                item.ReviewTriggerReason))
             .ToListAsync();
 
         return new ClientRiskAssessmentPageModel
@@ -119,6 +121,10 @@ public sealed class ClientRiskAssessmentService(
             RiskMethodologyVersionId = methodology.Id,
             PreparedBy = preparedBy,
             Status = ClientRiskAssessmentStatuses.Draft,
+            ReviewTriggerType = ClientRiskReviewTriggerTypes.Initial,
+            ReviewTriggerReason = reason.Trim(),
+            ReviewTriggeredAtUtc = DateTime.UtcNow,
+            ReviewTriggeredBy = preparedBy,
             Responses = methodology.Factors.Select(factor => new ClientRiskAssessmentResponse
             {
                 RiskFactorDefinitionId = factor.Id
@@ -127,6 +133,89 @@ public sealed class ClientRiskAssessmentService(
         db.ClientRiskAssessments.Add(assessment);
         await db.SaveChangesAsync();
         db.ComplianceAuditEvents.Add(CreateAudit(assessment.Id, "DraftCreated", preparedBy, reason, AuditSummary(assessment)));
+        await db.SaveChangesAsync();
+        return assessment.Id;
+    }
+
+    public async Task<int> StartReassessmentAsync(
+        int previousAssessmentId,
+        string triggerType,
+        string triggerReason,
+        string? userName,
+        string reason)
+    {
+        RequireReason(reason);
+        var user = RequireUser(userName);
+        if (!ClientRiskReviewTriggerTypes.ReassessmentTypes.Contains(triggerType))
+        {
+            throw new ValidationException("Select a valid reassessment trigger.");
+        }
+        if (string.IsNullOrWhiteSpace(triggerReason))
+        {
+            throw new ValidationException("A reassessment trigger reason is required.");
+        }
+
+        var previous = await db.ClientRiskAssessments.AsNoTracking()
+            .Include(item => item.Responses).ThenInclude(response => response.FactorDefinition)
+            .Include(item => item.Responses).ThenInclude(response => response.SelectedOption)
+            .SingleOrDefaultAsync(item => item.Id == previousAssessmentId)
+            ?? throw new KeyNotFoundException("Previous risk assessment not found.");
+        if (previous.Status is not (ClientRiskAssessmentStatuses.Finalised or ClientRiskAssessmentStatuses.Approved))
+        {
+            throw new InvalidOperationException("Only a current finalised or approved assessment can start a reassessment.");
+        }
+        if (await db.ClientRiskAssessments.AnyAsync(item =>
+                item.ClientId == previous.ClientId &&
+                (item.Status == ClientRiskAssessmentStatuses.Draft ||
+                 item.Status == ClientRiskAssessmentStatuses.PendingKiApproval)))
+        {
+            throw new InvalidOperationException("This client already has an assessment in progress.");
+        }
+
+        var methodology = await LoadActiveMethodologyAsync();
+        ValidateMethodology(methodology);
+        var priorResponses = previous.Responses
+            .Where(item => item.FactorDefinition is not null)
+            .ToDictionary(item => item.FactorDefinition!.Code, StringComparer.OrdinalIgnoreCase);
+        var assessment = new ClientRiskAssessment
+        {
+            ClientId = previous.ClientId,
+            RiskMethodologyVersionId = methodology.Id,
+            PreviousAssessmentId = previous.Id,
+            PreparedBy = user,
+            Status = ClientRiskAssessmentStatuses.Draft,
+            ReviewTriggerType = triggerType,
+            ReviewTriggerReason = triggerReason.Trim(),
+            ReviewTriggeredAtUtc = DateTime.UtcNow,
+            ReviewTriggeredBy = user,
+            HasPepExposure = previous.HasPepExposure,
+            HasSanctionsConcern = previous.HasSanctionsConcern,
+            HasAdverseInformation = previous.HasAdverseInformation,
+            StandardControlsApplied = previous.StandardControlsApplied,
+            Narrative = previous.Narrative,
+            Responses = methodology.Factors.Select(factor =>
+            {
+                priorResponses.TryGetValue(factor.Code, out var prior);
+                var copiedOptionId = prior?.SelectedOption is null
+                    ? null
+                    : factor.Options.FirstOrDefault(option =>
+                        string.Equals(option.Code, prior.SelectedOption.Code, StringComparison.OrdinalIgnoreCase))?.Id;
+                return new ClientRiskAssessmentResponse
+                {
+                    RiskFactorDefinitionId = factor.Id,
+                    RiskFactorOptionId = copiedOptionId,
+                    ClientEvidenceItemId = prior?.ClientEvidenceItemId,
+                    Explanation = prior?.Explanation,
+                    Score = prior?.Score ?? 0,
+                    WeightedScore = prior?.WeightedScore ?? 0,
+                    ConfirmedAtUtc = null,
+                    ConfirmedBy = null
+                };
+            }).ToList()
+        };
+        db.ClientRiskAssessments.Add(assessment);
+        await db.SaveChangesAsync();
+        db.ComplianceAuditEvents.Add(CreateAudit(assessment.Id, "ReassessmentStarted", user, reason, AuditSummary(assessment)));
         await db.SaveChangesAsync();
         return assessment.Id;
     }
@@ -172,6 +261,10 @@ public sealed class ClientRiskAssessmentService(
             response.SelectedOption = selectedOption;
             response.ClientEvidenceItemId = input.EvidenceItemId;
             response.Explanation = Normalize(input.Explanation);
+            response.ConfirmedAtUtc = selectedOption is not null && !string.IsNullOrWhiteSpace(response.Explanation)
+                ? DateTime.UtcNow
+                : null;
+            response.ConfirmedBy = response.ConfirmedAtUtc.HasValue ? user : null;
         }
 
         assessment.HasPepExposure = model.HasPepExposure;
@@ -207,6 +300,10 @@ public sealed class ClientRiskAssessmentService(
         if (assessment.Responses.Any(response => string.IsNullOrWhiteSpace(response.Explanation)))
         {
             throw new ValidationException("Explain every selected risk-factor answer.");
+        }
+        if (assessment.Responses.Any(response => response.ConfirmedAtUtc is null))
+        {
+            throw new ValidationException("Review and confirm every risk-factor answer in this assessment.");
         }
         if (!assessment.StandardControlsApplied)
         {
@@ -314,7 +411,11 @@ public sealed class ClientRiskAssessmentService(
         await db.SaveChangesAsync();
     }
 
-    public async Task<IReadOnlyList<ClientRiskPortfolioItem>> LoadPortfolioAsync(string? search)
+    public async Task<IReadOnlyList<ClientRiskPortfolioItem>> LoadPortfolioAsync(
+        string? search,
+        string? rating = null,
+        string? status = null,
+        string? reviewState = null)
     {
         var query = db.ClientRiskAssessments.AsNoTracking()
             .Where(item => item.Status != ClientRiskAssessmentStatuses.Draft &&
@@ -327,6 +428,24 @@ public sealed class ClientRiskAssessmentService(
             query = query.Where(item => item.Client!.DisplayName.Contains(term) ||
                                         (item.Client.KanaanId != null && item.Client.KanaanId.Contains(term)) ||
                                         (item.FinalRating != null && item.FinalRating.Contains(term)));
+        }
+        if (!string.IsNullOrWhiteSpace(rating))
+        {
+            query = query.Where(item => (item.FinalRating ?? item.CalculatedRating) == rating);
+        }
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            query = query.Where(item => item.Status == status);
+        }
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        if (reviewState == ClientRiskReviewStates.Overdue)
+        {
+            query = query.Where(item => item.NextReviewDate < today);
+        }
+        else if (reviewState == ClientRiskReviewStates.DueSoon)
+        {
+            var dueLimit = today.AddMonths(3);
+            query = query.Where(item => item.NextReviewDate >= today && item.NextReviewDate <= dueLimit);
         }
 
         var rows = await query.OrderByDescending(item => item.Id)
@@ -353,6 +472,38 @@ public sealed class ClientRiskAssessmentService(
                 item.Status,
                 item.NextReviewDate))
             .ToList();
+    }
+
+    public async Task<ClientRiskPrintableModel> LoadPrintableAsync(int clientId, int assessmentId)
+    {
+        var assessment = await db.ClientRiskAssessments.AsNoTracking()
+            .Include(item => item.Client)
+            .Include(item => item.MethodologyVersion)
+            .Include(item => item.Approvals)
+            .SingleOrDefaultAsync(item => item.Id == assessmentId && item.ClientId == clientId)
+            ?? throw new KeyNotFoundException("Risk assessment not found.");
+        if (string.IsNullOrWhiteSpace(assessment.SnapshotJson))
+        {
+            throw new InvalidOperationException("Only a frozen finalised assessment can be printed.");
+        }
+
+        using var document = JsonDocument.Parse(assessment.SnapshotJson);
+        return new ClientRiskPrintableModel(
+            assessment.Id,
+            assessment.Client!.DisplayName,
+            assessment.Client.KanaanId,
+            assessment.Status,
+            assessment.MethodologyVersion!.Name,
+            assessment.MethodologyVersion.VersionLabel,
+            assessment.FinalisedAtUtc,
+            assessment.ApprovedAtUtc,
+            assessment.FinalisedBy,
+            assessment.ReviewTriggerType,
+            assessment.ReviewTriggerReason,
+            document.RootElement.Clone(),
+            assessment.Approvals.OrderBy(item => item.DecidedAtUtc)
+                .Select(item => new ClientRiskApprovalSummary(item.Approver, item.Reason, item.DecidedAtUtc))
+                .ToList());
     }
 
     private async Task<RiskMethodologyVersion> LoadActiveMethodologyAsync()
@@ -480,6 +631,8 @@ public sealed class ClientRiskAssessmentService(
                 assessment.RequiresEdd,
                 assessment.StandardControlsApplied,
                 assessment.Narrative,
+                assessment.ReviewTriggerType,
+                assessment.ReviewTriggerReason,
                 assessment.EffectiveDate,
                 assessment.NextReviewDate
             }
@@ -514,6 +667,9 @@ public sealed class ClientRiskAssessmentService(
             assessment.RequiresEdd,
             assessment.EffectiveDate,
             assessment.NextReviewDate,
+            assessment.PreviousAssessmentId,
+            assessment.ReviewTriggerType,
+            assessment.ReviewTriggerReason,
             Responses = assessment.Responses.Select(response => new
             {
                 response.RiskFactorDefinitionId,
@@ -521,7 +677,9 @@ public sealed class ClientRiskAssessmentService(
                 response.ClientEvidenceItemId,
                 response.Score,
                 response.WeightedScore,
-                response.Explanation
+                response.Explanation,
+                response.ConfirmedAtUtc,
+                response.ConfirmedBy
             })
         };
 
@@ -544,6 +702,8 @@ public sealed class ClientRiskAssessmentService(
             assessment.NextReviewDate,
             assessment.PreparedBy,
             assessment.FinalisedBy,
+            assessment.ReviewTriggerType,
+            assessment.ReviewTriggerReason,
             assessment.Approvals.OrderBy(item => item.DecidedAtUtc)
                 .Select(item => new ClientRiskApprovalSummary(item.Approver, item.Reason, item.DecidedAtUtc)).ToList());
 
@@ -596,6 +756,8 @@ public sealed record ClientRiskAssessmentSummary(
     DateOnly? NextReviewDate,
     string? PreparedBy,
     string? FinalisedBy,
+    string ReviewTriggerType,
+    string? ReviewTriggerReason,
     IReadOnlyList<ClientRiskApprovalSummary> Approvals);
 
 public sealed class ClientRiskAssessmentEditModel
@@ -628,5 +790,25 @@ public sealed record ClientRiskFactorInput(int FactorId, int? SelectedOptionId, 
 public sealed record ClientRiskFactorOptionModel(int Id, string Label, int Score, bool TriggersHighRisk);
 public sealed record ClientRiskEvidenceOption(int Id, string EvidenceType, string Title);
 public sealed record ClientRiskApprovalSummary(string Approver, string Reason, DateTime DecidedAtUtc);
-public sealed record ClientRiskAssessmentHistoryItem(int Id, string Status, string? Rating, decimal Score, DateOnly? EffectiveDate, DateOnly? NextReviewDate, string? FinalisedBy);
+public sealed record ClientRiskAssessmentHistoryItem(int Id, string Status, string? Rating, decimal Score, DateOnly? EffectiveDate, DateOnly? NextReviewDate, string? FinalisedBy, string ReviewTriggerType, string? ReviewTriggerReason);
 public sealed record ClientRiskPortfolioItem(int ClientId, string DisplayName, string? KanaanId, string? Rating, string Status, DateOnly? NextReviewDate);
+public sealed record ClientRiskPrintableModel(
+    int Id,
+    string DisplayName,
+    string? KanaanId,
+    string Status,
+    string MethodologyName,
+    string? MethodologyVersion,
+    DateTime? FinalisedAtUtc,
+    DateTime? ApprovedAtUtc,
+    string? FinalisedBy,
+    string ReviewTriggerType,
+    string? ReviewTriggerReason,
+    JsonElement Snapshot,
+    IReadOnlyList<ClientRiskApprovalSummary> Approvals);
+
+public static class ClientRiskReviewStates
+{
+    public const string DueSoon = "DueSoon";
+    public const string Overdue = "Overdue";
+}

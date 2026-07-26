@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using KCAS.Admin.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -28,6 +29,34 @@ public sealed class ClientRiskAssessmentServiceTests(KcasWebApplicationFactory f
         Assert.Equal("Low", assessment.FinalRating);
         Assert.NotNull(assessment.SnapshotJson);
         Assert.NotNull(assessment.NextReviewDate);
+
+        var reassessmentId = await service.StartReassessmentAsync(
+            assessmentId,
+            ClientRiskReviewTriggerTypes.PeriodicReview,
+            "Scheduled technical reassessment test.",
+            "rep@example.test",
+            "Start reassessment.");
+        var copiedResponses = await db.ClientRiskAssessmentResponses.AsNoTracking()
+            .Where(item => item.ClientRiskAssessmentId == reassessmentId)
+            .ToListAsync();
+        Assert.All(copiedResponses, item => Assert.NotNull(item.RiskFactorOptionId));
+        Assert.All(copiedResponses, item => Assert.Null(item.ConfirmedAtUtc));
+        await Assert.ThrowsAsync<ValidationException>(() =>
+            service.FinaliseAsync(reassessmentId, "rep@example.test", "Attempt without reconfirming."));
+
+        var reassessmentPage = await service.LoadAsync(clientId);
+        await service.SaveDraftAsync(reassessmentId, BuildEdit(reassessmentPage, useHighOption: false), "rep@example.test", "Reconfirm copied answers.");
+        await service.FinaliseAsync(reassessmentId, "rep@example.test", "Finalise periodic reassessment.");
+
+        var states = await db.ClientRiskAssessments.AsNoTracking()
+            .Where(item => item.Id == assessmentId || item.Id == reassessmentId)
+            .OrderBy(item => item.Id)
+            .ToListAsync();
+        Assert.Equal(ClientRiskAssessmentStatuses.Superseded, states[0].Status);
+        Assert.Equal(ClientRiskAssessmentStatuses.Finalised, states[1].Status);
+        Assert.Equal(assessmentId, states[1].PreviousAssessmentId);
+        var printable = await service.LoadPrintableAsync(clientId, reassessmentId);
+        Assert.Equal(ClientRiskReviewTriggerTypes.PeriodicReview, printable.ReviewTriggerType);
     }
 
     [Fact]

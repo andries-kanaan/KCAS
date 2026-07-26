@@ -16,9 +16,23 @@
 </div>
 
 <section class="work-area">
-    <div class="input-group">
-        <input class="form-control" @bind="search" @bind:event="oninput" placeholder="Search client, Kanaan ID or risk" />
-        <button type="button" class="btn btn-primary" @onclick="LoadAsync">Search</button>
+    <div class="workspace-grid">
+        <input class="form-control" @bind="search" placeholder="Search client, Kanaan ID or risk" />
+        <select class="form-select" @bind="rating">
+            <option value="">All ratings</option><option value="Low">Low</option><option value="Standard">Standard</option><option value="High">High</option>
+        </select>
+        <select class="form-select" @bind="status">
+            <option value="">All statuses</option>
+            <option value="@ClientRiskAssessmentStatuses.Finalised">Finalised</option>
+            <option value="@ClientRiskAssessmentStatuses.PendingKiApproval">Pending KI approval</option>
+            <option value="@ClientRiskAssessmentStatuses.Approved">Approved</option>
+        </select>
+        <select class="form-select" @bind="reviewState">
+            <option value="">All review dates</option>
+            <option value="@ClientRiskReviewStates.DueSoon">Due in three months</option>
+            <option value="@ClientRiskReviewStates.Overdue">Overdue</option>
+        </select>
+        <button type="button" class="btn btn-primary" @onclick="LoadAsync">Apply filters</button>
     </div>
     <p class="mt-3 mb-2">
         Low: @items.Count(item => item.Rating == "Low") |
@@ -45,7 +59,10 @@
 @code {
     private IReadOnlyList<ClientRiskPortfolioItem> items = [];
     private string? search;
+    private string? rating;
+    private string? status;
+    private string? reviewState;
 
     protected override async Task OnInitializedAsync() => await LoadAsync();
-    private async Task LoadAsync() => items = await RiskService.LoadPortfolioAsync(search);
+    private async Task LoadAsync() => items = await RiskService.LoadPortfolioAsync(search, rating, status, reviewState);
 }

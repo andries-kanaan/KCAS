@@ -1,0 +1,119 @@
+@page "/clients/{ClientId:int}/risk/{AssessmentId:int}"
+@attribute [Authorize(Policy = KcasPermissions.RiskAssessmentsView)]
+@using System.Text.Json
+@using KCAS.Admin.Data
+@inject ClientRiskAssessmentService RiskService
+
+<PageTitle>Client risk assessment record</PageTitle>
+
+@if (model is null)
+{
+    <p>Loading frozen assessment record...</p>
+}
+else
+{
+    <div class="page-header print-hidden">
+        <div>
+            <p class="eyebrow">Frozen client risk record</p>
+            <h1>@model.DisplayName</h1>
+        </div>
+        <div class="header-actions">
+            <button type="button" class="btn btn-primary" onclick="window.print()">Print</button>
+            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/risk")">Back to assessment</a>
+        </div>
+    </div>
+
+    <article class="work-area">
+        <h1 class="h2">Kanaan client risk assessment</h1>
+        <dl>
+            <dt>Client</dt><dd>@model.DisplayName</dd>
+            <dt>Kanaan ID</dt><dd>@Display(model.KanaanId)</dd>
+            <dt>Assessment</dt><dd>#@model.Id — @model.Status</dd>
+            <dt>Methodology</dt><dd>@model.MethodologyName @model.MethodologyVersion</dd>
+            <dt>Review trigger</dt><dd>@model.ReviewTriggerType — @Display(model.ReviewTriggerReason)</dd>
+            <dt>Finalised</dt><dd>@DateTimeValue(model.FinalisedAtUtc) by @Display(model.FinalisedBy)</dd>
+            <dt>Approved</dt><dd>@DateTimeValue(model.ApprovedAtUtc)</dd>
+        </dl>
+
+        <h2 class="h4 mt-4">Result</h2>
+        <dl>
+            <dt>Calculated score</dt><dd>@Text(Result, "calculatedScore")</dd>
+            <dt>Calculated rating</dt><dd>@Text(Result, "calculatedRating")</dd>
+            <dt>Final rating</dt><dd>@Text(Result, "finalRating")</dd>
+            <dt>EDD required</dt><dd>@BooleanText(Result, "requiresEdd")</dd>
+            <dt>Next review</dt><dd>@Text(Result, "nextReviewDate")</dd>
+            <dt>Narrative</dt><dd>@Text(Result, "narrative")</dd>
+        </dl>
+
+        <h2 class="h4 mt-4">Factor calculation</h2>
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead><tr><th>Factor</th><th>Answer</th><th>Score</th><th>Weighted</th><th>Explanation</th><th>Evidence</th></tr></thead>
+                <tbody>
+                    @foreach (var factor in Factors)
+                    {
+                        <tr>
+                            <td>@Text(factor, "name")</td>
+                            <td>@Text(factor, "option")</td>
+                            <td>@Text(factor, "score")</td>
+                            <td>@Text(factor, "weightedScore")</td>
+                            <td>@Text(factor, "explanation")</td>
+                            <td>@EvidenceTitle(factor)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        @if (model.Approvals.Count > 0)
+        {
+            <h2 class="h4 mt-4">KI approvals</h2>
+            <ul>
+                @foreach (var approval in model.Approvals)
+                {
+                    <li>@approval.Approver — @approval.DecidedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm") — @approval.Reason</li>
+                }
+            </ul>
+        }
+    </article>
+}
+
+<style>
+    @@media print {
+        .print-hidden, .sidebar, .top-row { display: none !important; }
+        .content { margin: 0 !important; padding: 0 !important; }
+        .work-area { border: 0 !important; box-shadow: none !important; }
+    }
+</style>
+
+@code {
+    [Parameter] public int ClientId { get; set; }
+    [Parameter] public int AssessmentId { get; set; }
+    private ClientRiskPrintableModel? model;
+
+    private JsonElement Result => model!.Snapshot.GetProperty("result");
+    private IEnumerable<JsonElement> Factors => model!.Snapshot.GetProperty("methodology").GetProperty("factors").EnumerateArray();
+
+    protected override async Task OnParametersSetAsync()
+        => model = await RiskService.LoadPrintableAsync(ClientId, AssessmentId);
+
+    private static string Text(JsonElement element, string property)
+    {
+        if (!element.TryGetProperty(property, out var value) || value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return "Not captured";
+        }
+        return value.ValueKind == JsonValueKind.String ? value.GetString() ?? "Not captured" : value.ToString();
+    }
+
+    private static string BooleanText(JsonElement element, string property)
+        => element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.True ? "Yes" : "No";
+
+    private static string EvidenceTitle(JsonElement factor)
+        => factor.TryGetProperty("evidence", out var evidence) && evidence.ValueKind == JsonValueKind.Object
+            ? Text(evidence, "title")
+            : "No primary evidence link";
+
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "Not captured" : value;
+    private static string DateTimeValue(DateTime? value) => value?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "Not recorded";
+}
