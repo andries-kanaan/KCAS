@@ -65,6 +65,19 @@ public sealed class ClientEvidenceItem
     public string Status { get; set; } = ClientEvidenceStatuses.Linked;
 
     [MaxLength(32)]
+    public string OwnershipStatus { get; set; } = ClientEvidenceOwnershipStatuses.Confirmed;
+
+    public int? OwnershipConfidence { get; set; }
+
+    [MaxLength(512)]
+    public string? OwnershipReason { get; set; }
+
+    public DateTime? OwnershipReviewedAtUtc { get; set; }
+
+    [MaxLength(191)]
+    public string? OwnershipReviewedBy { get; set; }
+
+    [MaxLength(32)]
     public string SelectionStatus { get; set; } = ClientEvidenceSelectionStatuses.Candidate;
 
     public int? SelectionConfidence { get; set; }

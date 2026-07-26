@@ -27,9 +27,21 @@ public static class ClientEvidenceScanStatuses
 public static class ClientEvidenceScanFileStatuses
 {
     public const string Linked = "Linked";
+    public const string OwnershipReview = "OwnershipReview";
     public const string Unmatched = "Unmatched";
     public const string Ambiguous = "Ambiguous";
     public const string Skipped = "Skipped";
+}
+
+public static class ClientEvidenceOwnershipStatuses
+{
+    public const string Confirmed = "Confirmed";
+    public const string AutoAssigned = "AutoAssigned";
+    public const string NeedsReview = "NeedsReview";
+    public const string Excluded = "Excluded";
+
+    public static bool IsActive(string status) =>
+        status is Confirmed or AutoAssigned;
 }
 
 public static class ClientEvidenceSelectionStatuses

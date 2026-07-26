@@ -338,6 +338,19 @@ Make KCAS the reliable evidence base from which client risk can be assessed.
 - Approved evidence exceptions with review dates so specific blockers can be temporarily cleared with audit traceability.
 - Evidence-gap task creation through the existing compliance task model.
 - Computed “ready for risk assessment” status; it is not manually editable.
+- Shared physical client-folder support with explicit per-client and joint aliases.
+- Conservative shared-folder ownership matching: only explicit aliases auto-assign; generic or conflicting files require review.
+- Audited evidence ownership confirmation, multi-client assignment and exclusion without deleting scan history.
+- Ownership state is enforced by readiness and verification so unresolved or excluded files cannot satisfy requirements.
+- Evidence-path category inference no longer treats ordinary estate or asset-distribution filenames as proof of client legal form.
+
+### Current Phase 2 acceptance position
+
+- The first live pilot scans completed successfully without unmatched client folders or scan errors.
+- Philip Nel and Jacob Benade were restored to natural-person classification after false evidence-path inference; the correction is audited.
+- The shared Bodenstein dossier is configured for wife, husband and joint aliases.
+- Explicitly named files were reconciled; 195 generic shared-folder documents remain queued for ownership review.
+- Representative legal-person scanning, evidence verification, screening review, exceptions/tasks and final natural-person/trust/legal-person acceptance remain outstanding.
 
 ### Acceptance gate 2
 

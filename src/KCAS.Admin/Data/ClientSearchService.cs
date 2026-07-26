@@ -2,8 +2,21 @@ using Microsoft.EntityFrameworkCore;
 
 namespace KCAS.Admin.Data;
 
-public sealed class ClientSearchService(ApplicationDbContext db)
+public sealed class ClientSearchService
 {
+    private readonly ApplicationDbContext? db;
+    private readonly IDbContextFactory<ApplicationDbContext>? dbFactory;
+
+    public ClientSearchService(ApplicationDbContext db)
+    {
+        this.db = db;
+    }
+
+    public ClientSearchService(IDbContextFactory<ApplicationDbContext> dbFactory)
+    {
+        this.dbFactory = dbFactory;
+    }
+
     public async Task<List<ClientSearchResult>> SearchAsync(string? searchText, int take = 100)
     {
         return await SearchAsync(new ClientSearchRequest(GlobalSearch: searchText), take);
@@ -11,6 +24,9 @@ public sealed class ClientSearchService(ApplicationDbContext db)
 
     public async Task<List<ClientSearchResult>> SearchAsync(ClientSearchRequest request, int take = 500)
     {
+        await using var ownedDb = dbFactory is null ? null : await dbFactory.CreateDbContextAsync();
+        var searchDb = ownedDb ?? db ?? throw new InvalidOperationException("Client search database context is not configured.");
+
         var normalizedQuery = request.GlobalSearch?.Trim();
         var kanaanId = request.KanaanId?.Trim();
         var name = request.Name?.Trim();
@@ -19,7 +35,7 @@ public sealed class ClientSearchService(ApplicationDbContext db)
         var phone = request.Phone?.Trim();
         var status = request.Status?.Trim();
 
-        var query = db.Clients
+        var query = searchDb.Clients
             .AsNoTracking()
             .Include(client => client.PersonalProfile)
             .Include(client => client.ContactPoints)

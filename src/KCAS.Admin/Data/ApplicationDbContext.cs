@@ -49,6 +49,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<ClientEvidenceScanRun> ClientEvidenceScanRuns => Set<ClientEvidenceScanRun>();
     public DbSet<ClientEvidenceScanFile> ClientEvidenceScanFiles => Set<ClientEvidenceScanFile>();
 
+    public DbSet<ClientEvidenceOwnershipAlias> ClientEvidenceOwnershipAliases => Set<ClientEvidenceOwnershipAlias>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -622,6 +624,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.Property(item => item.ScreeningOutcome).HasMaxLength(96);
             entity.Property(item => item.ScreeningRiskSignal).HasMaxLength(32);
             entity.Property(item => item.Status).HasMaxLength(32);
+            entity.Property(item => item.OwnershipStatus)
+                .HasMaxLength(32)
+                .HasDefaultValue(ClientEvidenceOwnershipStatuses.Confirmed);
+            entity.Property(item => item.OwnershipReason).HasMaxLength(512);
+            entity.Property(item => item.OwnershipReviewedBy).HasMaxLength(191);
             entity.Property(item => item.SelectionStatus)
                 .HasMaxLength(32)
                 .HasDefaultValue(ClientEvidenceSelectionStatuses.Candidate);
@@ -636,6 +643,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             ConfigureDateOnly(entity.Property(item => item.ExpiryDate));
             ConfigureDateOnly(entity.Property(item => item.ScreeningReviewDate));
             entity.HasIndex(item => new { item.ClientId, item.EvidenceType, item.Status });
+            entity.HasIndex(item => new { item.ClientId, item.OwnershipStatus });
             entity.HasIndex(item => new { item.ClientId, item.EvidenceType, item.SelectionStatus });
             entity.HasIndex(item => new { item.ClientId, item.EvidenceType, item.ScreeningRiskSignal });
             entity.HasIndex(item => item.EscalationRequired);
@@ -696,6 +704,19 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.HasIndex(file => new { file.ClientEvidenceScanRunId, file.MatchStatus });
             entity.HasIndex(file => file.FileSha256);
             entity.HasIndex(file => file.ClientId);
+        });
+
+        builder.Entity<ClientEvidenceOwnershipAlias>(entity =>
+        {
+            entity.HasOne(alias => alias.Client)
+                .WithMany(client => client.EvidenceOwnershipAliases)
+                .HasForeignKey(alias => alias.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(alias => alias.FolderPath).HasMaxLength(512);
+            entity.Property(alias => alias.Alias).HasMaxLength(160);
+            entity.Property(alias => alias.CreatedBy).HasMaxLength(191);
+            entity.HasIndex(alias => new { alias.FolderPath, alias.IsActive });
+            entity.HasIndex(alias => new { alias.ClientId, alias.FolderPath, alias.Alias }).IsUnique();
         });
     }
 

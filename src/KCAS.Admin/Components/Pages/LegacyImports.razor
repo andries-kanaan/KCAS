@@ -31,18 +31,18 @@
     </div>
     <div class="import-mode-grid">
         <label class="check-row">
-            <input class="form-check-input" type="radio" name="import-mode" checked="@IsIncrementalMode" @onchange="@(() => importMode = ImportModeIncremental)" disabled="@isBusy" />
+            <input class="form-check-input" type="radio" name="import-mode" checked="@IsIncrementalMode" @onchange="@(() => SetImportMode(ImportModeIncremental))" disabled="@isBusy" />
             <span>Incremental reconciliation</span>
         </label>
         <label class="check-row">
-            <input class="form-check-input" type="radio" name="import-mode" checked="@(!IsIncrementalMode)" @onchange="@(() => importMode = ImportModeLegacyBaseline)" disabled="@(isBusy || !CanBaselineImport)" />
+            <input class="form-check-input" type="radio" name="import-mode" checked="@(!IsIncrementalMode)" @onchange="@(() => SetImportMode(ImportModeLegacyBaseline))" disabled="@(isBusy || !CanBaselineImport)" />
             <span>Baseline import</span>
         </label>
     </div>
     <div class="import-grid">
         <label>
             SQL export
-            <InputFile class="form-control" OnChange="SelectUpload" accept=".sql" disabled="@isBusy" />
+            <InputFile @key="uploadInputKey" class="form-control" OnChange="SelectUpload" accept=".sql" disabled="@isBusy" />
             @if (uploadFile is not null)
             {
                 <span class="muted">@uploadFile.Name (@FormatBytes(uploadFile.Size))</span>
@@ -69,7 +69,7 @@
             <p class="section-subtitle">Backs up KCAS, clears previous imported baseline and compliance operational review/scan history, then imports the mapped baseline again.</p>
         }
         <div class="form-actions">
-            <button type="button" class="btn btn-primary" @onclick="UploadAndScanAsync" disabled="@(isBusy || uploadFile is null)">
+            <button type="button" class="btn btn-primary" @onclick="UploadAndScanAsync" disabled="@isBusy">
                 @(isBusy ? "Working..." : IsIncrementalMode ? "Upload and scan" : "Reset and import baseline")
             </button>
         </div>
@@ -333,6 +333,7 @@ else
     private string selectedTableScope = LegacyImportTableScopes.AllMapped;
     private bool applyAllAfterScan;
     private bool isBusy;
+    private int uploadInputKey;
     private LegacyImportJobSnapshot? activeJob;
     private CancellationTokenSource? pollingCancellation;
     private string? statusMessage;
@@ -404,6 +405,20 @@ else
     private void SelectUpload(InputFileChangeEventArgs args)
     {
         uploadFile = args.File;
+        statusMessage = uploadFile is null ? null : $"Selected {uploadFile.Name} ({FormatBytes(uploadFile.Size)}).";
+        errorMessage = null;
+    }
+
+    private void SetImportMode(string mode)
+    {
+        if (importMode == mode)
+        {
+            return;
+        }
+
+        importMode = mode;
+        uploadFile = null;
+        uploadInputKey++;
         statusMessage = null;
         errorMessage = null;
     }
@@ -412,6 +427,8 @@ else
     {
         if (uploadFile is null)
         {
+            errorMessage = "Choose a .sql export before starting the import.";
+            statusMessage = null;
             return;
         }
 
@@ -570,6 +587,7 @@ else
         try
         {
             activeJob = await startJob();
+            await InvokeAsync(StateHasChanged);
             await PollActiveJobAsync(activeJob.Id);
         }
         catch (Exception ex)

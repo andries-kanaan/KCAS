@@ -45,8 +45,8 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             client.CompleteCount = readiness.CompleteCount;
             client.BlockedCount = readiness.BlockedCount;
             client.ExceptionCount = readiness.ExceptionCount;
-            client.LinkedEvidenceCount = items.Count(item => item.ClientId == client.ClientId);
-            client.VerifiedEvidenceCount = items.Count(item => item.ClientId == client.ClientId && item.VerifiedDate is not null);
+            client.LinkedEvidenceCount = items.Count(item => item.ClientId == client.ClientId && ClientEvidenceOwnershipStatuses.IsActive(item.OwnershipStatus));
+            client.VerifiedEvidenceCount = items.Count(item => item.ClientId == client.ClientId && ClientEvidenceOwnershipStatuses.IsActive(item.OwnershipStatus) && item.VerifiedDate is not null);
             client.IsReadyForRiskAssessment = readiness.IsReadyForRiskAssessment;
         }
 
@@ -73,11 +73,63 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         var unmatchedFiles = await db.ClientEvidenceScanFiles
             .AsNoTracking()
             .Include(file => file.Client)
-            .Where(file => file.MatchStatus == ClientEvidenceScanFileStatuses.Unmatched || file.MatchStatus == ClientEvidenceScanFileStatuses.Ambiguous)
+            .Where(file => file.MatchStatus == ClientEvidenceScanFileStatuses.Unmatched ||
+                file.MatchStatus == ClientEvidenceScanFileStatuses.Ambiguous)
             .OrderByDescending(file => file.Id)
             .Take(100)
             .Select(file => ClientEvidenceScanFileModel.FromFile(file))
             .ToListAsync();
+        var aliases = await db.ClientEvidenceOwnershipAliases
+            .AsNoTracking()
+            .Where(alias => alias.IsActive)
+            .OrderBy(alias => alias.Alias)
+            .ToListAsync();
+        var sharedFolders = clients
+            .Where(client => !string.IsNullOrWhiteSpace(client.ClientFolder))
+            .GroupBy(client => NormalizeFolderKey(client.ClientFolder!), StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1)
+            .Select(group => new ClientEvidenceSharedFolderModel
+            {
+                FolderPath = group.First().ClientFolder!,
+                Clients = group.Select(client => new ClientEvidenceFolderClientModel
+                {
+                    ClientId = client.ClientId,
+                    DisplayName = client.DisplayName,
+                    IsJoint = IsJointClientSummary(client),
+                    Aliases = aliases
+                        .Where(alias => alias.ClientId == client.ClientId && SameFolder(alias.FolderPath, client.ClientFolder))
+                        .Select(alias => new ClientEvidenceOwnershipAliasModel
+                        {
+                            Id = alias.Id,
+                            Alias = alias.Alias
+                        })
+                        .ToList()
+                }).ToList()
+            })
+            .ToList();
+        var reviewItems = await db.ClientEvidenceItems
+            .AsNoTracking()
+            .Include(item => item.Client)
+            .Where(item => item.OwnershipStatus == ClientEvidenceOwnershipStatuses.NeedsReview)
+            .OrderByDescending(item => item.Id)
+            .Take(200)
+            .ToListAsync();
+        var ownershipReviews = reviewItems
+            .GroupBy(item => $"{item.SourcePath}\n{item.FileSha256}", StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                var item = group.First();
+                var folder = sharedFolders.FirstOrDefault(shared => SameFolder(shared.FolderPath, item.Client.ClientFolder));
+                return new ClientEvidenceOwnershipReviewModel
+                {
+                    SourceItemId = item.Id,
+                    RelativePath = item.RelativePath,
+                    EvidenceType = item.EvidenceType,
+                    OwnershipReason = item.OwnershipReason,
+                    CandidateClients = folder?.Clients ?? []
+                };
+            })
+            .ToList();
 
         return new ClientEvidenceDashboardModel
         {
@@ -85,6 +137,8 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             LatestScanRun = latestRun,
             Clients = clients,
             UnmatchedFiles = unmatchedFiles,
+            SharedFolders = sharedFolders,
+            OwnershipReviews = ownershipReviews,
             RequirementCount = requirements.Count,
             ReadyClientCount = clients.Count(client => client.IsReadyForRiskAssessment),
             BlockedClientCount = clients.Count(client => client.BlockedCount > 0)
@@ -120,7 +174,8 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             .Select(requirement =>
             {
                 var matchedItems = items
-                    .Where(item => item.ClientEvidenceRequirementId == requirement.Id || item.EvidenceType == requirement.EvidenceType)
+                    .Where(item => ClientEvidenceOwnershipStatuses.IsActive(item.OwnershipStatus) &&
+                        (item.ClientEvidenceRequirementId == requirement.Id || item.EvidenceType == requirement.EvidenceType))
                     .OrderByDescending(item => item.SelectionStatus == ClientEvidenceSelectionStatuses.Current)
                     .ThenByDescending(item => item.SelectionConfidence ?? 0)
                     .ThenByDescending(item => item.FileLastWriteTimeUtc ?? item.CreatedAtUtc)
@@ -165,8 +220,8 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             CompleteCount = requirementRows.Count(row => row.IsComplete),
             ExceptionCount = requirementRows.Count(row => row.IsExceptioned),
             BlockedCount = requirementRows.Count(row => row.IsBlocked),
-            LinkedEvidenceCount = items.Count,
-            VerifiedEvidenceCount = items.Count(item => item.VerifiedDate is not null),
+            LinkedEvidenceCount = items.Count(item => ClientEvidenceOwnershipStatuses.IsActive(item.OwnershipStatus)),
+            VerifiedEvidenceCount = items.Count(item => ClientEvidenceOwnershipStatuses.IsActive(item.OwnershipStatus) && item.VerifiedDate is not null),
             IsReadyForRiskAssessment = requirementRows.All(row => !row.IsBlocked)
         };
     }
@@ -263,6 +318,169 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         await db.SaveChangesAsync();
     }
 
+    public async Task AddOwnershipAliasAsync(int clientId, string aliasValue, string? userName, string reason)
+    {
+        RequireReason(reason);
+        var alias = Normalize(aliasValue) ?? throw new ValidationException("Ownership alias is required.");
+        var client = await db.Clients.SingleOrDefaultAsync(item => item.Id == clientId)
+            ?? throw new InvalidOperationException("Client not found.");
+        var folderPath = Normalize(client.ClientFolder) ?? throw new ValidationException("Select a client folder before adding aliases.");
+        if (await db.ClientEvidenceOwnershipAliases.AnyAsync(item =>
+            item.ClientId == clientId &&
+            item.FolderPath == folderPath &&
+            item.Alias == alias &&
+            item.IsActive))
+        {
+            return;
+        }
+
+        var ownershipAlias = new ClientEvidenceOwnershipAlias
+        {
+            ClientId = clientId,
+            FolderPath = folderPath,
+            Alias = alias,
+            IsJoint = IsJointClient(client),
+            CreatedBy = userName
+        };
+        db.ClientEvidenceOwnershipAliases.Add(ownershipAlias);
+        await db.SaveChangesAsync();
+        await AddAuditAsync("ClientEvidenceOwnershipAlias", ownershipAlias.Id, "Add", ownershipAlias, userName, reason);
+        await db.SaveChangesAsync();
+    }
+
+    public async Task DisableOwnershipAliasAsync(int aliasId, string? userName, string reason)
+    {
+        RequireReason(reason);
+        var alias = await db.ClientEvidenceOwnershipAliases.SingleOrDefaultAsync(item => item.Id == aliasId)
+            ?? throw new InvalidOperationException("Ownership alias not found.");
+        alias.IsActive = false;
+        await AddAuditAsync("ClientEvidenceOwnershipAlias", alias.Id, "Disable", alias, userName, reason);
+        await db.SaveChangesAsync();
+    }
+
+    public async Task ReconcileSharedFolderAsync(string folderPath, string? userName, string reason)
+    {
+        RequireReason(reason);
+        var normalizedFolder = Normalize(folderPath) ?? throw new ValidationException("Shared folder path is required.");
+        await EnsureDefaultOwnershipAliasesAsync(normalizedFolder, userName);
+        var clients = await db.Clients
+            .Where(client => client.ClientFolder != null)
+            .ToListAsync();
+        var sharedClients = clients.Where(client => SameFolder(client.ClientFolder, normalizedFolder)).ToList();
+        if (sharedClients.Count < 2)
+        {
+            throw new ValidationException("The selected folder is not shared by multiple client records.");
+        }
+
+        var clientIds = sharedClients.Select(client => client.Id).ToHashSet();
+        var aliases = await db.ClientEvidenceOwnershipAliases
+            .Where(alias => alias.IsActive && clientIds.Contains(alias.ClientId))
+            .ToListAsync();
+        var items = await db.ClientEvidenceItems
+            .Where(item => clientIds.Contains(item.ClientId) && item.SourcePath != null)
+            .ToListAsync();
+
+        foreach (var group in items.GroupBy(item => $"{item.SourcePath}\n{item.FileSha256}", StringComparer.OrdinalIgnoreCase))
+        {
+            var representative = group.First();
+            var match = MatchSharedFolderOwner(representative.RelativePath ?? representative.SourcePath ?? "", sharedClients, aliases);
+            foreach (var item in group)
+            {
+                var selected = match.Client is not null && item.ClientId == match.Client.Id;
+                item.OwnershipStatus = selected
+                    ? ClientEvidenceOwnershipStatuses.AutoAssigned
+                    : match.Client is null
+                        ? ClientEvidenceOwnershipStatuses.NeedsReview
+                        : ClientEvidenceOwnershipStatuses.Excluded;
+                item.OwnershipConfidence = selected ? 100 : null;
+                item.OwnershipReason = selected ? match.Reason : match.Client is null ? match.Reason : $"Assigned to client #{match.Client.Id}.";
+                item.OwnershipReviewedAtUtc = DateTime.UtcNow;
+                item.OwnershipReviewedBy = userName;
+                item.UpdatedAtUtc = DateTime.UtcNow;
+                item.UpdatedBy = userName;
+            }
+        }
+
+        await AddAuditAsync("ClientEvidenceFolder", 0, "ReconcileOwnership", new
+        {
+            FolderPath = normalizedFolder,
+            ClientIds = clientIds.OrderBy(id => id),
+            ItemCount = items.Count
+        }, userName, reason);
+        await db.SaveChangesAsync();
+        foreach (var clientId in clientIds)
+        {
+            await RefreshEvidenceSelectionsAsync(clientId, userName, reason, CancellationToken.None);
+        }
+    }
+
+    public async Task AssignEvidenceOwnershipAsync(int sourceItemId, IReadOnlyCollection<int> selectedClientIds, string? userName, string reason)
+    {
+        RequireReason(reason);
+        if (selectedClientIds.Count == 0)
+        {
+            throw new ValidationException("Select at least one client for this evidence.");
+        }
+
+        var source = await db.ClientEvidenceItems.SingleOrDefaultAsync(item => item.Id == sourceItemId)
+            ?? throw new InvalidOperationException("Evidence item not found.");
+        var sourceClient = await db.Clients.AsNoTracking().SingleAsync(client => client.Id == source.ClientId);
+        var folderPath = Normalize(sourceClient.ClientFolder) ?? throw new ValidationException("Evidence client folder is not configured.");
+        var folderClients = (await db.Clients.Where(client => client.ClientFolder != null).ToListAsync())
+            .Where(client => SameFolder(client.ClientFolder, folderPath))
+            .ToList();
+        var allowedIds = folderClients.Select(client => client.Id).ToHashSet();
+        if (selectedClientIds.Any(id => !allowedIds.Contains(id)))
+        {
+            throw new ValidationException("Evidence can only be assigned to clients sharing this folder.");
+        }
+
+        var selected = selectedClientIds.Distinct().ToHashSet();
+        var groupItems = await db.ClientEvidenceItems
+            .Where(item => allowedIds.Contains(item.ClientId) &&
+                item.SourcePath == source.SourcePath &&
+                item.FileSha256 == source.FileSha256)
+            .ToListAsync();
+        foreach (var clientId in selected)
+        {
+            if (groupItems.Any(item => item.ClientId == clientId))
+            {
+                continue;
+            }
+
+            var copy = CopyEvidenceForClient(source, clientId, userName);
+            db.ClientEvidenceItems.Add(copy);
+            groupItems.Add(copy);
+        }
+
+        foreach (var item in groupItems)
+        {
+            item.OwnershipStatus = selected.Contains(item.ClientId)
+                ? ClientEvidenceOwnershipStatuses.Confirmed
+                : ClientEvidenceOwnershipStatuses.Excluded;
+            item.OwnershipConfidence = selected.Contains(item.ClientId) ? 100 : null;
+            item.OwnershipReason = selected.Contains(item.ClientId)
+                ? $"Confirmed for client #{item.ClientId} by reviewer."
+                : "Excluded by shared-folder ownership review.";
+            item.OwnershipReviewedAtUtc = DateTime.UtcNow;
+            item.OwnershipReviewedBy = userName;
+            item.UpdatedAtUtc = DateTime.UtcNow;
+            item.UpdatedBy = userName;
+        }
+
+        await AddAuditAsync("ClientEvidenceItem", sourceItemId, "AssignOwnership", new
+        {
+            source.SourcePath,
+            source.FileSha256,
+            SelectedClientIds = selected.OrderBy(id => id)
+        }, userName, reason);
+        await db.SaveChangesAsync();
+        foreach (var clientId in allowedIds)
+        {
+            await RefreshEvidenceSelectionsAsync(clientId, userName, reason, CancellationToken.None);
+        }
+    }
+
     public async Task<int> RunScanAsync(string? requestedRootPath, string? userName, string reason)
     {
         var runId = await StartScanRunAsync(requestedRootPath, userName, reason);
@@ -326,6 +544,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
 
         await SaveClientEvidenceFolderAsync(clientId, selectedClientFolder, userName, reason);
         var rootPath = Normalize(selectedClientFolder)!;
+        await EnsureDefaultOwnershipAliasesAsync(rootPath, userName);
 
         var run = new ClientEvidenceScanRun
         {
@@ -356,10 +575,18 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         {
             var clients = await db.Clients.ToListAsync(cancellationToken);
             var requirements = await LoadActiveRequirementsAsync(cancellationToken);
+            var ownershipAliases = await db.ClientEvidenceOwnershipAliases
+                .AsNoTracking()
+                .Where(alias => alias.IsActive)
+                .ToListAsync(cancellationToken);
             var affectedClientIds = new HashSet<int>();
             var forcedClient = forcedClientId.HasValue
                 ? clients.SingleOrDefault(client => client.Id == forcedClientId.Value) ?? throw new InvalidOperationException("Client not found.")
                 : null;
+            var sharedFolderClients = forcedClient is null
+                ? []
+                : clients.Where(client => SameFolder(client.ClientFolder, run.RootPath)).ToList();
+            var isSharedFolderScan = sharedFolderClients.Count > 1;
             foreach (var path in Directory.EnumerateFiles(run.RootPath, "*.*", SearchOption.AllDirectories))
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -390,21 +617,62 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                     continue;
                 }
 
-                var match = forcedClient is not null
-                    ? new ClientEvidenceMatchResult(forcedClient, 1, "Client-specific folder scan.")
+                var match = isSharedFolderScan
+                    ? MatchSharedFolderOwner(relativePath, sharedFolderClients, ownershipAliases)
+                    : forcedClient is not null
+                    ? new ClientEvidenceMatchResult(forcedClient, 1, "Single-client folder scan.")
                     : MatchClient(relativePath, clients);
                 scanFile.CandidateCount = match.CandidateCount;
                 scanFile.MatchReason = match.Reason;
                 if (match.Client is null)
                 {
-                    scanFile.MatchStatus = match.CandidateCount > 1 ? ClientEvidenceScanFileStatuses.Ambiguous : ClientEvidenceScanFileStatuses.Unmatched;
+                    scanFile.MatchStatus = isSharedFolderScan
+                        ? ClientEvidenceScanFileStatuses.OwnershipReview
+                        : match.CandidateCount > 1 ? ClientEvidenceScanFileStatuses.Ambiguous : ClientEvidenceScanFileStatuses.Unmatched;
                     if (scanFile.MatchStatus == ClientEvidenceScanFileStatuses.Ambiguous)
+                    {
+                        run.AmbiguousFiles++;
+                    }
+                    else if (scanFile.MatchStatus == ClientEvidenceScanFileStatuses.OwnershipReview)
                     {
                         run.AmbiguousFiles++;
                     }
                     else
                     {
                         run.UnmatchedFiles++;
+                    }
+
+                    if (scanFile.MatchStatus == ClientEvidenceScanFileStatuses.OwnershipReview && forcedClient is not null)
+                    {
+                        scanFile.ClientId = forcedClient.Id;
+                        var existingReviewItem = await db.ClientEvidenceItems.FirstOrDefaultAsync(item =>
+                            item.ClientId == forcedClient.Id &&
+                            item.FileSha256 == scanFile.FileSha256 &&
+                            item.RelativePath == scanFile.RelativePath,
+                            cancellationToken);
+                        if (existingReviewItem is null)
+                        {
+                            var reviewEvidenceType = scanFile.SuggestedEvidenceType ?? "General";
+                            var reviewRequirement = requirements.FirstOrDefault(requirement => requirement.EvidenceType == reviewEvidenceType);
+                            db.ClientEvidenceItems.Add(new ClientEvidenceItem
+                            {
+                                ClientId = forcedClient.Id,
+                                ClientEvidenceRequirementId = reviewRequirement?.Id,
+                                EvidenceType = reviewEvidenceType,
+                                Title = Path.GetFileNameWithoutExtension(fileInfo.Name),
+                                SourcePath = path,
+                                RelativePath = relativePath,
+                                FileName = fileInfo.Name,
+                                FileSha256 = scanFile.FileSha256,
+                                FileSizeBytes = fileInfo.Length,
+                                FileLastWriteTimeUtc = fileInfo.LastWriteTimeUtc,
+                                Status = ClientEvidenceStatuses.Linked,
+                                OwnershipStatus = ClientEvidenceOwnershipStatuses.NeedsReview,
+                                OwnershipReason = match.Reason,
+                                ScanFile = scanFile,
+                                UpdatedBy = userName
+                            });
+                        }
                     }
 
                     db.ClientEvidenceScanFiles.Add(scanFile);
@@ -442,9 +710,23 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                         FileSizeBytes = fileInfo.Length,
                         FileLastWriteTimeUtc = fileInfo.LastWriteTimeUtc,
                         Status = ClientEvidenceStatuses.Linked,
+                        OwnershipStatus = isSharedFolderScan
+                            ? ClientEvidenceOwnershipStatuses.AutoAssigned
+                            : ClientEvidenceOwnershipStatuses.Confirmed,
+                        OwnershipConfidence = isSharedFolderScan ? 100 : null,
+                        OwnershipReason = match.Reason,
                         ScanFile = scanFile,
                         UpdatedBy = userName
                     });
+                }
+                else if (isSharedFolderScan &&
+                    existingItem.OwnershipStatus is ClientEvidenceOwnershipStatuses.NeedsReview or ClientEvidenceOwnershipStatuses.Excluded)
+                {
+                    existingItem.OwnershipStatus = ClientEvidenceOwnershipStatuses.AutoAssigned;
+                    existingItem.OwnershipConfidence = 100;
+                    existingItem.OwnershipReason = match.Reason;
+                    existingItem.OwnershipReviewedAtUtc = DateTime.UtcNow;
+                    existingItem.OwnershipReviewedBy = userName;
                 }
 
                 run.LinkedFiles++;
@@ -543,6 +825,10 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         RequireReason(reason);
         var item = await db.ClientEvidenceItems.SingleOrDefaultAsync(item => item.Id == evidenceItemId)
             ?? throw new InvalidOperationException("Evidence item not found.");
+        if (!ClientEvidenceOwnershipStatuses.IsActive(item.OwnershipStatus))
+        {
+            throw new ValidationException("Confirm evidence ownership before verification.");
+        }
         await VerifyEvidenceItemAsync(item, receivedDate, expiryDate, userName, reason);
         await db.SaveChangesAsync();
     }
@@ -562,6 +848,10 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         if (items.Count != selectedIds.Count)
         {
             throw new InvalidOperationException("One or more selected evidence items could not be found for this client.");
+        }
+        if (items.Any(item => !ClientEvidenceOwnershipStatuses.IsActive(item.OwnershipStatus)))
+        {
+            throw new ValidationException("Confirm evidence ownership before verification.");
         }
 
         foreach (var item in items)
@@ -611,9 +901,22 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                 FileSizeBytes = scanFile.FileSizeBytes,
                 FileLastWriteTimeUtc = scanFile.FileLastWriteTimeUtc,
                 Status = ClientEvidenceStatuses.Linked,
+                OwnershipStatus = ClientEvidenceOwnershipStatuses.Confirmed,
+                OwnershipConfidence = 100,
+                OwnershipReason = "Manually linked by reviewer.",
+                OwnershipReviewedAtUtc = DateTime.UtcNow,
+                OwnershipReviewedBy = userName,
                 ScanFile = scanFile,
                 UpdatedBy = userName
             });
+        }
+        else
+        {
+            existingItem.OwnershipStatus = ClientEvidenceOwnershipStatuses.Confirmed;
+            existingItem.OwnershipConfidence = 100;
+            existingItem.OwnershipReason = "Manually linked by reviewer.";
+            existingItem.OwnershipReviewedAtUtc = DateTime.UtcNow;
+            existingItem.OwnershipReviewedBy = userName;
         }
 
         await AddAuditAsync("ClientEvidenceScanFile", scanFile.Id, "ResolveScanFile", new
@@ -623,6 +926,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             EvidenceType = normalizedType
         }, userName, reason);
         await db.SaveChangesAsync();
+        await RefreshEvidenceSelectionsAsync(client.Id, userName, reason, CancellationToken.None);
     }
 
     public Task<int> RecordRequirementReviewAsync(int clientId, int requirementId, string? userName, string reason) =>
@@ -819,7 +1123,10 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         var blocked = 0;
         foreach (var requirement in applicableRequirements)
         {
-            var matchedItems = items.Where(item => item.ClientId == clientId && (item.ClientEvidenceRequirementId == requirement.Id || item.EvidenceType == requirement.EvidenceType));
+            var matchedItems = items.Where(item =>
+                item.ClientId == clientId &&
+                ClientEvidenceOwnershipStatuses.IsActive(item.OwnershipStatus) &&
+                (item.ClientEvidenceRequirementId == requirement.Id || item.EvidenceType == requirement.EvidenceType));
             var isComplete = matchedItems.Any(item => IsEvidenceComplete(requirement, item, today));
             var isExceptioned = exceptions.Any(exception =>
                 exception.ClientId == clientId &&
@@ -1026,7 +1333,8 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                 file.FullPath == scanFile.FullPath &&
                 file.FileSha256 == scanFile.FileSha256 &&
                 (file.MatchStatus == ClientEvidenceScanFileStatuses.Unmatched ||
-                    file.MatchStatus == ClientEvidenceScanFileStatuses.Ambiguous))
+                    file.MatchStatus == ClientEvidenceScanFileStatuses.Ambiguous ||
+                    file.MatchStatus == ClientEvidenceScanFileStatuses.OwnershipReview))
             .ToListAsync(cancellationToken);
 
         foreach (var priorFile in priorFiles)
@@ -1042,10 +1350,161 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         }
     }
 
+    private async Task EnsureDefaultOwnershipAliasesAsync(string folderPath, string? userName)
+    {
+        var clients = (await db.Clients
+            .Where(client => client.ClientFolder != null)
+            .ToListAsync())
+            .Where(client => SameFolder(client.ClientFolder, folderPath))
+            .ToList();
+        if (clients.Count < 2)
+        {
+            return;
+        }
+
+        var existing = await db.ClientEvidenceOwnershipAliases
+            .Where(alias => alias.FolderPath == folderPath)
+            .ToListAsync();
+        foreach (var client in clients)
+        {
+            var aliases = new[]
+            {
+                client.DisplayName,
+                client.FullName,
+                string.IsNullOrWhiteSpace(client.Initials) ? null : $"{client.Initials} {client.SurnameOrEntityName}"
+            }
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var aliasValue in aliases)
+            {
+                if (existing.Any(alias =>
+                    alias.ClientId == client.Id &&
+                    string.Equals(alias.Alias, aliasValue, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                var alias = new ClientEvidenceOwnershipAlias
+                {
+                    ClientId = client.Id,
+                    FolderPath = folderPath,
+                    Alias = aliasValue,
+                    IsJoint = IsJointClient(client),
+                    CreatedBy = userName
+                };
+                db.ClientEvidenceOwnershipAliases.Add(alias);
+                existing.Add(alias);
+            }
+        }
+
+        await db.SaveChangesAsync();
+    }
+
+    private static ClientEvidenceMatchResult MatchSharedFolderOwner(
+        string relativePath,
+        IReadOnlyList<Client> clients,
+        IReadOnlyList<ClientEvidenceOwnershipAlias> aliases)
+    {
+        var clientIds = clients.Select(client => client.Id).ToHashSet();
+        var matchingAliases = aliases
+            .Where(alias => clientIds.Contains(alias.ClientId) && AliasMatches(relativePath, alias.Alias))
+            .ToList();
+        var jointMatches = matchingAliases.Where(alias => alias.IsJoint).Select(alias => alias.ClientId).Distinct().ToList();
+        var matchingClientIds = jointMatches.Count > 0
+            ? jointMatches
+            : matchingAliases.Select(alias => alias.ClientId).Distinct().ToList();
+        if (matchingClientIds.Count == 1)
+        {
+            var client = clients.Single(item => item.Id == matchingClientIds[0]);
+            var matchedNames = matchingAliases
+                .Where(alias => alias.ClientId == client.Id)
+                .Select(alias => alias.Alias)
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+            return new(client, 1, $"Explicit shared-folder alias matched: {string.Join(", ", matchedNames)}.");
+        }
+
+        return matchingClientIds.Count > 1
+            ? new(null, matchingClientIds.Count, "Conflicting shared-folder aliases matched; ownership review required.")
+            : new(null, clients.Count, "No explicit client alias matched; ownership review required.");
+    }
+
+    private static bool AliasMatches(string relativePath, string alias)
+    {
+        var text = NormalizeOwnershipText(relativePath);
+        var normalizedAlias = NormalizeOwnershipText(alias);
+        if (normalizedAlias.Length < 3)
+        {
+            return false;
+        }
+
+        return Regex.IsMatch(text, $@"(?:^|\s){Regex.Escape(normalizedAlias)}(?:$|\s)", RegexOptions.IgnoreCase);
+    }
+
+    private static string NormalizeOwnershipText(string value) =>
+        Regex.Replace(
+            value.ToLowerInvariant()
+                .Replace("&", " and ", StringComparison.Ordinal)
+                .Replace("_", " ", StringComparison.Ordinal)
+                .Replace("-", " ", StringComparison.Ordinal),
+            @"[^\p{L}\p{N}]+",
+            " ").Trim();
+
+    private static bool SameFolder(string? left, string? right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+        {
+            return false;
+        }
+
+        static string NormalizePath(string value) =>
+            Path.GetFullPath(value.Trim()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return string.Equals(NormalizePath(left), NormalizePath(right), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeFolderKey(string value) =>
+        Path.GetFullPath(value.Trim()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+    private static bool IsJointClient(Client client)
+    {
+        var text = $"{client.Title} {client.Initials} {client.DisplayName}";
+        return text.Contains('&') ||
+            Regex.IsMatch(text, @"\b(and|en)\b", RegexOptions.IgnoreCase);
+    }
+
+    private static bool IsJointClientSummary(ClientEvidenceClientSummaryModel client) =>
+        Regex.IsMatch(client.DisplayName, @"(&|\b(and|en)\b)", RegexOptions.IgnoreCase);
+
+    private static ClientEvidenceItem CopyEvidenceForClient(ClientEvidenceItem source, int clientId, string? userName) => new()
+    {
+        ClientId = clientId,
+        ClientEvidenceRequirementId = source.ClientEvidenceRequirementId,
+        EvidenceType = source.EvidenceType,
+        Title = source.Title,
+        SourcePath = source.SourcePath,
+        RelativePath = source.RelativePath,
+        FileName = source.FileName,
+        FileSha256 = source.FileSha256,
+        FileSizeBytes = source.FileSizeBytes,
+        FileLastWriteTimeUtc = source.FileLastWriteTimeUtc,
+        Status = ClientEvidenceStatuses.Linked,
+        SelectionStatus = ClientEvidenceSelectionStatuses.Candidate,
+        VerificationPolicy = "ManualRequired",
+        OwnershipStatus = ClientEvidenceOwnershipStatuses.Confirmed,
+        OwnershipConfidence = 100,
+        OwnershipReason = "Created by shared-folder ownership review.",
+        OwnershipReviewedAtUtc = DateTime.UtcNow,
+        OwnershipReviewedBy = userName,
+        UpdatedBy = userName
+    };
+
     private async Task RefreshEvidenceSelectionsAsync(int clientId, string? userName, string reason, CancellationToken cancellationToken)
     {
         var items = await db.ClientEvidenceItems
             .Where(item => item.ClientId == clientId &&
+                (item.OwnershipStatus == ClientEvidenceOwnershipStatuses.Confirmed ||
+                    item.OwnershipStatus == ClientEvidenceOwnershipStatuses.AutoAssigned) &&
                 item.Status != ClientEvidenceStatuses.Rejected &&
                 item.Status != ClientEvidenceStatuses.Replaced)
             .ToListAsync(cancellationToken);
@@ -1408,6 +1867,37 @@ public sealed class ClientEvidenceDashboardModel
     public int BlockedClientCount { get; set; }
     public List<ClientEvidenceClientSummaryModel> Clients { get; set; } = [];
     public List<ClientEvidenceScanFileModel> UnmatchedFiles { get; set; } = [];
+    public List<ClientEvidenceSharedFolderModel> SharedFolders { get; set; } = [];
+    public List<ClientEvidenceOwnershipReviewModel> OwnershipReviews { get; set; } = [];
+}
+
+public sealed class ClientEvidenceSharedFolderModel
+{
+    public string FolderPath { get; set; } = "";
+    public List<ClientEvidenceFolderClientModel> Clients { get; set; } = [];
+}
+
+public sealed class ClientEvidenceFolderClientModel
+{
+    public int ClientId { get; set; }
+    public string DisplayName { get; set; } = "";
+    public bool IsJoint { get; set; }
+    public List<ClientEvidenceOwnershipAliasModel> Aliases { get; set; } = [];
+}
+
+public sealed class ClientEvidenceOwnershipAliasModel
+{
+    public int Id { get; set; }
+    public string Alias { get; set; } = "";
+}
+
+public sealed class ClientEvidenceOwnershipReviewModel
+{
+    public int SourceItemId { get; set; }
+    public string? RelativePath { get; set; }
+    public string EvidenceType { get; set; } = "";
+    public string? OwnershipReason { get; set; }
+    public List<ClientEvidenceFolderClientModel> CandidateClients { get; set; } = [];
 }
 
 public sealed class ClientEvidenceFolderBrowserModel
@@ -1498,6 +1988,8 @@ public sealed class ClientEvidenceItemModel
     public string? ScreeningRiskSignal { get; set; }
     public bool EscalationRequired { get; set; }
     public string Status { get; set; } = "";
+    public string OwnershipStatus { get; set; } = "";
+    public string? OwnershipReason { get; set; }
     public string SelectionStatus { get; set; } = "";
     public int? SelectionConfidence { get; set; }
     public string? SelectionReason { get; set; }
@@ -1526,6 +2018,8 @@ public sealed class ClientEvidenceItemModel
         ScreeningRiskSignal = item.ScreeningRiskSignal,
         EscalationRequired = item.EscalationRequired,
         Status = item.Status,
+        OwnershipStatus = item.OwnershipStatus,
+        OwnershipReason = item.OwnershipReason,
         SelectionStatus = item.SelectionStatus,
         SelectionConfidence = item.SelectionConfidence,
         SelectionReason = item.SelectionReason,

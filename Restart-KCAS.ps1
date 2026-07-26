@@ -5,7 +5,10 @@ $dotnet = Join-Path $root '.dotnet\dotnet.exe'
 $project = Join-Path $root 'src\KCAS.Admin\KCAS.Admin.csproj'
 $appDir = Join-Path $root 'src\KCAS.Admin'
 $appDll = Join-Path $appDir 'bin\Debug\net10.0\KCAS.Admin.dll'
+$staticAssetManifest = Join-Path $appDir 'bin\Debug\net10.0\KCAS.Admin.staticwebassets.endpoints.json'
 $appDllCommandPart = 'KCAS.Admin.dll'
+
+$env:NUGET_PACKAGES = Join-Path $env:USERPROFILE '.nuget\packages'
 
 $runningApps = Get-CimInstance Win32_Process -Filter "name = 'dotnet.exe'" |
     Where-Object { $_.CommandLine -and $_.CommandLine.Contains($appDllCommandPart) }
@@ -14,7 +17,12 @@ foreach ($process in $runningApps) {
     Stop-Process -Id $process.ProcessId -Force
 }
 
-& $dotnet build $project
+& $dotnet build $project --no-incremental
+
+if (-not (Test-Path $staticAssetManifest) -or
+    -not (Select-String -Path $staticAssetManifest -SimpleMatch '"_framework/blazor.web.js"' -Quiet)) {
+    throw "KCAS build did not produce the Blazor framework static asset endpoint."
+}
 
 $env:ASPNETCORE_ENVIRONMENT = 'Development'
 Start-Process `

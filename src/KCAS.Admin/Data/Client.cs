@@ -80,6 +80,8 @@ public class Client
     public ICollection<ClientEvidenceItem> EvidenceItems { get; } = [];
 
     public ICollection<ClientEvidenceException> EvidenceExceptions { get; } = [];
+
+    public ICollection<ClientEvidenceOwnershipAlias> EvidenceOwnershipAliases { get; } = [];
 }
 
 public static class LegacyReconciliationStatuses
