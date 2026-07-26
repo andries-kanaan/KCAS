@@ -4,6 +4,7 @@ obj/
 [Bb]uild/
 [Pp]ublish/
 artifacts/
+backups/
 
 # Local .NET SDK install
 .dotnet/

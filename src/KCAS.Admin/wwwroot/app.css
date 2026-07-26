@@ -255,6 +255,66 @@ a, .btn-link {
     text-transform: uppercase;
 }
 
+.nav-group {
+    margin: .25rem .75rem;
+    border: 0;
+    color: rgba(255, 255, 255, .82);
+}
+
+.nav-group > summary {
+    color: rgba(255, 255, 255, .82) !important;
+    background: transparent;
+    border: 0 !important;
+    border-radius: 6px;
+    outline: 0;
+    min-height: 2.75rem;
+    padding: .55rem .75rem;
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    cursor: pointer;
+    font-size: .92rem;
+    font-weight: 700;
+    line-height: 1.2;
+    list-style: none;
+}
+
+.nav-group > summary::-webkit-details-marker {
+    display: none;
+}
+
+.nav-group > summary:hover,
+.nav-group > summary:focus-visible {
+    background-color: rgba(255, 255, 255, .08);
+    color: white !important;
+}
+
+.nav-group-chevron {
+    margin-left: auto;
+    color: inherit;
+    font-size: 1.25rem;
+    transition: transform .15s ease;
+}
+
+.nav-group[open] .nav-group-chevron {
+    transform: rotate(90deg);
+}
+
+.nav-group-items {
+    padding: .2rem 0 .25rem .65rem;
+}
+
+.nav-group-items .nav-item {
+    padding-bottom: .1rem;
+}
+
+.nav-group-items .nav-item .nav-link {
+    min-height: 2.25rem;
+    padding-top: .35rem;
+    padding-bottom: .35rem;
+    font-size: .86rem;
+}
+
 .nav-scrollable {
     display: none;
 }

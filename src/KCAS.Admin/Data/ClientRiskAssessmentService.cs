@@ -44,6 +44,10 @@ public sealed class ClientRiskAssessmentService(
             .ToListAsync();
 
         var readiness = await evidenceReadinessService.LoadClientReadinessAsync(clientId);
+        var blockingVerificationCount = await db.ClientVerificationItems.AsNoTracking().CountAsync(item =>
+            item.ClientId == clientId &&
+            item.Status == ClientVerificationStatuses.Pending &&
+            item.IsBlocking);
         var history = await db.ClientRiskAssessments.AsNoTracking()
             .Where(item => item.ClientId == clientId && item.Status != ClientRiskAssessmentStatuses.Draft)
             .OrderByDescending(item => item.Id)
@@ -65,8 +69,12 @@ public sealed class ClientRiskAssessmentService(
             DisplayName = client.DisplayName,
             KanaanId = client.KanaanId,
             ClientCategory = client.ClientCategory,
-            IsReadyForRiskAssessment = readiness.IsReadyForRiskAssessment,
+            IsReadyForRiskAssessment = readiness.IsReadyForRiskAssessment &&
+                                       client.LifecycleStatus == ClientLifecycleStatuses.Current &&
+                                       blockingVerificationCount == 0,
             BlockingEvidenceCount = readiness.BlockedCount,
+            BlockingVerificationCount = blockingVerificationCount,
+            LifecycleStatus = client.LifecycleStatus,
             HasActiveMethodology = activeMethodology is not null,
             ActiveMethodologyName = activeMethodology is null ? null : $"{activeMethodology.Name} {activeMethodology.VersionLabel}".Trim(),
             Assessment = assessment is null ? null : MapAssessment(assessment),
@@ -317,6 +325,23 @@ public sealed class ClientRiskAssessmentService(
         if (!readiness.IsReadyForRiskAssessment)
         {
             throw new InvalidOperationException($"The assessment cannot be finalised while {readiness.BlockedCount} blocking evidence item(s) remain.");
+        }
+        var lifecycleStatus = await db.Clients
+            .Where(client => client.Id == assessment.ClientId)
+            .Select(client => client.LifecycleStatus)
+            .SingleAsync();
+        if (lifecycleStatus != ClientLifecycleStatuses.Current)
+        {
+            throw new InvalidOperationException("The assessment cannot be finalised until the client is lifecycle-classified as Current.");
+        }
+        var blockingVerificationCount = await db.ClientVerificationItems.CountAsync(item =>
+            item.ClientId == assessment.ClientId &&
+            item.Status == ClientVerificationStatuses.Pending &&
+            item.IsBlocking);
+        if (blockingVerificationCount > 0)
+        {
+            throw new InvalidOperationException(
+                $"The assessment cannot be finalised while {blockingVerificationCount} blocking client-verification item(s) remain.");
         }
         if (assessment.Responses.Any(response => response.RiskFactorOptionId is null))
         {
@@ -755,6 +780,8 @@ public sealed class ClientRiskAssessmentPageModel
     public string ClientCategory { get; init; } = "";
     public bool IsReadyForRiskAssessment { get; init; }
     public int BlockingEvidenceCount { get; init; }
+    public int BlockingVerificationCount { get; init; }
+    public string LifecycleStatus { get; init; } = ClientLifecycleStatuses.Unreviewed;
     public bool HasActiveMethodology { get; init; }
     public string? ActiveMethodologyName { get; init; }
     public ClientRiskAssessmentSummary? Assessment { get; init; }

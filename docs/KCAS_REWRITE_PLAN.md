@@ -304,7 +304,7 @@ Verified locally after the security, import, compliance foundation and client ev
 - `dotnet build` succeeds.
 - `dotnet test tests\KCAS.Admin.Tests\KCAS.Admin.Tests.csproj` passes.
 - `dotnet ef migrations has-pending-model-changes` reports no pending model changes.
-- `src\KCAS.Admin\Data\Migrations\kcas_blazor_schema.sql` includes the inspection-readiness foundation and records latest migration `20260726173018_AddInspectionReadiness`.
+- `src\KCAS.Admin\Data\Migrations\kcas_blazor_schema.sql` includes the client operational-verification foundation and records latest migration `20260726175421_AddClientOperationalVerification`.
 - Kestrel starts on `http://127.0.0.1:5143`.
 - WAMP HTTPS proxy reaches the app at `https://kcas.test:8443`.
 - `https://kcas.test:8443/clients` redirects unauthenticated users to login.
@@ -370,6 +370,9 @@ Still to verify manually in browser:
    - Build the proportional client-risk, annual BRA, controlled RMCP, common compliance worklist and inspection-pack tools described in the authoritative RMCP/BRA roadmap.
    - Design for Kanaan's small operating structure rather than bank-scale approval, case-management and analytics workflows.
    - After those tools are complete, return to the mandatory client-by-client operational population and human-verification gate; do not allow that deferred work to disappear from the programme.
+   - Phase 7 inspection readiness was browser-checked by the user on 2026-07-26.
+   - Phase 8 starts with lifecycle classification and a per-fact assisted/imported verification register. Its technical control must be deployed and browser-checked before any live client is classified or changed.
+   - Once that control is accepted, proceed client by client in Codex: inspect the selected folder and documents, report differences and recommendations, and wait for explicit user approval before applying any client fact.
    - Add reference-data administration screens only if operational users need to maintain values inside KCAS.
    - Build report/export workflows.
    - Continue administration/security refinements after acceptance review.
