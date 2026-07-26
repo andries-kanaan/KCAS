@@ -134,28 +134,24 @@ public sealed class LegacyImportWebService(
 
         var normalizedScope = LegacyImportTableScopes.Normalize(tableScope);
         var scopeLabel = LegacyImportTableScopes.Options.Single(option => option.Value == (string.IsNullOrWhiteSpace(tableScope) ? LegacyImportTableScopes.AllMapped : tableScope)).Label;
-        var job = LegacyImportJobState.Start(resetImportedDataFirst ? $"Baseline import: {scopeLabel}" : applyAllAfterScan ? $"Upload, scan and apply: {scopeLabel}" : $"Upload and scan: {scopeLabel}");
+        var jobTitle = resetImportedDataFirst
+            ? "Baseline import"
+            : applyAllAfterScan
+                ? $"Upload, scan and apply: {scopeLabel}"
+                : $"Upload and scan: {scopeLabel}";
+        var job = LegacyImportJobState.Start(jobTitle);
         Jobs[job.Id] = job;
         var maxUploadBytes = configuration.GetValue<long?>("LegacyImport:MaxUploadBytes") ?? 1_500_000_000L;
         var tempDirectory = Path.Combine(Path.GetTempPath(), "kcas-legacy-imports");
         Directory.CreateDirectory(tempDirectory);
         var tempPath = Path.Combine(tempDirectory, $"{Guid.NewGuid():N}.sql");
 
-        try
-        {
-            job.Update("Copying SQL upload...", 5);
-            await CopyAndHashUploadAsync(file, tempPath, maxUploadBytes, cancellationToken);
-        }
-        catch
-        {
-            ImportGate.Release();
-            throw;
-        }
-
         _ = Task.Run(async () =>
         {
             try
             {
+                job.Update("Copying SQL upload...", 5);
+                await CopyAndHashUploadAsync(file, tempPath, maxUploadBytes, CancellationToken.None);
                 var result = await ExecuteUploadedSqlPathAsync(
                     tempPath,
                     Path.GetFileName(file.Name),

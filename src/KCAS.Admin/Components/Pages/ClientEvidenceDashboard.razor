@@ -196,6 +196,95 @@ else
                             Closed="CloseClientFolderPicker" />
     </section>
 
+    @if (model.SharedFolders.Count > 0)
+    {
+        <section class="work-area">
+            <h2>Shared client folders</h2>
+            <p class="text-muted">KCAS auto-assigns only files containing an explicit client or joint alias. Generic files remain in ownership review.</p>
+            @foreach (var folder in model.SharedFolders)
+            {
+                <article class="summary-card mb-3">
+                    <div class="d-flex justify-content-between gap-3 align-items-start">
+                        <div>
+                            <strong>@folder.FolderPath</strong>
+                            <div class="small text-muted">@folder.Clients.Count client records share this folder.</div>
+                        </div>
+                        @if (canManage)
+                        {
+                            <button type="button" class="btn btn-outline-primary btn-sm" @onclick="() => ReconcileSharedFolderAsync(folder.FolderPath)">Reconcile ownership</button>
+                        }
+                    </div>
+                    @foreach (var client in folder.Clients)
+                    {
+                        <div class="mt-3">
+                            <strong>@client.DisplayName @(client.IsJoint ? "(joint)" : "")</strong>
+                            <div class="row-actions mt-1">
+                                @foreach (var alias in client.Aliases)
+                                {
+                                    <span class="badge text-bg-light">
+                                        @alias.Alias
+                                        @if (canManage)
+                                        {
+                                            <button type="button" class="btn btn-link btn-sm p-0 ms-1" aria-label="Disable alias" @onclick="() => DisableAliasAsync(alias.Id)">×</button>
+                                        }
+                                    </span>
+                                }
+                            </div>
+                            @if (canManage)
+                            {
+                                <div class="input-group input-group-sm mt-2">
+                                    <input class="form-control" @bind="sharedAliasInputs[client.ClientId]" placeholder="Add explicit name or alias" />
+                                    <button type="button" class="btn btn-outline-secondary" @onclick="() => AddAliasAsync(client.ClientId)">Add alias</button>
+                                </div>
+                            }
+                        </div>
+                    }
+                </article>
+            }
+        </section>
+    }
+
+    <section class="work-area">
+        <h2>Shared-folder ownership review</h2>
+        @if (model.OwnershipReviews.Count == 0)
+        {
+            <p class="text-muted">No shared-folder files currently require ownership review.</p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead><tr><th>File</th><th>Type</th><th>Reason</th><th>Assign to</th></tr></thead>
+                    <tbody>
+                        @foreach (var review in model.OwnershipReviews)
+                        {
+                            <tr>
+                                <td>@review.RelativePath</td>
+                                <td>@review.EvidenceType</td>
+                                <td>@review.OwnershipReason</td>
+                                <td>
+                                    @if (canManage)
+                                    {
+                                        @foreach (var client in review.CandidateClients)
+                                        {
+                                            <label class="form-check">
+                                                <input class="form-check-input" type="checkbox"
+                                                       checked="@OwnershipSelected(review.SourceItemId, client.ClientId)"
+                                                       @onchange="args => ToggleOwnership(review.SourceItemId, client.ClientId, args.Value as bool? == true)" />
+                                                <span class="form-check-label">@client.DisplayName</span>
+                                            </label>
+                                        }
+                                        <button type="button" class="btn btn-outline-primary btn-sm mt-1" @onclick="() => AssignOwnershipAsync(review.SourceItemId)">Confirm ownership</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
     <section class="work-area">
         <h2>Unmatched or ambiguous scan files</h2>
         @if (model.UnmatchedFiles.Count == 0)
@@ -259,6 +348,8 @@ else
     private readonly Dictionary<int, int> resolvedClientIds = [];
     private readonly Dictionary<int, string?> resolvedEvidenceTypes = [];
     private readonly Dictionary<int, string?> clientFolderPaths = [];
+    private readonly Dictionary<int, string?> sharedAliasInputs = [];
+    private readonly Dictionary<int, HashSet<int>> ownershipSelections = [];
 
     private bool IsScanRunning => model?.LatestScanRun?.Status is ClientEvidenceScanStatuses.Running or ClientEvidenceScanStatuses.Cancelling;
 
@@ -328,6 +419,62 @@ else
             resolvedClientIds.TryAdd(file.Id, 0);
             resolvedEvidenceTypes.TryAdd(file.Id, file.SuggestedEvidenceType);
         }
+
+        foreach (var folder in model.SharedFolders)
+        {
+            foreach (var client in folder.Clients)
+            {
+                sharedAliasInputs.TryAdd(client.ClientId, null);
+            }
+        }
+
+        foreach (var review in model.OwnershipReviews)
+        {
+            ownershipSelections.TryAdd(review.SourceItemId, []);
+        }
+    }
+
+    private async Task AddAliasAsync(int clientId)
+    {
+        sharedAliasInputs.TryGetValue(clientId, out var alias);
+        await ExecuteAsync(async () =>
+        {
+            await EvidenceService.AddOwnershipAliasAsync(clientId, alias ?? "", currentUser, reason ?? "");
+            sharedAliasInputs[clientId] = null;
+        });
+    }
+
+    private async Task DisableAliasAsync(int aliasId) =>
+        await ExecuteAsync(async () => await EvidenceService.DisableOwnershipAliasAsync(aliasId, currentUser, reason ?? ""));
+
+    private async Task ReconcileSharedFolderAsync(string folderPath) =>
+        await ExecuteAsync(async () => await EvidenceService.ReconcileSharedFolderAsync(folderPath, currentUser, reason ?? ""));
+
+    private bool OwnershipSelected(int sourceItemId, int clientId) =>
+        ownershipSelections.TryGetValue(sourceItemId, out var selected) && selected.Contains(clientId);
+
+    private void ToggleOwnership(int sourceItemId, int clientId, bool isSelected)
+    {
+        if (!ownershipSelections.TryGetValue(sourceItemId, out var selected))
+        {
+            selected = [];
+            ownershipSelections[sourceItemId] = selected;
+        }
+
+        if (isSelected)
+        {
+            selected.Add(clientId);
+        }
+        else
+        {
+            selected.Remove(clientId);
+        }
+    }
+
+    private async Task AssignOwnershipAsync(int sourceItemId)
+    {
+        ownershipSelections.TryGetValue(sourceItemId, out var selected);
+        await ExecuteAsync(async () => await EvidenceService.AssignEvidenceOwnershipAsync(sourceItemId, selected?.ToList() ?? [], currentUser, reason ?? ""));
     }
 
     private async Task SaveRootAsync() => await ExecuteAsync(async () => await EvidenceService.SaveScanRootAsync(scanRootPath ?? "", currentUser, reason ?? ""));

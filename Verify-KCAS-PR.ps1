@@ -51,6 +51,7 @@ function Set-LocalTestConnectionString {
 
     $parts['database'] = 'kcas_blazor_test'
     $parts['SslMode'] = 'Disabled'
+    $parts['AllowPublicKeyRetrieval'] = 'True'
     $env:KCAS_TEST_CONNECTION_STRING = ($parts.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ';'
 }
 

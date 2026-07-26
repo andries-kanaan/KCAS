@@ -32,11 +32,6 @@ public static partial class ClientCategoryInference
             return new(ClientCategories.LegalPerson, ClientCategorySources.EvidenceScanInferred, "Evidence scan found company, close-corporation, CIPC, director or member authority evidence.");
         }
 
-        if (EstateRegex().IsMatch(text))
-        {
-            return new(ClientCategories.Other, ClientCategorySources.EvidenceScanInferred, "Evidence scan found deceased-estate or proposed-distribution evidence.");
-        }
-
         return null;
     }
 

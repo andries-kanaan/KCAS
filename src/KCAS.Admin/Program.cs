@@ -65,7 +65,10 @@ builder.Services.AddAuthorization(options =>
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseMySQL(connectionString));
-builder.Services.AddScoped<ClientSearchService>();
+builder.Services.AddDbContextFactory<ApplicationDbContext>(options =>
+    options.UseMySQL(connectionString), ServiceLifetime.Scoped);
+builder.Services.AddScoped(provider =>
+    new ClientSearchService(provider.GetRequiredService<IDbContextFactory<ApplicationDbContext>>()));
 builder.Services.AddScoped<ClientCodeGenerator>();
 builder.Services.AddScoped<ClientOperationsService>();
 builder.Services.AddScoped<ComplianceService>();

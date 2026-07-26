@@ -486,6 +486,68 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
         Assert.Equal(root, childBrowser.ParentPath);
     }
 
+    [Fact]
+    public void Evidence_path_does_not_infer_estate_category_from_financial_planning_terms()
+    {
+        var result = ClientCategoryInference.InferFromEvidence(
+            @"Storage Data\Finplan\Bate Verdeling PN Badenhorst.xlsx",
+            "General");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task Shared_folder_scan_assigns_explicit_aliases_and_queues_generic_files()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var root = CreateTempRoot();
+        var wifeId = await CreateClientAsync(db, "Annalize Bodenstein", "SHARED-001", root, initials: "AR", fullName: "Annalize Bodenstein", surnameOrEntityName: "Bodenstein");
+        await CreateClientAsync(db, "Barend J", "SHARED-002", root, initials: "BJ", fullName: "Barend Jacobus Bodenstein", surnameOrEntityName: "Bodenstein");
+        var jointId = await CreateClientAsync(db, "BJ and AR Bodenstein", "SHARED-003", root, initials: "BJ and AR", fullName: "BJ and AR Bodenstein", surnameOrEntityName: "Bodenstein");
+        await WriteFileAsync(root, "FICA", "AR Bodenstein ID.pdf");
+        await WriteFileAsync(root, "Investments", "BJ and AR Bodenstein application.pdf");
+        await WriteFileAsync(root, "FICA", "Utility Bill.pdf");
+
+        await service.RunClientFolderScanAsync(wifeId, root, "scanner@example.test", "Scan shared client folder.");
+
+        Assert.Contains(await db.ClientEvidenceItems.ToListAsync(), item => item.ClientId == wifeId && item.FileName == "AR Bodenstein ID.pdf" && item.OwnershipStatus == ClientEvidenceOwnershipStatuses.AutoAssigned);
+        Assert.Contains(await db.ClientEvidenceItems.ToListAsync(), item => item.ClientId == jointId && item.FileName == "BJ and AR Bodenstein application.pdf" && item.OwnershipStatus == ClientEvidenceOwnershipStatuses.AutoAssigned);
+        Assert.Contains(await db.ClientEvidenceItems.ToListAsync(), item => item.FileName == "Utility Bill.pdf" && item.OwnershipStatus == ClientEvidenceOwnershipStatuses.NeedsReview);
+        Assert.Contains(await db.ClientEvidenceScanFiles.ToListAsync(), file => file.FileName == "Utility Bill.pdf" && file.MatchStatus == ClientEvidenceScanFileStatuses.OwnershipReview);
+    }
+
+    [Fact]
+    public async Task Shared_folder_review_can_confirm_one_document_for_multiple_clients()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var root = CreateTempRoot();
+        var firstId = await CreateClientAsync(db, "First Shared Client", "MULTI-001", root);
+        var secondId = await CreateClientAsync(db, "Second Shared Client", "MULTI-002", root);
+        var source = new ClientEvidenceItem
+        {
+            ClientId = firstId,
+            EvidenceType = "Address",
+            Title = "Shared utility bill",
+            SourcePath = Path.Combine(root, "Utility Bill.pdf"),
+            RelativePath = "Utility Bill.pdf",
+            FileName = "Utility Bill.pdf",
+            FileSha256 = "shared-hash",
+            OwnershipStatus = ClientEvidenceOwnershipStatuses.NeedsReview
+        };
+        db.ClientEvidenceItems.Add(source);
+        await db.SaveChangesAsync();
+
+        await service.AssignEvidenceOwnershipAsync(source.Id, [firstId, secondId], "reviewer@example.test", "Both clients share this address evidence.");
+
+        var items = await db.ClientEvidenceItems.Where(item => item.FileSha256 == "shared-hash").ToListAsync();
+        Assert.Equal(2, items.Count);
+        Assert.All(items, item => Assert.Equal(ClientEvidenceOwnershipStatuses.Confirmed, item.OwnershipStatus));
+    }
+
     private static async Task<int> CreateClientAsync(
         ApplicationDbContext db,
         string name,

@@ -1,6 +1,6 @@
 # KCAS Blazor Rewrite Plan
 
-Last updated: 2026-07-22
+Last updated: 2026-07-26
 
 The authoritative staged roadmap for client risk evaluation, the Business Risk Assessment, the RMCP and inspection readiness is [RMCP_BRA_IMPLEMENTATION_PLAN.md](RMCP_BRA_IMPLEMENTATION_PLAN.md).
 
@@ -304,7 +304,7 @@ Verified locally after the security, import, compliance foundation and client ev
 - `dotnet build` succeeds.
 - `dotnet test tests\KCAS.Admin.Tests\KCAS.Admin.Tests.csproj` passes.
 - `dotnet ef migrations has-pending-model-changes` reports no pending model changes.
-- `src\KCAS.Admin\Data\Migrations\kcas_blazor_schema.sql` applies successfully to an empty temporary MySQL database and should record latest migration `20260723130255_AddClientEvidenceCategories`.
+- `src\KCAS.Admin\Data\Migrations\kcas_blazor_schema.sql` includes the shared-evidence ownership model and records latest migration `20260726085802_AddSharedEvidenceOwnership`.
 - Kestrel starts on `http://127.0.0.1:5143`.
 - WAMP HTTPS proxy reaches the app at `https://kcas.test:8443`.
 - `https://kcas.test:8443/clients` redirects unauthenticated users to login.
@@ -315,6 +315,8 @@ Verified locally after the security, import, compliance foundation and client ev
 - Approved users land on `/clients` after login when they have `Clients.View`; otherwise they land on `/`.
 - Compliance foundation routes, permissions, service workflow and audit events are covered by automated tests.
 - Client evidence readiness, server-folder scanner idempotence, unmatched-file handling, evidence verification and exception logic are covered by automated tests.
+- Shared client-folder aliases, conservative ownership assignment, multi-client evidence confirmation and category false-positive prevention are covered by automated tests.
+- The live shared-folder pilot retains 195 generic Bodenstein documents for explicit ownership review; no generic file is accepted into readiness automatically.
 
 Still to verify manually in browser:
 
