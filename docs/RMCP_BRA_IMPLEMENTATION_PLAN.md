@@ -157,12 +157,12 @@ Do not resolve a material conflict merely by choosing the newest filename. Recor
 | 2 | Client profile and evidence readiness | Foundation delivered; operational population deferred to Phase 8 | Pilot clients pass completeness and evidence checks |
 | 3 | Proportional client risk assessment workflow | Technical delivery complete; operational acceptance deferred to Phase 8 | Pilot assessments reproduce approved methodology |
 | 4 | Business Risk Assessment | Technical foundation delivered and browser-checked by the user on 2026-07-26; action integration continues in Phase 6 and operational acceptance is deferred to Phase 8 | BRA approved from traceable evidence and methodology |
-| 5 | RMCP control and approval management | Technical foundation delivered; operational acceptance is deferred to Phase 8 | Approved RMCP version links risks, controls and evidence |
-| 6 | Monitoring, reviews and remediation | Not started | End-to-end review and escalation cases pass |
+| 5 | RMCP control and approval management | Technical foundation delivered and browser-checked by the user on 2026-07-26; operational acceptance is deferred to Phase 8 | Approved RMCP version links risks, controls and evidence |
+| 6 | Monitoring, reviews and remediation | Technical foundation delivered; operational acceptance is deferred to Phase 8 | End-to-end review and escalation cases pass |
 | 7 | Inspection readiness, reporting and rollout | Not started | Inspection pack, security, recovery and rollout accepted |
 | 8 | Controlled operational population and verification | Deferred until Phases 3–7 tools are delivered | Every current client is reviewed, verified and assessed |
 
-Current resume point: **begin Phase 6 monitoring, reviews and remediation without creating or approving live BRA, RMCP or client records.**
+Current resume point: **begin Phase 7 inspection readiness, reporting and controlled rollout without creating operational BRA, RMCP, client-assessment or work-register records.**
 
 Phase 0 remains available for operational import acceptance and final data switch-over evidence, but it is no longer the active development blocker.
 
@@ -511,7 +511,20 @@ Turn approved assessments and controls into a single manageable compliance workl
 - Provide simple overdue, High-risk and unresolved filters.
 - Keep suspicious/unusual activity decisions human-authorised; KCAS performs no autonomous regulatory filing.
 
-### Acceptance gate 6
+### Implemented technical foundation
+
+- One Monitoring work register with periodic review, trigger review, EDD, screening escalation, unusual-activity review, control test, treatment, finding, training, exception and remediation types.
+- Explicit links to client, client assessment, BRA, RMCP version and RMCP control while retaining compatibility with the existing compliance task links.
+- Search plus overdue, High-priority, unresolved, type and status filters.
+- Due periodic client assessments generate idempotent review items; starting a controlled client reassessment automatically creates the matching periodic, trigger, screening or unusual-activity work item.
+- Escalation records High priority, responsible user, timestamp, reason and audit event.
+- Closure requires recorded evidence, outcome and closure reason before approval.
+- Ordinary closure requires one authorised approval; High-priority, EDD, screening and unusual-activity closure requires two distinct approvals.
+- RMCP gaps continue to generate linked treatment items in this common register.
+- Unusual-activity screens explicitly state that KCAS neither decides nor submits a regulatory report.
+- No live work item was created, escalated or closed during technical delivery.
+
+### Operational acceptance gate 6 — deferred to Phase 8
 
 - A periodic review and a trigger-event review complete end to end.
 - A high-risk/EDD case shows evidence, decisions and approvals.

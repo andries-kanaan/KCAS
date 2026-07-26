@@ -215,6 +215,31 @@ public sealed class ClientRiskAssessmentService(
         };
         db.ClientRiskAssessments.Add(assessment);
         await db.SaveChangesAsync();
+        var workType = triggerType switch
+        {
+            ClientRiskReviewTriggerTypes.PeriodicReview => ComplianceTaskTypes.PeriodicReview,
+            ClientRiskReviewTriggerTypes.ScreeningEvent => ComplianceTaskTypes.ScreeningEscalation,
+            ClientRiskReviewTriggerTypes.UnusualActivity => ComplianceTaskTypes.UnusualActivityReview,
+            _ => ComplianceTaskTypes.TriggerReview
+        };
+        db.ComplianceTasks.Add(new ComplianceTask
+        {
+            TaskType = workType,
+            Title = $"{ComplianceTaskTypes.Display(workType)}: client #{previous.ClientId}",
+            Description = triggerReason.Trim(),
+            Owner = user,
+            DueDate = DateOnly.FromDateTime(DateTime.Today.AddDays(30)),
+            Priority = workType is ComplianceTaskTypes.ScreeningEscalation or ComplianceTaskTypes.UnusualActivityReview ||
+                       string.Equals(previous.FinalRating, BusinessRiskRatings.High, StringComparison.OrdinalIgnoreCase)
+                ? "High"
+                : "Normal",
+            Status = ComplianceWorkStatuses.Open,
+            ClientId = previous.ClientId,
+            ClientRiskAssessmentId = assessment.Id,
+            LinkedEntityType = nameof(ClientRiskAssessment),
+            LinkedEntityId = assessment.Id,
+            UpdatedBy = user
+        });
         db.ComplianceAuditEvents.Add(CreateAudit(assessment.Id, "ReassessmentStarted", user, reason, AuditSummary(assessment)));
         await db.SaveChangesAsync();
         return assessment.Id;

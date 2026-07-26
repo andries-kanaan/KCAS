@@ -39,6 +39,8 @@ public sealed class AppSmokeTests(KcasWebApplicationFactory factory)
     [InlineData("/compliance/rmcp")]
     [InlineData("/compliance/rmcp/1")]
     [InlineData("/compliance/rmcp/1/print")]
+    [InlineData("/compliance/work-register")]
+    [InlineData("/compliance/work-register/1")]
     [InlineData("/clients/1/evidence")]
     [InlineData("/clients/1/ownership")]
     [InlineData("/clients/1/risk")]

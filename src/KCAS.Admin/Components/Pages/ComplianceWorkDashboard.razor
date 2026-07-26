@@ -1,0 +1,157 @@
+@page "/compliance/work-register"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
+@using KCAS.Admin.Data
+@inject ComplianceWorkService WorkService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager NavigationManager
+
+<PageTitle>Compliance monitoring</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Compliance</p>
+        <h1>Monitoring and remediation</h1>
+        <p class="lede">One proportional work register for reviews, EDD, screening, control tests, treatments, findings and remediation.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="/compliance">Compliance dashboard</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(message)) { <div class="alert alert-info">@message</div> }
+
+<section class="work-area">
+    <h2>Worklist</h2>
+    <div class="workspace-grid">
+        <input class="form-control" @bind="search" placeholder="Search title, owner or client" />
+        <select class="form-select" @bind="filterType">
+            <option value="">All task types</option>
+            @foreach (var type in ComplianceTaskTypes.All) { <option value="@type">@ComplianceTaskTypes.Display(type)</option> }
+        </select>
+        <select class="form-select" @bind="filterStatus">
+            <option value="">All statuses</option>
+            <option value="@ComplianceWorkStatuses.Open">Open</option>
+            <option value="@ComplianceWorkStatuses.InProgress">In progress</option>
+            <option value="@ComplianceWorkStatuses.PendingClosure">Pending closure</option>
+            <option value="@ComplianceStatuses.Closed">Closed</option>
+        </select>
+        <select class="form-select" @bind="filterView">
+            <option value="">All dates and priorities</option>
+            <option value="@ComplianceWorkViews.Overdue">Overdue</option>
+            <option value="@ComplianceWorkViews.HighPriority">High priority</option>
+            <option value="@ComplianceWorkViews.Unresolved">Unresolved</option>
+        </select>
+        <button class="btn btn-primary" @onclick="LoadAsync">Apply filters</button>
+    </div>
+    <p class="mt-3">Open: @items.Count(item => item.Status != ComplianceStatuses.Closed && item.Status != ComplianceStatuses.Withdrawn) · Overdue: @items.Count(item => item.IsOverdue) · High: @items.Count(item => item.Priority == "High")</p>
+    <div class="table-responsive">
+        <table class="table align-middle">
+            <thead><tr><th>Type</th><th>Work item</th><th>Client</th><th>Owner</th><th>Due</th><th>Priority</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var item in items)
+                {
+                    <tr class="@(item.IsOverdue ? "table-danger" : "")">
+                        <td>@ComplianceTaskTypes.Display(item.TaskType)</td><td>@item.Title</td><td>@(item.ClientName ?? "-")</td>
+                        <td>@(item.Owner ?? "-")</td><td>@(item.DueDate?.ToString("yyyy-MM-dd") ?? "-")</td><td>@item.Priority</td><td>@item.Status</td>
+                        <td class="text-end"><a class="btn btn-sm btn-outline-primary" href="@($"/compliance/work-register/{item.Id}")">Open</a></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</section>
+
+@if (canManage && options is not null)
+{
+    <section class="work-area">
+        <h2>Create work item</h2>
+        <div class="workspace-grid">
+            <select class="form-select" @bind="edit.TaskType">
+                @foreach (var type in ComplianceTaskTypes.All) { <option value="@type">@ComplianceTaskTypes.Display(type)</option> }
+            </select>
+            <input class="form-control" @bind="edit.Title" placeholder="Title" />
+            <input class="form-control" @bind="edit.Owner" placeholder="Owner" />
+            <InputDate class="form-control" @bind-Value="edit.DueDate" />
+            <select class="form-select" @bind="edit.Priority">
+                @foreach (var priority in ComplianceWorkPriorities.All) { <option value="@priority">@priority</option> }
+            </select>
+            <select class="form-select" @bind="edit.ClientId">
+                <option value="">No client</option>
+                @foreach (var item in options.Clients) { <option value="@item.Id">@item.Label</option> }
+            </select>
+            <select class="form-select" @bind="edit.BusinessRiskAssessmentId">
+                <option value="">No BRA</option>
+                @foreach (var item in options.Bras) { <option value="@item.Id">@item.Label</option> }
+            </select>
+            <select class="form-select" @bind="edit.RmcpVersionId">
+                <option value="">No RMCP version</option>
+                @foreach (var item in options.RmcpVersions) { <option value="@item.Id">@item.Label</option> }
+            </select>
+            <select class="form-select" @bind="edit.RmcpControlId">
+                <option value="">No RMCP control</option>
+                @foreach (var item in options.RmcpControls) { <option value="@item.Id">@item.Label</option> }
+            </select>
+        </div>
+        <textarea class="form-control mt-2" rows="2" @bind="edit.Description" placeholder="Description and expected action"></textarea>
+        @if (edit.TaskType == ComplianceTaskTypes.UnusualActivityReview)
+        {
+            <p class="alert alert-warning mt-2 mb-0">KCAS records the authorised human review only. It does not decide or submit a regulatory report.</p>
+        }
+        <input class="form-control mt-2" @bind="reason" placeholder="Reason for creating this work item" />
+        <button class="btn btn-primary mt-2" @onclick="CreateAsync">Create work item</button>
+    </section>
+
+    <section class="work-area">
+        <h2>Generate periodic client reviews</h2>
+        <p class="text-muted">Creates one open item per due finalised/approved client assessment and skips existing unresolved items.</p>
+        <div class="workspace-grid">
+            <InputDate class="form-control" @bind-Value="generateThrough" />
+            <input class="form-control" @bind="generationReason" placeholder="Reason for generation" />
+            <button class="btn btn-outline-primary" @onclick="GenerateAsync">Generate due reviews</button>
+        </div>
+    </section>
+}
+
+@code {
+    private IReadOnlyList<ComplianceWorkListItem> items = [];
+    private ComplianceWorkOptions? options;
+    private ComplianceWorkEditModel edit = new();
+    private string? search;
+    private string? filterType;
+    private string? filterStatus;
+    private string? filterView;
+    private string reason = "";
+    private DateOnly generateThrough = DateOnly.FromDateTime(DateTime.Today.AddMonths(1));
+    private string generationReason = "";
+    private string? currentUser;
+    private string? message;
+    private bool canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        currentUser = state.User.Identity?.Name;
+        canManage = state.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage);
+        if (canManage) options = await WorkService.LoadOptionsAsync();
+        await LoadAsync();
+    }
+    private async Task LoadAsync() => items = await WorkService.LoadWorklistAsync(search, filterType, filterStatus, filterView);
+    private async Task CreateAsync()
+    {
+        try
+        {
+            var id = await WorkService.SaveAsync(edit, currentUser, reason);
+            NavigationManager.NavigateTo($"/compliance/work-register/{id}");
+        }
+        catch (Exception ex) { message = ex.Message; }
+    }
+    private async Task GenerateAsync()
+    {
+        try
+        {
+            var count = await WorkService.GeneratePeriodicReviewTasksAsync(generateThrough, currentUser, generationReason);
+            message = $"{count} periodic review item(s) created.";
+            await LoadAsync();
+        }
+        catch (Exception ex) { message = ex.Message; }
+    }
+}

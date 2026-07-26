@@ -1,0 +1,137 @@
+@page "/compliance/work-register/{Id:int}"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
+@using KCAS.Admin.Data
+@inject ComplianceWorkService WorkService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Compliance work item</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Monitoring and remediation</p>
+        <h1>@(model?.Task.Title ?? "Loading...")</h1>
+        @if (model is not null) { <p class="text-muted mb-0">@ComplianceTaskTypes.Display(model.Task.TaskType) · @model.Task.Priority · @model.Task.Status</p> }
+    </div>
+    <a class="btn btn-outline-secondary" href="/compliance/work-register">Worklist</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(message)) { <div class="alert alert-info">@message</div> }
+
+@if (model is null || edit is null)
+{
+    <p>Loading work item...</p>
+}
+else
+{
+    <section class="work-area">
+        <h2>Controlled action reason</h2>
+        <input class="form-control" @bind="reason" placeholder="Required for every change or decision" />
+    </section>
+    <section class="work-area">
+        <h2>Work details</h2>
+        <div class="workspace-grid">
+            <select class="form-select" @bind="edit.TaskType" disabled="@(!CanEdit)">
+                @foreach (var type in ComplianceTaskTypes.All) { <option value="@type">@ComplianceTaskTypes.Display(type)</option> }
+            </select>
+            <input class="form-control" @bind="edit.Title" disabled="@(!CanEdit)" />
+            <input class="form-control" @bind="edit.Owner" disabled="@(!CanEdit)" />
+            <InputDate class="form-control" @bind-Value="edit.DueDate" disabled="@(!CanEdit)" />
+            <select class="form-select" @bind="edit.Priority" disabled="@(!CanEdit)">
+                @foreach (var priority in ComplianceWorkPriorities.All) { <option value="@priority">@priority</option> }
+            </select>
+            <select class="form-select" @bind="edit.Status" disabled="@(!CanEdit)">
+                <option value="@ComplianceWorkStatuses.Open">Open</option><option value="@ComplianceWorkStatuses.InProgress">In progress</option>
+            </select>
+        </div>
+        <textarea class="form-control mt-2" rows="3" @bind="edit.Description" disabled="@(!CanEdit)"></textarea>
+        <p class="mt-3 mb-0">
+            Client: @(model.Task.Client?.DisplayName ?? "-") ·
+            Client assessment: @(model.Task.ClientRiskAssessmentId?.ToString() ?? "-") ·
+            BRA: @(model.Task.BusinessRiskAssessment?.Name ?? "-") ·
+            RMCP: @(model.Task.RmcpVersion?.VersionReference ?? "-") ·
+            Control: @(model.Task.RmcpControl?.Code ?? "-")
+        </p>
+        @if (CanEdit) { <button class="btn btn-primary mt-3" @onclick="SaveAsync">Save changes</button> }
+        @if (canManage && model.Task.Status is not (ComplianceStatuses.Closed or ComplianceStatuses.Withdrawn))
+        {
+            <button class="btn btn-outline-danger mt-3 ms-2" @onclick="EscalateAsync">Escalate to High</button>
+        }
+    </section>
+
+    @if (model.Task.TaskType == ComplianceTaskTypes.UnusualActivityReview)
+    {
+        <div class="alert alert-warning">The decision whether to make a regulatory report remains human-authorised and outside any automatic KCAS action.</div>
+    }
+
+    <section class="work-area">
+        <h2>Evidence and closure</h2>
+        <label class="form-label">Evidence reviewed</label>
+        <textarea class="form-control" rows="3" @bind="closureEvidence" disabled="@(!CanRequestClosure)"></textarea>
+        <label class="form-label mt-2">Outcome</label>
+        <textarea class="form-control" rows="2" @bind="closureOutcome" disabled="@(!CanRequestClosure)"></textarea>
+        <label class="form-label mt-2">Closure reason</label>
+        <textarea class="form-control" rows="2" @bind="closureReason" disabled="@(!CanRequestClosure)"></textarea>
+        @if (CanRequestClosure) { <button class="btn btn-outline-primary mt-2" @onclick="RequestClosureAsync">Request closure</button> }
+
+        <p class="mt-3">Closure approvals: @model.ClosureApprovals.Count / @model.RequiredClosureApprovals</p>
+        @if (model.ClosureApprovals.Count > 0)
+        {
+            <ul>
+                @foreach (var approval in model.ClosureApprovals)
+                {
+                    <li>@approval.Approver — @approval.DecidedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm") — @approval.Reason</li>
+                }
+            </ul>
+        }
+        @if (canApprove && model.Task.Status == ComplianceWorkStatuses.PendingClosure)
+        {
+            <button class="btn btn-success" @onclick="ApproveClosureAsync">Approve closure</button>
+        }
+    </section>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+    private ComplianceWorkPageModel? model;
+    private ComplianceWorkEditModel? edit;
+    private string reason = "";
+    private string closureEvidence = "";
+    private string closureOutcome = "";
+    private string closureReason = "";
+    private string? currentUser;
+    private string? message;
+    private bool canManage;
+    private bool canApprove;
+    private bool CanEdit => canManage && model?.Task.Status is ComplianceStatuses.Draft or ComplianceWorkStatuses.Open or ComplianceWorkStatuses.InProgress;
+    private bool CanRequestClosure => canManage && model?.Task.Status is not (ComplianceStatuses.Closed or ComplianceStatuses.Withdrawn or ComplianceWorkStatuses.PendingClosure);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        currentUser = state.User.Identity?.Name;
+        canManage = state.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage);
+        canApprove = state.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceApprove);
+        await LoadAsync();
+    }
+    private async Task LoadAsync()
+    {
+        model = await WorkService.LoadAsync(Id);
+        edit = model is null ? null : ComplianceWorkEditModel.FromEntity(model.Task);
+        if (model is not null)
+        {
+            closureEvidence = model.Task.EvidenceSummary ?? "";
+            closureOutcome = model.Task.Outcome ?? "";
+            closureReason = model.Task.ClosureReason ?? "";
+        }
+    }
+    private async Task SaveAsync() => await ExecuteAsync(() => WorkService.SaveAsync(edit!, currentUser, reason), "Work item saved.");
+    private async Task EscalateAsync() => await ExecuteAsync(() => WorkService.EscalateAsync(Id, currentUser, reason), "Work item escalated.");
+    private async Task RequestClosureAsync() => await ExecuteAsync(() => WorkService.RequestClosureAsync(Id, closureEvidence, closureOutcome, closureReason, currentUser, reason), "Closure requested.");
+    private async Task ApproveClosureAsync() => await ExecuteAsync(() => WorkService.ApproveClosureAsync(Id, currentUser, reason), "Closure approval recorded.");
+    private async Task ExecuteAsync(Func<Task> action, string success)
+    {
+        try { await action(); message = success; await LoadAsync(); }
+        catch (Exception ex) { message = ex.Message; }
+    }
+}
