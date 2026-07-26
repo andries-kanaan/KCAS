@@ -12,4 +12,5 @@ public sealed class RiskFactorDefinition
     public bool IsMandatoryHighRiskTrigger { get; set; }
     public int SortOrder { get; set; }
     public List<RiskFactorOption> Options { get; set; } = [];
+    public List<ClientRiskAssessmentResponse> AssessmentResponses { get; set; } = [];
 }

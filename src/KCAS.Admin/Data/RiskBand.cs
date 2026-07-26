@@ -8,5 +8,6 @@ public sealed class RiskBand
     public string Name { get; set; } = "";
     public decimal MinimumScore { get; set; }
     public decimal? MaximumScore { get; set; }
+    public int ReviewMonths { get; set; } = 36;
     public int SortOrder { get; set; }
 }

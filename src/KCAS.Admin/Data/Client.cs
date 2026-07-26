@@ -86,6 +86,8 @@ public class Client
     public ICollection<ClientEvidenceOwnershipAlias> EvidenceOwnershipAliases { get; } = [];
 
     public ICollection<ClientRelatedParty> RelatedParties { get; } = [];
+
+    public ICollection<ClientRiskAssessment> RiskAssessments { get; } = [];
 }
 
 public static class LegacyReconciliationStatuses

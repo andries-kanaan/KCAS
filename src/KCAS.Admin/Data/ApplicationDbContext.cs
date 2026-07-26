@@ -54,6 +54,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<ClientRelatedParty> ClientRelatedParties => Set<ClientRelatedParty>();
     public DbSet<ClientRelatedPartyRole> ClientRelatedPartyRoles => Set<ClientRelatedPartyRole>();
     public DbSet<ClientRelatedPartyEvidenceLink> ClientRelatedPartyEvidenceLinks => Set<ClientRelatedPartyEvidenceLink>();
+    public DbSet<ClientRiskAssessment> ClientRiskAssessments => Set<ClientRiskAssessment>();
+    public DbSet<ClientRiskAssessmentResponse> ClientRiskAssessmentResponses => Set<ClientRiskAssessmentResponse>();
+    public DbSet<ClientRiskAssessmentApproval> ClientRiskAssessmentApprovals => Set<ClientRiskAssessmentApproval>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -538,6 +541,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.Property(band => band.Name).HasMaxLength(96);
             entity.Property(band => band.MinimumScore).HasPrecision(9, 4);
             entity.Property(band => band.MaximumScore).HasPrecision(9, 4);
+            entity.Property(band => band.ReviewMonths).HasDefaultValue(36);
             entity.HasIndex(band => new { band.RiskMethodologyVersionId, band.Name }).IsUnique();
         });
 
@@ -796,6 +800,63 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.Property(link => link.LinkedBy).HasMaxLength(191);
             entity.HasIndex(link => new { link.ClientRelatedPartyId, link.ClientEvidenceItemId, link.Purpose }).IsUnique();
             entity.HasIndex(link => new { link.ClientEvidenceItemId, link.Purpose });
+        });
+
+        builder.Entity<ClientRiskAssessment>(entity =>
+        {
+            entity.HasOne(assessment => assessment.Client)
+                .WithMany(client => client.RiskAssessments)
+                .HasForeignKey(assessment => assessment.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(assessment => assessment.MethodologyVersion)
+                .WithMany(methodology => methodology.ClientAssessments)
+                .HasForeignKey(assessment => assessment.RiskMethodologyVersionId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.Property(assessment => assessment.Status).HasMaxLength(32);
+            entity.Property(assessment => assessment.CalculatedScore).HasPrecision(9, 4);
+            entity.Property(assessment => assessment.CalculatedRating).HasMaxLength(96);
+            entity.Property(assessment => assessment.FinalRating).HasMaxLength(96);
+            entity.Property(assessment => assessment.PreparedBy).HasMaxLength(191);
+            entity.Property(assessment => assessment.FinalisedBy).HasMaxLength(191);
+            ConfigureDateOnly(entity.Property(assessment => assessment.EffectiveDate));
+            ConfigureDateOnly(entity.Property(assessment => assessment.NextReviewDate));
+            entity.HasIndex(assessment => new { assessment.ClientId, assessment.Status });
+            entity.HasIndex(assessment => new { assessment.FinalRating, assessment.Status });
+            entity.HasIndex(assessment => assessment.NextReviewDate);
+        });
+
+        builder.Entity<ClientRiskAssessmentResponse>(entity =>
+        {
+            entity.HasOne(response => response.Assessment)
+                .WithMany(assessment => assessment.Responses)
+                .HasForeignKey(response => response.ClientRiskAssessmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(response => response.FactorDefinition)
+                .WithMany(factor => factor.AssessmentResponses)
+                .HasForeignKey(response => response.RiskFactorDefinitionId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(response => response.SelectedOption)
+                .WithMany(option => option.AssessmentResponses)
+                .HasForeignKey(response => response.RiskFactorOptionId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(response => response.EvidenceItem)
+                .WithMany()
+                .HasForeignKey(response => response.ClientEvidenceItemId)
+                .OnDelete(DeleteBehavior.SetNull);
+            entity.Property(response => response.WeightedScore).HasPrecision(9, 4);
+            entity.HasIndex(response => new { response.ClientRiskAssessmentId, response.RiskFactorDefinitionId }).IsUnique();
+            entity.HasIndex(response => response.ClientEvidenceItemId);
+        });
+
+        builder.Entity<ClientRiskAssessmentApproval>(entity =>
+        {
+            entity.HasOne(approval => approval.Assessment)
+                .WithMany(assessment => assessment.Approvals)
+                .HasForeignKey(approval => approval.ClientRiskAssessmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(approval => approval.Approver).HasMaxLength(191);
+            entity.Property(approval => approval.Decision).HasMaxLength(32);
+            entity.HasIndex(approval => new { approval.ClientRiskAssessmentId, approval.Approver }).IsUnique();
         });
     }
 

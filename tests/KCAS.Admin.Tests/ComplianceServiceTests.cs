@@ -138,7 +138,65 @@ public sealed class ComplianceServiceTests(KcasWebApplicationFactory factory)
         }, "preparer@example.test", "Create methodology.");
 
         await service.SubmitMethodologyAsync(methodologyId, "preparer@example.test", "Submit for review.");
-        await service.ApproveMethodologyAsync(methodologyId, "approver@example.test", "Approve methodology.");
+        await service.ApproveMethodologyAsync(methodologyId, "ki-one@example.test", "First KI approval.");
+        await service.ApproveMethodologyAsync(methodologyId, "ki-two@example.test", "Second KI approval.");
         return methodologyId;
+    }
+
+    [Fact]
+    public async Task Methodology_requires_two_distinct_ki_approvals()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ComplianceService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var methodologyId = await service.SaveMethodologyAsync(new RiskMethodologyModel
+        {
+            Name = $"Two KI methodology {Guid.NewGuid():N}",
+            Factors =
+            [
+                new()
+                {
+                    Code = "CLIENT",
+                    Name = "Client risk",
+                    Weight = 1,
+                    Options = [new() { Code = "LOW", Label = "Low", Score = 1 }]
+                }
+            ],
+            Bands = [new() { Name = "Low", MinimumScore = 0, MaximumScore = 2 }]
+        }, "preparer@example.test", "Create two-KI test.");
+        await service.SubmitMethodologyAsync(methodologyId, "preparer@example.test", "Submit two-KI test.");
+        await service.ApproveMethodologyAsync(methodologyId, "ki-one@example.test", "First KI approval.");
+
+        Assert.Equal(
+            ComplianceStatuses.Review,
+            await db.RiskMethodologyVersions.Where(item => item.Id == methodologyId).Select(item => item.Status).SingleAsync());
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.ApproveMethodologyAsync(methodologyId, "ki-one@example.test", "Duplicate first KI approval."));
+
+        await service.ApproveMethodologyAsync(methodologyId, "ki-two@example.test", "Second KI approval.");
+        Assert.Equal(
+            ComplianceStatuses.Approved,
+            await db.RiskMethodologyVersions.Where(item => item.Id == methodologyId).Select(item => item.Status).SingleAsync());
+    }
+
+    [Fact]
+    public async Task Kanaan_starter_methodology_is_created_as_draft()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ComplianceService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        var methodologyId = await service.CreateKanaanStarterMethodologyAsync(
+            "compliance@example.test",
+            "Create the controlled starter draft.");
+
+        var methodology = await db.RiskMethodologyVersions.AsNoTracking()
+            .Include(item => item.Factors).ThenInclude(factor => factor.Options)
+            .Include(item => item.Bands)
+            .SingleAsync(item => item.Id == methodologyId);
+        Assert.Equal(ComplianceStatuses.Draft, methodology.Status);
+        Assert.Equal(6, methodology.Factors.Count);
+        Assert.All(methodology.Factors, factor => Assert.Equal(3, factor.Options.Count));
+        Assert.Equal(new[] { "Low", "Standard", "High" }, methodology.Bands.OrderBy(item => item.SortOrder).Select(item => item.Name));
     }
 }

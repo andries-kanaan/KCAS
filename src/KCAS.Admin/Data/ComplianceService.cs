@@ -274,6 +274,7 @@ public sealed class ComplianceService(ApplicationDbContext db)
                 Name = Normalize(band.Name)!,
                 MinimumScore = band.MinimumScore,
                 MaximumScore = band.MaximumScore,
+                ReviewMonths = band.ReviewMonths,
                 SortOrder = band.SortOrder == 0 ? index + 1 : band.SortOrder
             }).ToList();
 
@@ -294,15 +295,105 @@ public sealed class ComplianceService(ApplicationDbContext db)
 
     public async Task ApproveMethodologyAsync(int methodologyId, string? userName, string reason)
     {
+        RequireReason(reason);
+        var approver = Normalize(userName) ?? throw new ValidationException("Approver identity is required.");
         var methodology = await LoadMethodologyForStatusChangeAsync(methodologyId);
         if (methodology.Status != ComplianceStatuses.Review)
         {
             throw new InvalidOperationException("Only methodologies in review can be approved.");
         }
-        methodology.ApprovedAtUtc = DateTime.UtcNow;
-        await ChangeMethodologyStatusAsync(methodology, ComplianceStatuses.Approved, "Approved", userName, reason);
-        db.ComplianceApprovals.Add(new ComplianceApproval { TargetEntityType = nameof(RiskMethodologyVersion), TargetEntityId = methodology.Id, Decision = ComplianceStatuses.Approved, Approver = Normalize(userName), Reason = reason.Trim() });
+
+        var alreadyApproved = await db.ComplianceApprovals.AnyAsync(approval =>
+            approval.TargetEntityType == nameof(RiskMethodologyVersion) &&
+            approval.TargetEntityId == methodology.Id &&
+            approval.Decision == ComplianceStatuses.Approved &&
+            approval.Approver == approver);
+        if (alreadyApproved)
+        {
+            throw new InvalidOperationException("This KI has already approved the methodology.");
+        }
+
+        db.ComplianceApprovals.Add(new ComplianceApproval
+        {
+            TargetEntityType = nameof(RiskMethodologyVersion),
+            TargetEntityId = methodology.Id,
+            Decision = ComplianceStatuses.Approved,
+            Approver = approver,
+            Reason = reason.Trim()
+        });
+
+        var existingApprovalCount = await db.ComplianceApprovals.CountAsync(approval =>
+            approval.TargetEntityType == nameof(RiskMethodologyVersion) &&
+            approval.TargetEntityId == methodology.Id &&
+            approval.Decision == ComplianceStatuses.Approved);
+        if (existingApprovalCount + 1 >= 2)
+        {
+            methodology.ApprovedAtUtc = DateTime.UtcNow;
+            await ChangeMethodologyStatusAsync(methodology, ComplianceStatuses.Approved, "ApprovedByBothKIs", userName, reason);
+            return;
+        }
+
+        db.ComplianceAuditEvents.Add(CreateAudit(
+            nameof(RiskMethodologyVersion),
+            methodology.Id,
+            "KiApprovalRecorded",
+            null,
+            Snapshot(new { Approver = approver, ApprovalNumber = existingApprovalCount + 1 }),
+            userName,
+            reason));
         await db.SaveChangesAsync();
+    }
+
+    public async Task<int> CreateKanaanStarterMethodologyAsync(string? userName, string reason)
+    {
+        RequireReason(reason);
+        const string starterName = "Kanaan proportional client risk methodology";
+        var existingId = await db.RiskMethodologyVersions
+            .Where(methodology => methodology.Name == starterName &&
+                                  methodology.Status != ComplianceStatuses.Superseded)
+            .OrderByDescending(methodology => methodology.Id)
+            .Select(methodology => (int?)methodology.Id)
+            .FirstOrDefaultAsync();
+        if (existingId.HasValue)
+        {
+            throw new InvalidOperationException("A current Kanaan starter methodology already exists.");
+        }
+
+        static RiskFactorModel Factor(string code, string name, string low, string standard, string elevated)
+            => new()
+            {
+                Code = code,
+                Name = name,
+                Weight = 1,
+                Options =
+                [
+                    new() { Code = "LOW", Label = low, Score = 1, SortOrder = 1 },
+                    new() { Code = "STANDARD", Label = standard, Score = 2, SortOrder = 2 },
+                    new() { Code = "ELEVATED", Label = elevated, Score = 3, TriggersHighRisk = code == "GEOGRAPHY", SortOrder = 3 }
+                ]
+            };
+
+        return await SaveMethodologyAsync(new RiskMethodologyModel
+        {
+            Name = starterName,
+            VersionLabel = "Working draft v1",
+            Summary = "Starter draft for KI review. Six scored factors use a 1-3 scale. PEP, sanctions/TFS and adverse information are handled as explicit assessment overlays.",
+            Factors =
+            [
+                Factor("CLIENT_OWNERSHIP", "Client type and ownership transparency", "Natural person or transparent simple structure", "Known structure requiring ordinary review", "Complex, opaque or insufficiently transparent structure"),
+                Factor("GEOGRAPHY", "Geographic exposure", "Domestic and low-risk exposure", "Ordinary cross-border exposure", "High-risk or sanctioned-jurisdiction concern"),
+                Factor("PRODUCT", "Product or service exposure", "Simple, well-understood product", "Ordinary Kanaan investment service", "Complex or unusually opaque product"),
+                Factor("DELIVERY", "Delivery channel", "Established face-to-face relationship", "Remote relationship with effective verification", "Non-face-to-face relationship with elevated weakness"),
+                Factor("ACTIVITY", "Transaction and activity profile", "Expected and transparent activity", "Ordinary activity requiring normal monitoring", "Unusual, complex or unexplained activity"),
+                Factor("SOURCE", "Source of funds and wealth", "Verified and consistent", "Reasonably corroborated", "Unclear, inconsistent or high-risk source")
+            ],
+            Bands =
+            [
+                new() { Name = "Low", MinimumScore = 6, MaximumScore = 8, ReviewMonths = 60, SortOrder = 1 },
+                new() { Name = "Standard", MinimumScore = 9, MaximumScore = 13, ReviewMonths = 36, SortOrder = 2 },
+                new() { Name = "High", MinimumScore = 14, MaximumScore = 18, ReviewMonths = 12, SortOrder = 3 }
+            ]
+        }, userName, reason);
     }
 
     public async Task RejectMethodologyAsync(int methodologyId, string? userName, string reason)
@@ -593,6 +684,7 @@ public sealed class RiskBandModel
     public string? Name { get; set; }
     public decimal MinimumScore { get; set; }
     public decimal? MaximumScore { get; set; }
+    public int ReviewMonths { get; set; } = 36;
     public int SortOrder { get; set; }
 }
 

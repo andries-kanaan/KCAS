@@ -155,14 +155,14 @@ Do not resolve a material conflict merely by choosing the newest filename. Recor
 | 0B | Reviewed field-by-field merge and reconciliation closure | Complete for delivery; live acceptance evidence remains operational follow-up | Review, apply, rejection, deferral and audit trail available |
 | 1 | Compliance foundation and controlled configuration | Complete for delivery; browser acceptance evidence remains operational follow-up | Configuration/versioning and permissions accepted |
 | 2 | Client profile and evidence readiness | Foundation delivered; operational population deferred to Phase 8 | Pilot clients pass completeness and evidence checks |
-| 3 | Proportional client risk assessment workflow | Next implementation phase | Pilot assessments reproduce approved methodology |
+| 3 | Proportional client risk assessment workflow | First controlled vertical slice implemented; live acceptance pending | Pilot assessments reproduce approved methodology |
 | 4 | Business Risk Assessment | Not started | BRA approved from traceable evidence and methodology |
 | 5 | RMCP control and approval management | Not started | Approved RMCP version links risks, controls and evidence |
 | 6 | Monitoring, reviews and remediation | Not started | End-to-end review and escalation cases pass |
 | 7 | Inspection readiness, reporting and rollout | Not started | Inspection pack, security, recovery and rollout accepted |
 | 8 | Controlled operational population and verification | Deferred until Phases 3–7 tools are delivered | Every current client is reviewed, verified and assessed |
 
-Current resume point: **finalise the Phase 2 ownership-register release, then begin the proportional Phase 3 client-risk workflow.**
+Current resume point: **verify and accept the first proportional Phase 3 client-risk slice, then continue the remaining Phase 3 reassessment and reporting work.**
 
 Phase 0 remains available for operational import acceptance and final data switch-over evidence, but it is no longer the active development blocker.
 
@@ -402,6 +402,18 @@ Produce consistent, explainable and repeatable client risk assessments suited to
 - Effective date, next review date, supersession and event-triggered reassessment.
 - Frozen assessment snapshot so later methodology, evidence or client edits do not rewrite history.
 - A simple searchable client-risk list and counts by classification; no bank-scale portfolio analytics.
+
+### Implemented in current Phase 3 branch
+
+- Audited client assessments pinned to an active immutable methodology version.
+- Controlled Kanaan starter methodology created only on request and retained as Draft until two distinct KI approvals and activation.
+- Six-factor 1–3 starter scale, configurable weighted score, Low/Standard/High bands and configurable review periods.
+- Compact per-client assessment page and searchable client-risk list.
+- Evidence-readiness finalisation gate and links to current, confirmed, verified client evidence.
+- Representative/KI routine finalisation for Low or Standard assessments.
+- Mandatory escalation for High risk, PEP, adverse information and overrides, with two distinct KI approvals.
+- Sanctions/TFS concerns block finalisation, and mandatory High triggers cannot be overridden downward.
+- Frozen assessment snapshot, effective and next-review dates, supersession and audited return-to-draft workflow.
 
 ### Acceptance gate 3
 

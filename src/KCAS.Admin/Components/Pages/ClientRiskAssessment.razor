@@ -1,0 +1,274 @@
+@page "/clients/{ClientId:int}/risk"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.RiskAssessmentsView)]
+@using KCAS.Admin.Data
+@inject ClientRiskAssessmentService RiskService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Client risk assessment</PageTitle>
+
+@if (model is null)
+{
+    <p>Loading client risk assessment...</p>
+}
+else
+{
+    <div class="page-header">
+        <div>
+            <p class="eyebrow">Client risk assessment</p>
+            <h1>@model.DisplayName</h1>
+            <p class="text-muted mb-0">Kanaan ID: @(model.KanaanId ?? "Not captured") | Category: @model.ClientCategory</p>
+        </div>
+        <div class="header-actions">
+            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/evidence")">Evidence readiness</a>
+            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}")">Client detail</a>
+            <a class="btn btn-outline-secondary" href="/compliance/client-risk">Risk list</a>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(statusMessage))
+    {
+        <div class="alert @(hasError ? "alert-danger" : "alert-info")">@statusMessage</div>
+    }
+
+    @if (!model.HasActiveMethodology && model.Assessment is null)
+    {
+        <div class="alert alert-warning">
+            No active client-risk methodology is available.
+            <a href="/compliance/settings">Create, review and activate the Kanaan starter draft</a> before starting assessments.
+        </div>
+    }
+    else
+    {
+        <section class="summary-grid">
+            <article class="summary-card">
+                <span>Evidence readiness</span>
+                <strong>@(model.IsReadyForRiskAssessment ? "Ready" : $"{model.BlockingEvidenceCount} blocker(s)")</strong>
+            </article>
+            <article class="summary-card">
+                <span>Methodology</span>
+                <strong>@(model.ActiveMethodologyName ?? "Unavailable")</strong>
+            </article>
+            <article class="summary-card">
+                <span>Status</span>
+                <strong>@(model.Assessment?.Status ?? "Not started")</strong>
+            </article>
+            <article class="summary-card">
+                <span>Risk</span>
+                <strong>@(model.Assessment?.FinalRating ?? model.Assessment?.CalculatedRating ?? "Not calculated")</strong>
+            </article>
+        </section>
+
+        @if (model.Assessment is null)
+        {
+            <section class="work-area">
+                <h2>Start assessment</h2>
+                <p>A draft may be prepared while evidence remains outstanding, but it cannot be finalised until readiness is clear.</p>
+                <button type="button" class="btn btn-primary" @onclick="CreateDraftAsync" disabled="@(!canPrepare)">Create draft</button>
+            </section>
+        }
+        else if (model.Assessment.Status == ClientRiskAssessmentStatuses.Draft)
+        {
+            <section class="work-area">
+                <h2>Risk factors</h2>
+                @foreach (var factor in model.Factors)
+                {
+                    <article class="detail-panel mb-3">
+                        <h3 class="h5">@factor.Name <span class="text-muted">(weight @factor.Weight)</span></h3>
+                        @if (!string.IsNullOrWhiteSpace(factor.Description))
+                        {
+                            <p class="text-muted">@factor.Description</p>
+                        }
+                        <div class="workspace-grid">
+                            <select class="form-select" @bind="factor.SelectedOptionId" disabled="@(!canPrepare)">
+                                <option value="">Select an answer</option>
+                                @foreach (var optionItem in factor.Options)
+                                {
+                                    <option value="@optionItem.Id">@optionItem.Label (@optionItem.Score)@(optionItem.TriggersHighRisk ? " — mandatory High" : "")</option>
+                                }
+                            </select>
+                            <select class="form-select" @bind="factor.EvidenceItemId" disabled="@(!canPrepare)">
+                                <option value="">No primary evidence link</option>
+                                @foreach (var evidenceItem in model.EvidenceOptions)
+                                {
+                                    <option value="@evidenceItem.Id">@evidenceItem.EvidenceType: @evidenceItem.Title</option>
+                                }
+                            </select>
+                        </div>
+                        <textarea class="form-control mt-2" @bind="factor.Explanation" placeholder="Explain why this answer applies" disabled="@(!canPrepare)"></textarea>
+                    </article>
+                }
+            </section>
+
+            <section class="work-area">
+                <h2>Escalation and conclusion</h2>
+                <div class="workspace-grid">
+                    <label class="form-check"><InputCheckbox class="form-check-input" @bind-Value="edit.HasPepExposure" disabled="@(!canPrepare)" /> <span class="form-check-label">PEP/prominent person exposure</span></label>
+                    <label class="form-check"><InputCheckbox class="form-check-input" @bind-Value="edit.HasSanctionsConcern" disabled="@(!canPrepare)" /> <span class="form-check-label">Sanctions/TFS concern</span></label>
+                    <label class="form-check"><InputCheckbox class="form-check-input" @bind-Value="edit.HasAdverseInformation" disabled="@(!canPrepare)" /> <span class="form-check-label">Material adverse information</span></label>
+                    <label class="form-check"><InputCheckbox class="form-check-input" @bind-Value="edit.StandardControlsApplied" disabled="@(!canPrepare)" /> <span class="form-check-label">Standard methodology controls applied</span></label>
+                </div>
+                <textarea class="form-control mt-2" @bind="edit.Narrative" placeholder="Overall assessment narrative" disabled="@(!canPrepare)"></textarea>
+                <label class="form-check mt-2"><InputCheckbox class="form-check-input" @bind-Value="edit.IsOverride" disabled="@(!canPrepare)" /> <span class="form-check-label">Override calculated result</span></label>
+                @if (edit.IsOverride)
+                {
+                    <div class="workspace-grid mt-2">
+                        <select class="form-select" @bind="edit.OverrideRating" disabled="@(!canPrepare)">
+                            <option value="">Select final rating</option>
+                            <option value="Low">Low</option>
+                            <option value="Standard">Standard</option>
+                            <option value="High">High</option>
+                        </select>
+                        <textarea class="form-control" @bind="edit.OverrideReason" placeholder="Mandatory override reason" disabled="@(!canPrepare)"></textarea>
+                    </div>
+                }
+                <input class="form-control mt-3" @bind="reason" placeholder="Reason for this action" />
+                <button type="button" class="btn btn-outline-primary mt-2" @onclick="SaveDraftAsync" disabled="@(!canPrepare)">Save draft</button>
+                <button type="button" class="btn btn-primary mt-2 ms-1" @onclick="FinaliseAsync" disabled="@(!canFinalise)">Finalise assessment</button>
+            </section>
+        }
+        else
+        {
+            <section class="work-area">
+                <h2>Assessment result</h2>
+                <dl>
+                    <dt>Calculated score</dt><dd>@model.Assessment.CalculatedScore</dd>
+                    <dt>Calculated rating</dt><dd>@Display(model.Assessment.CalculatedRating)</dd>
+                    <dt>Final rating</dt><dd>@Display(model.Assessment.FinalRating)</dd>
+                    <dt>EDD required</dt><dd>@(model.Assessment.RequiresEdd ? "Yes" : "No")</dd>
+                    <dt>Effective date</dt><dd>@Date(model.Assessment.EffectiveDate)</dd>
+                    <dt>Next review</dt><dd>@Date(model.Assessment.NextReviewDate)</dd>
+                    <dt>Finalised by</dt><dd>@Display(model.Assessment.FinalisedBy)</dd>
+                    <dt>Narrative</dt><dd>@Display(model.Assessment.Narrative)</dd>
+                </dl>
+                @if (model.Assessment.Status == ClientRiskAssessmentStatuses.PendingKiApproval)
+                {
+                    <div class="alert alert-warning">This elevated assessment requires two distinct KI approvals. @model.Assessment.Approvals.Count of 2 recorded.</div>
+                    <input class="form-control" @bind="reason" placeholder="Reason for approval or return" />
+                    <button type="button" class="btn btn-primary mt-2" @onclick="ApproveAsync" disabled="@(!canApprove)">Record KI approval</button>
+                    <button type="button" class="btn btn-outline-danger mt-2 ms-1" @onclick="ReturnToDraftAsync" disabled="@(!canApprove)">Return to draft</button>
+                }
+                else if (model.Assessment.Status is ClientRiskAssessmentStatuses.Finalised or ClientRiskAssessmentStatuses.Approved)
+                {
+                    <input class="form-control" @bind="reason" placeholder="Reason for reassessment" />
+                    <button type="button" class="btn btn-outline-primary mt-2" @onclick="CreateDraftAsync" disabled="@(!canPrepare)">Start reassessment</button>
+                }
+                @if (model.Assessment.Approvals.Count > 0)
+                {
+                    <h3 class="h5 mt-3">KI approvals</h3>
+                    <ul>
+                        @foreach (var approval in model.Assessment.Approvals)
+                        {
+                            <li>@approval.Approver — @approval.DecidedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm") — @approval.Reason</li>
+                        }
+                    </ul>
+                }
+            </section>
+        }
+
+        @if (model.History.Count > 0)
+        {
+            <section class="work-area">
+                <h2>Assessment history</h2>
+                <div class="table-responsive">
+                    <table class="table align-middle">
+                        <thead><tr><th>Status</th><th>Rating</th><th>Score</th><th>Effective</th><th>Next review</th><th>Finalised by</th></tr></thead>
+                        <tbody>
+                            @foreach (var item in model.History)
+                            {
+                                <tr><td>@item.Status</td><td>@Display(item.Rating)</td><td>@item.Score</td><td>@Date(item.EffectiveDate)</td><td>@Date(item.NextReviewDate)</td><td>@Display(item.FinalisedBy)</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        }
+    }
+}
+
+@code {
+    [Parameter] public int ClientId { get; set; }
+
+    private ClientRiskAssessmentPageModel? model;
+    private ClientRiskAssessmentEditModel edit = new();
+    private string? currentUser;
+    private string? reason;
+    private string? statusMessage;
+    private bool hasError;
+    private bool canPrepare;
+    private bool canFinalise;
+    private bool canApprove;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        currentUser = authState.User.Identity?.Name;
+        canPrepare = authState.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.RiskAssessmentsPrepare);
+        canFinalise = authState.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.RiskAssessmentsFinalise);
+        canApprove = authState.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.RiskAssessmentsApprove);
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        model = await RiskService.LoadAsync(ClientId);
+        if (model.Assessment is not null)
+        {
+            edit.HasPepExposure = model.Assessment.HasPepExposure;
+            edit.HasSanctionsConcern = model.Assessment.HasSanctionsConcern;
+            edit.HasAdverseInformation = model.Assessment.HasAdverseInformation;
+            edit.StandardControlsApplied = model.Assessment.StandardControlsApplied;
+            edit.Narrative = model.Assessment.Narrative;
+            edit.IsOverride = model.Assessment.IsOverride;
+            edit.OverrideRating = model.Assessment.FinalRating;
+            edit.OverrideReason = model.Assessment.OverrideReason;
+        }
+    }
+
+    private ClientRiskAssessmentEditModel BuildEditModel()
+    {
+        edit.Factors = model!.Factors
+            .Select(factor => new ClientRiskFactorInput(factor.FactorId, factor.SelectedOptionId, factor.EvidenceItemId, factor.Explanation))
+            .ToList();
+        return edit;
+    }
+
+    private async Task CreateDraftAsync()
+        => await ExecuteAsync(async () => await RiskService.CreateDraftAsync(ClientId, currentUser, reason ?? "Start client risk assessment."));
+
+    private async Task SaveDraftAsync()
+        => await ExecuteAsync(async () => await RiskService.SaveDraftAsync(model!.Assessment!.Id, BuildEditModel(), currentUser, reason ?? ""));
+
+    private async Task FinaliseAsync()
+        => await ExecuteAsync(async () =>
+        {
+            await RiskService.SaveDraftAsync(model!.Assessment!.Id, BuildEditModel(), currentUser, reason ?? "");
+            await RiskService.FinaliseAsync(model.Assessment.Id, currentUser, reason ?? "");
+        });
+
+    private async Task ApproveAsync()
+        => await ExecuteAsync(async () => await RiskService.ApproveAsync(model!.Assessment!.Id, currentUser, reason ?? ""));
+
+    private async Task ReturnToDraftAsync()
+        => await ExecuteAsync(async () => await RiskService.ReturnToDraftAsync(model!.Assessment!.Id, currentUser, reason ?? ""));
+
+    private async Task ExecuteAsync(Func<Task> action)
+    {
+        try
+        {
+            await action();
+            statusMessage = "Client risk assessment updated.";
+            hasError = false;
+            reason = null;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = ex.Message;
+            hasError = true;
+        }
+    }
+
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "Not captured" : value;
+    private static string Date(DateOnly? value) => value?.ToString("yyyy-MM-dd") ?? "Not set";
+}

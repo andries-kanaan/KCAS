@@ -31,8 +31,10 @@ public sealed class AppSmokeTests(KcasWebApplicationFactory factory)
     [InlineData("/compliance/methodologies")]
     [InlineData("/compliance/audit")]
     [InlineData("/compliance/client-evidence")]
+    [InlineData("/compliance/client-risk")]
     [InlineData("/clients/1/evidence")]
     [InlineData("/clients/1/ownership")]
+    [InlineData("/clients/1/risk")]
     public async Task Protected_pages_redirect_anonymous_users_to_login(string url)
     {
         var client = factory.CreateClient(new() { AllowAutoRedirect = false });
