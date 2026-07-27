@@ -655,6 +655,8 @@ The protected live `Compliance > Review transfers` workflow decrypts and preview
 
 A finalised or approved client-risk page exposes a direct `Create review package` action only to users holding `Compliance.Manage`. The link opens Review transfers with that completed client already selected; the destination page and package-download endpoint independently enforce the same permission.
 
+Compliance configuration is divided into focused route-backed tabs for profile, governance, controlled documents, reference values, methodology, tasks, evidence and audit. Each tab displays and saves only its own control area; the required change reason applies solely to the action performed on that tab.
+
 Local packages are held outside source control under `backups\client-review-packages\outgoing` and `incoming`. Production packages are held in the release-independent shared area `D:\Deploy\KCAS\shared\client-review-packages`, unless `ClientReviewTransfers:StorageRoot` explicitly selects another protected location. Passphrases must be transferred separately and are never stored by KCAS.
 
 Package filenames use `KCAS-review-C{client ID}-{surname or entity}-{date}-{unique token}.kcas-review`. The database client ID makes the source package unique even where a Kanaan ID is shared. Each text segment is length-limited and reduced to filename-safe letters, digits and hyphens. The encrypted payload continues to use the stable legacy and Kanaan identifiers for cross-environment matching because internal database IDs can differ between installations.
