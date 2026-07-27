@@ -608,6 +608,7 @@ Return deliberately to the client information and evidence population work only 
 
 - A portfolio review page shows lifecycle totals and outstanding verification counts before client-by-client work begins.
 - The main client register shows the controlled lifecycle separately from investment position and current ZAR value. It can filter current investments, no current investments, historical-only holdings and status corrections; an unreviewed client with no current investment is flagged for lifecycle review but is never closed automatically.
+- A portfolio-wide Investment Summary uses the same calculation for all-client and client-specific views. It supports client/shared-Kanaan-ID and investment filters, current/historical scope, underlying-fund allocations, SA/offshore totals, native and ZAR values, stale and unmatched valuations, correction indicators and CSV export. This provides the portfolio reconciliation view required during client-by-client verification without automatically changing lifecycle.
 - Each client has a controlled lifecycle classification with mandatory reason, reviewer and timestamp; duplicate classification requires a canonical client.
 - Assisted/imported facts and Codex recommendations are held in a pending register with current value, proposed value, source, recommendation and blocking flag.
 - Accepting a replacement applies only a supported field and fails safely if the underlying value changed after the recommendation was created.
@@ -615,7 +616,7 @@ Return deliberately to the client information and evidence population work only 
 - Client detail warns when lifecycle review or human verification remains outstanding.
 - Final client-risk assessment is blocked unless the client is classified Current and has no blocking verification items.
 - Technical delivery creates no lifecycle decisions or verification items for live clients.
-- Technical verification on 2026-07-26 passed 160 automated tests with zero failures and no pending EF model changes. Migration `20260726175421_AddClientOperationalVerification` was applied after backup; all 490 imported clients initially remained Unreviewed and the verification register remained empty before controlled live population began.
+- Technical verification through 2026-07-27 passed 161 automated tests with zero failures and no pending EF model changes. Migration `20260726175421_AddClientOperationalVerification` was applied after backup; all 490 imported clients initially remained Unreviewed and the verification register remained empty before controlled live population began.
 
 ### First live client pilot — Prof Philip Nel Badenhorst
 

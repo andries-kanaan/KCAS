@@ -72,6 +72,7 @@ builder.Services.AddScoped(provider =>
     new ClientSearchService(provider.GetRequiredService<IDbContextFactory<ApplicationDbContext>>()));
 builder.Services.AddScoped<ClientCodeGenerator>();
 builder.Services.AddScoped<ClientOperationsService>();
+builder.Services.AddScoped<InvestmentSummaryService>();
 builder.Services.AddScoped<ComplianceService>();
 builder.Services.AddScoped<ClientEvidenceReadinessService>();
 builder.Services.AddScoped<ClientEntityOwnershipService>();
@@ -159,6 +160,44 @@ app.MapGet("/client-evidence/items/{id:int}/file", async Task<IResult> (int id, 
 
     return Results.File(File.OpenRead(item.SourcePath), contentType, enableRangeProcessing: true);
 }).RequireAuthorization(KcasPermissions.ComplianceView);
+
+app.MapGet("/investments/summary.csv", async Task<IResult> (
+    HttpContext context,
+    InvestmentSummaryService investments,
+    CancellationToken cancellationToken) =>
+{
+    var values = context.Request.Query;
+    var clientId = int.TryParse(values["clientId"], out var parsedClientId)
+        ? parsedClientId
+        : (int?)null;
+    var sortDescending = bool.TryParse(values["sortDescending"], out var parsedSortDescending) &&
+                         parsedSortDescending;
+    var staleAfterDays = int.TryParse(values["staleAfterDays"], out var parsedStaleAfterDays)
+        ? Math.Clamp(parsedStaleAfterDays, 1, 3650)
+        : 90;
+    var scope = values["scope"].ToString();
+    if (scope is not (InvestmentSummaryScopes.Current or InvestmentSummaryScopes.Historical or InvestmentSummaryScopes.All))
+    {
+        scope = InvestmentSummaryScopes.Current;
+    }
+
+    var query = new InvestmentSummaryQuery(
+        ClientId: clientId,
+        KanaanId: values["kanaanId"],
+        Search: values["search"],
+        LifecycleStatus: values["lifecycleStatus"],
+        FundName: values["fundName"],
+        Administrator: values["administrator"],
+        Scope: scope,
+        SortColumn: string.IsNullOrWhiteSpace(values["sortColumn"]) ? "client" : values["sortColumn"].ToString(),
+        SortDescending: sortDescending,
+        StaleAfterDays: staleAfterDays);
+    var csv = await investments.ExportCsvAsync(query, cancellationToken);
+    return Results.File(
+        csv,
+        "text/csv; charset=utf-8",
+        $"KCAS-investment-summary-{DateTime.Today:yyyy-MM-dd}.csv");
+}).RequireAuthorization(KcasPermissions.InvestmentsView);
 
 app.MapGet("/compliance/inspections/{id:int}/export.json", async Task<IResult> (int id, InspectionService inspections) =>
 {

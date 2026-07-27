@@ -27,6 +27,16 @@
             </NavLink>
         </div>
 
+        <AuthorizeView Policy="@KcasPermissions.InvestmentsView">
+            <Authorized>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="investments/summary">
+                        <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Investment Summary (IS)
+                    </NavLink>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+
         <AuthorizeView Policy="@KcasPermissions.ClientsView">
             <Authorized>
                 <div class="nav-item px-3">
