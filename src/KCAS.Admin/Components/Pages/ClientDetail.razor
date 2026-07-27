@@ -509,7 +509,7 @@ else
                 <p class="section-subtitle">@CurrentInvestmentAccounts.Count current account@(CurrentInvestmentAccounts.Count == 1 ? "" : "s") containing @CurrentFundHoldingCount underlying fund holding@(CurrentFundHoldingCount == 1 ? "" : "s"), and @HistoricalInvestmentAccounts.Count historical account@(HistoricalInvestmentAccounts.Count == 1 ? "" : "s")</p>
             </div>
             <div class="row-actions">
-                <a class="btn btn-outline-secondary btn-sm" href="@($"/clients/{Id}/fund-summary")">Underlying fund summary</a>
+                <a class="btn btn-outline-secondary btn-sm" href="@($"/investments/summary?clientId={Id}")">Investment Summary (IS)</a>
                 <AuthorizeView Policy="@KcasPermissions.InvestmentsManage">
                     <Authorized>
                         <a class="btn btn-outline-secondary btn-sm" href="@($"/clients/{Id}/investments/new")">Add account</a>

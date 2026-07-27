@@ -1,0 +1,387 @@
+@page "/investments/summary"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.InvestmentsView)]
+@using KCAS.Admin.Data
+@inject InvestmentSummaryService InvestmentSummaryService
+
+<PageTitle>Investment Summary (IS)</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Portfolio investments</p>
+        <h1>Investment Summary (IS)</h1>
+        <p class="lede">One consistent view of current and historical underlying investments across Kanaan's client portfolio.</p>
+    </div>
+    <div class="row-actions">
+        @if (clientId.HasValue)
+        {
+            <a class="btn btn-outline-secondary" href="@($"/clients/{clientId.Value}#investments")">Back to client</a>
+        }
+        <a class="btn btn-outline-secondary" href="@ExportUrl">Export CSV</a>
+    </div>
+</div>
+
+<section class="detail-panel">
+    <div class="filter-grid">
+        <label>
+            Client
+            <select class="form-select" value="@clientId" @onchange="SelectClient">
+                <option value="">All clients</option>
+                @foreach (var client in model.ClientOptions)
+                {
+                    <option value="@client.Id">@client.DisplayName (@Display(client.KanaanId))</option>
+                }
+            </select>
+        </label>
+        <label>
+            Kanaan ID
+            <select class="form-select" value="@kanaanId" @onchange="SelectKanaanId">
+                <option value="">All Kanaan IDs</option>
+                @foreach (var value in model.KanaanIdOptions)
+                {
+                    <option value="@value">@value</option>
+                }
+            </select>
+        </label>
+        <label>
+            Lifecycle
+            <select class="form-select" @bind="lifecycleStatus">
+                <option value="">All lifecycle statuses</option>
+                @foreach (var value in ClientLifecycleStatuses.All)
+                {
+                    <option value="@value">@value</option>
+                }
+            </select>
+        </label>
+        <label>
+            Position
+            <select class="form-select" @bind="scope">
+                <option value="@InvestmentSummaryScopes.Current">Current only</option>
+                <option value="@InvestmentSummaryScopes.Historical">Historical only</option>
+                <option value="@InvestmentSummaryScopes.All">Current and historical</option>
+            </select>
+        </label>
+        <label>
+            Fund
+            <select class="form-select" @bind="fundName">
+                <option value="">All funds</option>
+                @foreach (var value in model.FundOptions)
+                {
+                    <option value="@value">@value</option>
+                }
+            </select>
+        </label>
+        <label>
+            Administrator
+            <select class="form-select" @bind="administrator">
+                <option value="">All administrators</option>
+                @foreach (var value in model.AdministratorOptions)
+                {
+                    <option value="@value">@value</option>
+                }
+            </select>
+        </label>
+        <label>
+            Search
+            <input class="form-control" @bind="search" placeholder="Client, account, product or fund" />
+        </label>
+    </div>
+    <div class="row-actions mt-3">
+        <button type="button" class="btn btn-primary" @onclick="ApplyFiltersAsync" disabled="@isBusy">
+            @(isBusy ? "Loading..." : "Apply filters")
+        </button>
+        <button type="button" class="btn btn-outline-secondary" @onclick="ResetFiltersAsync" disabled="@isBusy">Reset</button>
+    </div>
+</section>
+
+<section class="detail-panel">
+    <div class="investment-summary">
+        <div><span>Total current value</span><strong>@Money(model.TotalCurrentValueZar)</strong></div>
+        <div><span>Clients with holdings</span><strong>@model.CurrentClientCount</strong></div>
+        <div><span>Current fund holdings</span><strong>@model.CurrentHoldingCount</strong></div>
+        <div><span>South African</span><strong>@Money(model.SouthAfricanValueZar)</strong></div>
+        <div><span>Offshore</span><strong>@Money(model.OffshoreValueZar)</strong></div>
+        <div><span>Latest valuation</span><strong>@Date(model.LatestValuationDate)</strong></div>
+        <div><span>Stale / missing dates</span><strong>@model.StaleValuationCount</strong></div>
+        <div><span>Unmatched valuations</span><strong>@model.UnmatchedValuationCount</strong></div>
+        <div><span>Status corrections</span><strong>@model.StatusCorrectionCount</strong></div>
+        <div><span>Historical holdings</span><strong>@model.HistoricalHoldingCount</strong></div>
+    </div>
+    <p class="text-muted mb-0">
+        A current valuation is flagged as stale when its value date is missing or more than @staleAfterDays days old.
+        Lifecycle and investment position remain separate; KCAS does not close a client automatically.
+    </p>
+</section>
+
+<section class="detail-panel">
+    <div class="section-heading-row">
+        <div>
+            <h2>Allocation by underlying fund</h2>
+            <p class="section-subtitle">Current ZAR values after the selected client, lifecycle, fund, administrator and search filters.</p>
+        </div>
+    </div>
+    @if (model.FundAllocation.Count == 0)
+    {
+        <p class="text-muted">No current fund allocation matches these filters.</p>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead>
+                    <tr>
+                        <th>Fund</th>
+                        <th>Geography</th>
+                        <th>Clients</th>
+                        <th class="text-end">Value</th>
+                        <th class="text-end">Allocation</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in model.FundAllocation)
+                    {
+                        <tr>
+                            <td>@item.FundName</td>
+                            <td>@item.Geography</td>
+                            <td>@item.ClientCount</td>
+                            <td class="text-end">@Money(item.AmountZar)</td>
+                            <td class="text-end">@Percent(item.Percentage)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+<section class="detail-panel">
+    <div class="section-heading-row">
+        <div>
+            <h2>Investment detail</h2>
+            <p class="section-subtitle">@model.Rows.Count displayed row@(model.Rows.Count == 1 ? "" : "s")</p>
+        </div>
+    </div>
+    @if (model.Rows.Count == 0)
+    {
+        <p class="text-muted">No investments match these filters.</p>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead>
+                    <tr>
+                        <th><button class="sort-header" type="button" @onclick="@(() => SortAsync("client"))">Client @SortIndicator("client")</button></th>
+                        <th><button class="sort-header" type="button" @onclick="@(() => SortAsync("kanaanId"))">Kanaan ID @SortIndicator("kanaanId")</button></th>
+                        <th><button class="sort-header" type="button" @onclick="@(() => SortAsync("lifecycle"))">Lifecycle @SortIndicator("lifecycle")</button></th>
+                        <th><button class="sort-header" type="button" @onclick="@(() => SortAsync("date"))">Value date @SortIndicator("date")</button></th>
+                        <th><button class="sort-header" type="button" @onclick="@(() => SortAsync("fund"))">Fund @SortIndicator("fund")</button></th>
+                        <th><button class="sort-header" type="button" @onclick="@(() => SortAsync("administrator"))">Administrator @SortIndicator("administrator")</button></th>
+                        <th>Product</th>
+                        <th><button class="sort-header" type="button" @onclick="@(() => SortAsync("account"))">Account @SortIndicator("account")</button></th>
+                        <th class="text-end">Native value</th>
+                        <th class="text-end"><button class="sort-header" type="button" @onclick="@(() => SortAsync("value"))">ZAR value @SortIndicator("value")</button></th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in model.Rows)
+                    {
+                        <tr class="@(row.NeedsStatusCorrection ? "table-warning" : "")">
+                            <td><a href="@($"/clients/{row.ClientId}")">@row.ClientDisplayName</a></td>
+                            <td>@Display(row.KanaanId)</td>
+                            <td><span class="@LifecycleBadge(row.LifecycleStatus)">@row.LifecycleStatus</span></td>
+                            <td>
+                                @Date(row.CurrentValueDate)
+                                @if (row.IsValuationStale)
+                                {
+                                    <div><span class="badge text-bg-warning">Stale</span></div>
+                                }
+                            </td>
+                            <td>
+                                @Display(row.FundName)
+                                <div class="text-muted small">@row.Geography</div>
+                            </td>
+                            <td>@Display(row.Administrator)</td>
+                            <td>
+                                @Display(row.ProductName)
+                                <div class="text-muted small">@Display(row.ProductType)</div>
+                            </td>
+                            <td>@Display(row.AccountNumber)</td>
+                            <td class="text-end">@ForeignMoney(row.CurrentValueForeign, row.ForeignCurrencyCode)</td>
+                            <td class="text-end">@Money(row.CurrentValueZar)</td>
+                            <td>
+                                <span class="badge @(row.IsHistorical ? "text-bg-secondary" : "text-bg-success")">
+                                    @(row.IsHistorical ? "Historical" : "Current")
+                                </span>
+                                <div class="text-muted small">@row.Source</div>
+                                @if (row.NeedsStatusCorrection)
+                                {
+                                    <div><span class="badge text-bg-warning">Correction required</span></div>
+                                    <div class="text-muted small">@row.StatusReason</div>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@code {
+    [SupplyParameterFromQuery(Name = "clientId")]
+    public int? RequestedClientId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "kanaanId")]
+    public string? RequestedKanaanId { get; set; }
+
+    private InvestmentSummaryModel model = new();
+    private int? clientId;
+    private string? kanaanId;
+    private string? lifecycleStatus;
+    private string scope = InvestmentSummaryScopes.Current;
+    private string? fundName;
+    private string? administrator;
+    private string? search;
+    private string sortColumn = "client";
+    private bool sortDescending;
+    private bool isBusy;
+    private const int staleAfterDays = 90;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        clientId = RequestedClientId;
+        kanaanId = RequestedKanaanId;
+        await LoadAsync();
+    }
+
+    private async Task ApplyFiltersAsync()
+    {
+        await LoadAsync();
+    }
+
+    private void SelectClient(ChangeEventArgs args)
+    {
+        clientId = int.TryParse(args.Value?.ToString(), out var value) ? value : null;
+        if (clientId.HasValue)
+        {
+            kanaanId = null;
+        }
+    }
+
+    private void SelectKanaanId(ChangeEventArgs args)
+    {
+        kanaanId = string.IsNullOrWhiteSpace(args.Value?.ToString()) ? null : args.Value!.ToString();
+        if (!string.IsNullOrWhiteSpace(kanaanId))
+        {
+            clientId = null;
+        }
+    }
+
+    private async Task ResetFiltersAsync()
+    {
+        clientId = null;
+        kanaanId = null;
+        lifecycleStatus = null;
+        scope = InvestmentSummaryScopes.Current;
+        fundName = null;
+        administrator = null;
+        search = null;
+        sortColumn = "client";
+        sortDescending = false;
+        await LoadAsync();
+    }
+
+    private async Task SortAsync(string column)
+    {
+        if (sortColumn == column)
+        {
+            sortDescending = !sortDescending;
+        }
+        else
+        {
+            sortColumn = column;
+            sortDescending = false;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        isBusy = true;
+        try
+        {
+            model = await InvestmentSummaryService.LoadAsync(CurrentQuery);
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private InvestmentSummaryQuery CurrentQuery => new(
+        ClientId: clientId,
+        KanaanId: kanaanId,
+        Search: search,
+        LifecycleStatus: lifecycleStatus,
+        FundName: fundName,
+        Administrator: administrator,
+        Scope: scope,
+        SortColumn: sortColumn,
+        SortDescending: sortDescending,
+        StaleAfterDays: staleAfterDays);
+
+    private string ExportUrl
+    {
+        get
+        {
+            var values = new Dictionary<string, string?>
+            {
+                ["clientId"] = clientId?.ToString(),
+                ["kanaanId"] = kanaanId,
+                ["search"] = search,
+                ["lifecycleStatus"] = lifecycleStatus,
+                ["fundName"] = fundName,
+                ["administrator"] = administrator,
+                ["scope"] = scope,
+                ["sortColumn"] = sortColumn,
+                ["sortDescending"] = sortDescending.ToString(),
+                ["staleAfterDays"] = staleAfterDays.ToString()
+            };
+            var query = string.Join("&", values
+                .Where(item => !string.IsNullOrWhiteSpace(item.Value))
+                .Select(item => $"{Uri.EscapeDataString(item.Key)}={Uri.EscapeDataString(item.Value!)}"));
+            return $"/investments/summary.csv?{query}";
+        }
+    }
+
+    private string SortIndicator(string column) =>
+        sortColumn == column ? sortDescending ? "down" : "up" : "";
+
+    private static string Display(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "Not captured" : value;
+
+    private static string Money(decimal? value) =>
+        value.HasValue ? $"R {value.Value:N2}" : "Not captured";
+
+    private static string ForeignMoney(decimal? value, string? currencyCode) =>
+        value.HasValue && value.Value != 0 ? $"{currencyCode ?? "Foreign"} {value.Value:N2}" : "—";
+
+    private static string Percent(decimal? value) =>
+        value.HasValue ? $"{value.Value:N2}%" : "—";
+
+    private static string Date(DateOnly? value) =>
+        value?.ToString("yyyy-MM-dd") ?? "Not captured";
+
+    private static string LifecycleBadge(string status) => status switch
+    {
+        ClientLifecycleStatuses.Current => "badge text-bg-success",
+        ClientLifecycleStatuses.Unreviewed => "badge text-bg-warning",
+        ClientLifecycleStatuses.Closed or ClientLifecycleStatuses.Historical => "badge text-bg-secondary",
+        ClientLifecycleStatuses.Deceased => "badge text-bg-dark",
+        ClientLifecycleStatuses.Duplicate => "badge text-bg-info",
+        _ => "badge text-bg-light"
+    };
+}

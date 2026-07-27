@@ -266,6 +266,13 @@ Build status:
   - Added fund summary review page with matched valuations, history fallback balances, unmatched valuations, filtering, and totals.
   - Added KYC recommendations and KYC copy/transfer behavior behind `Kyc.Manage`.
   - Added focused service tests for investment editing, fund summaries, recommendations, and KYC copy/transfer.
+- Added the portfolio Investment Summary (IS) parity slice:
+  - Added a top-level `/investments/summary` page using the same underlying calculation as the client-specific investment summary.
+  - Added all-client, client, shared Kanaan ID, lifecycle, position, fund, administrator and free-text filtering.
+  - Added current ZAR assets, SA/offshore totals, underlying-fund allocation and percentages, client/holding counts, latest and stale valuation indicators, unmatched valuations and status-correction counts.
+  - Preserved native USD/GBP values alongside converted ZAR values and exposed current/historical detail without using investment position to decide client lifecycle.
+  - Added a permission-controlled CSV export and retained `/clients/{id}/fund-summary` as a redirect to the shared IS calculation.
+  - Kept legacy income, premium, IFA-fee and management-fee calculations deferred until their source data and formulas are separately reconciled and approved.
 - Added the KCAS favicon update and merged it through PR #12:
   - Replaced the default Blazor favicon with the KCAS `K` icon.
   - Added a favicon cache-busting query string.
@@ -338,7 +345,7 @@ Still to verify manually in browser:
 - `/compliance/methodologies/{id}/review` supports methodology inspection and `/clients/{id}/risk/{assessmentId}` renders the frozen printable assessment record.
 - Client create/edit, contact/address editing, relationship editing, note create/edit/finalize/delete.
 - Investment account create/edit/delete and transaction create/edit/finalize/delete.
-- Fund summary filtering/totals and unmatched valuation handling.
+- Investment Summary portfolio/client filtering, sorting, totals, allocations, stale/unmatched/correction indicators and CSV export.
 - KYC policy create/edit/delete, KYC recommendation create/edit/delete, and KYC copy/transfer.
 
 ## Remaining Rewrite Phases
@@ -347,7 +354,7 @@ Still to verify manually in browser:
    - Verify security flows: first-user promotion, pending approval, role assignment, and Windows login.
    - Verify client operations: client create/edit, contact/address editing, relationship editing, and note create/edit/finalize/delete.
    - Verify investment operations: account create/edit/delete and transaction create/edit/finalize/delete.
-   - Verify fund summary review: matched valuations, history fallback balances, unmatched valuations, filtering, and totals.
+   - Verify Investment Summary review: portfolio and client scope, shared Kanaan ID, current/historical scope, matched and unmatched valuations, allocations, sorting, filtering, stale/correction indicators and CSV export.
    - Verify KYC operations: policy create/edit/delete, recommendation create/edit/delete, and copy/transfer.
    - Record refinements found during real browser use as small follow-up slices.
 

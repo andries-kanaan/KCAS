@@ -796,6 +796,21 @@ a, .btn-link {
     overflow-wrap: anywhere;
 }
 
+.filter-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+    gap: .85rem;
+    align-items: end;
+}
+
+.filter-grid label {
+    display: grid;
+    gap: .35rem;
+    color: #394150;
+    font-size: .85rem;
+    font-weight: 800;
+}
+
 .preserve-lines {
     white-space: pre-wrap;
 }
