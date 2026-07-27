@@ -41,7 +41,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
             LegacyClientId = 99123,
             KanaanId = "TRANSFER-99123",
             DisplayName = "Transfer Pilot",
-            SurnameOrEntityName = "Transfer Pilot",
+            SurnameOrEntityName = "Transfer / Pilot: Unsafe?",
             LifecycleStatus = ClientLifecycleStatuses.Current,
             LifecycleReason = "Current relationship confirmed for transfer test.",
             LifecycleReviewedAtUtc = DateTime.UtcNow,
@@ -100,6 +100,9 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         const string passphrase = "transfer-test-passphrase";
         var export = await service.ExportAsync(
             client.Id, passphrase, "reviewer@example.test", "Prepare live transfer test.");
+        Assert.Matches(
+            @"^KCAS-review-C\d+-Transfer-Pilot-Unsafe-\d{8}-[a-f0-9]{12}\.kcas-review$",
+            export.FileName);
         var encrypted = await File.ReadAllBytesAsync(export.StoragePath);
 
         db.ClientRiskAssessments.Remove(assessment);

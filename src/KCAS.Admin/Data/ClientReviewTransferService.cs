@@ -77,9 +77,11 @@ public sealed class ClientReviewTransferService(
         var plaintext = JsonSerializer.SerializeToUtf8Bytes(package, JsonOptions);
         var contentSha256 = Convert.ToHexString(SHA256.HashData(plaintext)).ToLowerInvariant();
         var encrypted = Encrypt(plaintext, passphrase);
-        var fileName =
-            $"{Safe(client.KanaanId ?? client.LegacyClientId?.ToString() ?? client.Id.ToString())}" +
-            $"-{package.PackageId}.kcas-review";
+        var fileName = BuildPackageFileName(
+            client.Id,
+            client.SurnameOrEntityName,
+            package.CreatedAtUtc,
+            package.PackageId);
         var directory = Path.Combine(StorageRoot, "outgoing");
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, fileName);
@@ -458,7 +460,11 @@ public sealed class ClientReviewTransferService(
 
         var incomingDirectory = Path.Combine(StorageRoot, "incoming");
         Directory.CreateDirectory(incomingDirectory);
-        var fileName = $"{Safe(client.KanaanId ?? client.Id.ToString())}-{package.PackageId}.kcas-review";
+        var fileName = BuildPackageFileName(
+            client.Id,
+            client.SurnameOrEntityName,
+            package.CreatedAtUtc,
+            package.PackageId);
         var storagePath = Path.Combine(incomingDirectory, fileName);
         await File.WriteAllBytesAsync(storagePath, encryptedPackage, cancellationToken);
         var record = new ClientReviewTransferRecord
@@ -866,10 +872,37 @@ public sealed class ClientReviewTransferService(
     private static string Require(string? value, string message) =>
         string.IsNullOrWhiteSpace(value) ? throw new ValidationException(message) : value.Trim();
 
-    private static string Safe(string value)
+    private static string BuildPackageFileName(
+        int clientId,
+        string clientLabel,
+        DateTime createdAtUtc,
+        string packageId)
     {
-        var invalid = Path.GetInvalidFileNameChars().ToHashSet();
-        var safe = new string(value.Select(character => invalid.Contains(character) ? '_' : character).ToArray());
+        var label = SafeFileNameSegment(clientLabel, 60);
+        var packageToken = SafeFileNameSegment(packageId.Replace("-", ""), 12);
+        return $"KCAS-review-C{clientId}-{label}-{createdAtUtc:yyyyMMdd}-{packageToken}.kcas-review";
+    }
+
+    private static string SafeFileNameSegment(string? value, int maximumLength)
+    {
+        var builder = new StringBuilder();
+        foreach (var character in value ?? "")
+        {
+            if (char.IsLetterOrDigit(character))
+            {
+                builder.Append(character);
+            }
+            else if (builder.Length > 0 && builder[^1] != '-')
+            {
+                builder.Append('-');
+            }
+        }
+
+        var safe = builder.ToString().Trim('-');
+        if (safe.Length > maximumLength)
+        {
+            safe = safe[..maximumLength].TrimEnd('-');
+        }
         return string.IsNullOrWhiteSpace(safe) ? "client" : safe;
     }
 }

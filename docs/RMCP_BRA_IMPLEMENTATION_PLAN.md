@@ -620,13 +620,14 @@ Return deliberately to the client information and evidence population work only 
 
 ### First live client pilot — Prof Philip Nel Badenhorst
 
-The first complete client-by-client review was performed collaboratively on 2026-07-26 and establishes the following operational order for later clients:
+The first complete client-by-client review was performed collaboratively and re-executed against the restored operational database on 2026-07-27. It establishes the following operational order for later clients:
 
 1. Resolve the correct KCAS and legacy client records, confirm the lifecycle as Current and verify that the selected filesystem folder belongs to that client.
 2. Scan and link the folder. Report the linked, skipped, unmatched and ambiguous totals before relying on the scan.
 3. Reconcile material imported facts with the legacy source and documents before compliance assessment. For this pilot, the investment totals, underlying funds, historical holdings and offshore original currencies were corrected and presented accurately before the risk review continued.
 4. Inspect the linked documents by evidence category. Present the finding, source document, discrepancy and proposed treatment to the user; write or verify nothing until the user explicitly approves it.
 5. Record the approved evidence decisions with their source references, reviewer and review dates. The pilot verified identity, address, tax residency, product/service, delivery mandate, source of funds, source of wealth and geography evidence.
+   A bank statement, utility bill or non-expiring identity document is point-in-time evidence and is not assigned an artificial expiry date. Current address confirmation is sufficient unless the client's risk, conflicting information or a trigger event calls for refreshed corroborating evidence; the normal ongoing-due-diligence review cycle governs later refresh.
 6. Record a reasoned exception where the normal evidence category does not fit the client. The pilot used the proportionate natural-person beneficial-ownership exception after the family/co-policyholder funding context was confirmed.
 7. Perform current PEP/PIP, sanctions/TFS and adverse-information screening. Retain the search basis, source names, URLs, access date, finding and risk conclusion in KCAS rather than recording an unsupported checkbox result.
 8. Recheck evidence readiness and resolve every blocking item. Do not begin or finalise the assessment while lifecycle or blocking verification checks remain unresolved.
@@ -640,8 +641,8 @@ Pilot result:
 - Factor result: ownership 1, geography 2, product/service 2, delivery 1, activity 1 and source 2.
 - Total score and rating: 9, Standard.
 - EDD: not required; Kanaan's standard monitoring controls apply.
-- Effective date: 2026-07-26.
-- Next periodic review: 2029-07-26, subject to an earlier trigger-event reassessment.
+- Effective date: 2026-07-27.
+- Next periodic review: 2029-07-27, subject to an earlier trigger-event reassessment.
 - Approval boundary: the Compliance Officer prepared and recorded the review after explicit user decisions. One active governance-register KI may later sign off the operational methodology; formal BRA and RMCP adoption remains a Board of Trustees decision.
 
 For every later client, repeat the same sequence and retain client-specific judgement. The pilot outcome is a workflow precedent, not a template conclusion or automatic risk score.
@@ -652,7 +653,11 @@ Client-specific operational decisions are never committed as EF migrations or re
 
 The protected live `Compliance > Review transfers` workflow decrypts and previews the package, resolves stable client/methodology/factor/option keys, reports new and existing evidence, and blocks client mismatches, methodology drift, existing assessment conflicts and duplicate application. Applying the reviewed preview is atomic, retains the encrypted package and creates a compliance audit event identifying the live importer and approval reason.
 
+A finalised or approved client-risk page exposes a direct `Create review package` action only to users holding `Compliance.Manage`. The link opens Review transfers with that completed client already selected; the destination page and package-download endpoint independently enforce the same permission.
+
 Local packages are held outside source control under `backups\client-review-packages\outgoing` and `incoming`. Production packages are held in the release-independent shared area `D:\Deploy\KCAS\shared\client-review-packages`, unless `ClientReviewTransfers:StorageRoot` explicitly selects another protected location. Passphrases must be transferred separately and are never stored by KCAS.
+
+Package filenames use `KCAS-review-C{client ID}-{surname or entity}-{date}-{unique token}.kcas-review`. The database client ID makes the source package unique even where a Kanaan ID is shared. Each text segment is length-limited and reduced to filename-safe letters, digits and hyphens. The encrypted payload continues to use the stable legacy and Kanaan identifiers for cross-environment matching because internal database IDs can differ between installations.
 
 ## 15. Cross-cutting requirements
 
