@@ -9,9 +9,11 @@
 @page "/compliance/audit"
 @rendermode InteractiveServer
 @attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
+@implements IDisposable
 @using KCAS.Admin.Data
 @inject ComplianceService ComplianceService
 @inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager NavigationManager
 
 <PageTitle>Compliance settings</PageTitle>
 
@@ -24,6 +26,17 @@
     <a class="btn btn-outline-secondary" href="/compliance">Dashboard</a>
 </div>
 
+<nav class="nav nav-tabs mb-4" aria-label="Compliance settings">
+    <NavLink class="nav-link" href="/compliance/profile" Match="NavLinkMatch.All">Profile</NavLink>
+    <NavLink class="nav-link" href="/compliance/governance" Match="NavLinkMatch.All">Governance</NavLink>
+    <NavLink class="nav-link" href="/compliance/documents" Match="NavLinkMatch.All">Documents</NavLink>
+    <NavLink class="nav-link" href="/compliance/references" Match="NavLinkMatch.All">References</NavLink>
+    <NavLink class="nav-link" href="/compliance/methodologies" Match="NavLinkMatch.All">Methodology</NavLink>
+    <NavLink class="nav-link" href="/compliance/tasks" Match="NavLinkMatch.All">Tasks</NavLink>
+    <NavLink class="nav-link" href="/compliance/evidence" Match="NavLinkMatch.All">Evidence</NavLink>
+    <NavLink class="nav-link" href="/compliance/audit" Match="NavLinkMatch.All">Audit</NavLink>
+</nav>
+
 @if (!string.IsNullOrWhiteSpace(statusMessage))
 {
     <div class="alert alert-info">@statusMessage</div>
@@ -35,12 +48,18 @@
 }
 else
 {
-    <section class="work-area">
-        <h2>Change reason</h2>
-        <input class="form-control" value="@reason" @onchange="args => reason = args.Value?.ToString()" placeholder="Required reason for every compliance change" disabled="@(!canManage)" />
-    </section>
+    @if (activeSection != "audit")
+    {
+        <section class="work-area">
+            <h2>Change reason</h2>
+            <p class="text-muted">This reason applies only to the action saved on the current tab.</p>
+            <input class="form-control" value="@reason" @onchange="args => reason = args.Value?.ToString()" placeholder="Required reason for this compliance change" disabled="@(!canManage)" />
+        </section>
+    }
 
-    <section class="work-area">
+    @if (activeSection == "profile")
+    {
+        <section class="work-area">
         <h2>FSP and accountable institution profile</h2>
         <div class="workspace-grid">
             <input class="form-control" @bind="profile.LegalName" placeholder="Legal name" disabled="@(!canManage)" />
@@ -60,9 +79,12 @@ else
         <textarea class="form-control mt-2" @bind="profile.RegisteredAddress" placeholder="Registered address" disabled="@(!canManage)"></textarea>
         <textarea class="form-control mt-2" @bind="profile.OperatingAddress" placeholder="Operating address" disabled="@(!canManage)"></textarea>
         <button type="button" class="btn btn-primary mt-2" @onclick="SaveProfileAsync" disabled="@(!canManage)">Save profile</button>
-    </section>
+        </section>
+    }
 
-    <section class="work-area">
+    @if (activeSection == "governance")
+    {
+        <section class="work-area">
         <h2>Governance roles</h2>
         <div class="workspace-grid">
             <input class="form-control" @bind="governance.RoleType" placeholder="Role type" disabled="@(!canManage)" />
@@ -77,9 +99,12 @@ else
         </label>
         <button type="button" class="btn btn-primary mt-2" @onclick="SaveGovernanceAsync" disabled="@(!canManage)">Save role</button>
         @RenderSimpleTable(model.GovernanceRoles.Select(role => new[] { role.RoleType, role.PersonName, role.Email ?? "-", role.IsActive ? "Active" : "Inactive" }))
-    </section>
+        </section>
+    }
 
-    <section class="work-area">
+    @if (activeSection == "documents")
+    {
+        <section class="work-area">
         <h2>Controlled documents</h2>
         <div class="workspace-grid">
             <input class="form-control" @bind="document.DocumentType" placeholder="Document type" disabled="@(!canManage)" />
@@ -98,9 +123,12 @@ else
         <textarea class="form-control mt-2" @bind="document.Notes" placeholder="Notes" disabled="@(!canManage)"></textarea>
         <button type="button" class="btn btn-primary mt-2" @onclick="SaveDocumentAsync" disabled="@(!canManage)">Save document</button>
         @RenderSimpleTable(model.Documents.Select(item => new[] { item.DocumentType, item.Title, item.Owner ?? "-", item.Status, Date(item.NextReviewDate) }))
-    </section>
+        </section>
+    }
 
-    <section class="work-area">
+    @if (activeSection == "references")
+    {
+        <section class="work-area">
         <h2>Reference values</h2>
         <div class="workspace-grid">
             <input class="form-control" @bind="reference.Category" placeholder="Category" disabled="@(!canManage)" />
@@ -115,9 +143,12 @@ else
         </label>
         <button type="button" class="btn btn-primary mt-2" @onclick="SaveReferenceAsync" disabled="@(!canManage)">Save reference</button>
         @RenderSimpleTable(model.ReferenceValues.Select(item => new[] { item.Category, item.Code, item.Name, item.IsActive ? "Active" : "Inactive" }))
-    </section>
+        </section>
+    }
 
-    <section class="work-area">
+    @if (activeSection == "methodologies")
+    {
+        <section class="work-area">
         <h2>Risk methodology</h2>
         <div class="workspace-grid">
             <input class="form-control" @bind="methodology.Name" placeholder="Methodology name" disabled="@(!canManage)" />
@@ -143,9 +174,12 @@ else
             One active Key Individual recorded in the governance register must sign it off before activation.
         </p>
         @RenderMethodologies()
-    </section>
+        </section>
+    }
 
-    <section class="work-area">
+    @if (activeSection == "tasks")
+    {
+        <section class="work-area">
         <h2>Tasks</h2>
         <div class="workspace-grid">
             <input class="form-control" @bind="task.Title" placeholder="Task title" disabled="@(!canManage)" />
@@ -161,9 +195,12 @@ else
         <textarea class="form-control mt-2" @bind="task.Description" placeholder="Description" disabled="@(!canManage)"></textarea>
         <button type="button" class="btn btn-primary mt-2" @onclick="SaveTaskAsync" disabled="@(!canManage)">Save task</button>
         @RenderSimpleTable(model.Tasks.Select(item => new[] { item.Title, item.Owner ?? "-", Date(item.DueDate), item.Status }))
-    </section>
+        </section>
+    }
 
-    <section class="work-area">
+    @if (activeSection == "evidence")
+    {
+        <section class="work-area">
         <h2>Evidence</h2>
         <div class="workspace-grid">
             <input class="form-control" @bind="evidence.EvidenceType" placeholder="Evidence type" disabled="@(!canManage)" />
@@ -176,9 +213,12 @@ else
         <textarea class="form-control mt-2" @bind="evidence.Notes" placeholder="Notes" disabled="@(!canManage)"></textarea>
         <button type="button" class="btn btn-primary mt-2" @onclick="SaveEvidenceAsync" disabled="@(!canManage)">Save evidence</button>
         @RenderSimpleTable(model.Evidence.Select(item => new[] { item.EvidenceType, item.Title, item.Source ?? "-", Date(item.ExpiryDate) }))
-    </section>
+        </section>
+    }
 
-    <section class="work-area">
+    @if (activeSection == "audit")
+    {
+        <section class="work-area">
         <h2>Audit</h2>
         <div class="table-responsive">
             <table class="table align-middle">
@@ -197,10 +237,30 @@ else
                 </tbody>
             </table>
         </div>
-    </section>
+        </section>
+    }
 }
 
 @code {
+    private string activeSection = "profile";
+
+    private void SetActiveSection()
+    {
+        var relativePath = NavigationManager.ToBaseRelativePath(NavigationManager.Uri);
+        var path = relativePath.Split('?', '#')[0].Trim('/');
+        var section = path.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault();
+        activeSection = section is "profile" or "governance" or "documents" or "references" or
+            "methodologies" or "tasks" or "evidence" or "audit"
+            ? section
+            : "profile";
+    }
+
+    private void HandleLocationChanged(object? sender, LocationChangedEventArgs args)
+    {
+        SetActiveSection();
+        _ = InvokeAsync(StateHasChanged);
+    }
+
     private static readonly string[] statuses =
     [
         ComplianceStatuses.Draft,
@@ -232,12 +292,17 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        SetActiveSection();
+        NavigationManager.LocationChanged += HandleLocationChanged;
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
         currentUser = authState.User.Identity?.Name;
         canManage = authState.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage);
         hasApprovePermission = authState.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceApprove);
         await LoadAsync();
     }
+
+    public void Dispose() =>
+        NavigationManager.LocationChanged -= HandleLocationChanged;
 
     private async Task LoadAsync()
     {
