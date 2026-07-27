@@ -58,6 +58,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<ClientRiskAssessmentResponse> ClientRiskAssessmentResponses => Set<ClientRiskAssessmentResponse>();
     public DbSet<ClientRiskAssessmentApproval> ClientRiskAssessmentApprovals => Set<ClientRiskAssessmentApproval>();
     public DbSet<ClientVerificationItem> ClientVerificationItems => Set<ClientVerificationItem>();
+    public DbSet<ClientReviewTransferRecord> ClientReviewTransferRecords => Set<ClientReviewTransferRecord>();
     public DbSet<BusinessRiskAssessment> BusinessRiskAssessments => Set<BusinessRiskAssessment>();
     public DbSet<BusinessRiskItem> BusinessRiskItems => Set<BusinessRiskItem>();
     public DbSet<BusinessRiskApproval> BusinessRiskApprovals => Set<BusinessRiskApproval>();
@@ -1032,6 +1033,17 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.Property(approval => approval.Approver).HasMaxLength(191);
             entity.Property(approval => approval.Decision).HasMaxLength(32);
             entity.HasIndex(approval => new { approval.ClientRiskAssessmentId, approval.Approver }).IsUnique();
+        });
+
+        builder.Entity<ClientReviewTransferRecord>(entity =>
+        {
+            entity.HasOne(record => record.Client)
+                .WithMany()
+                .HasForeignKey(record => record.ClientId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(record => new { record.Direction, record.PackageId }).IsUnique();
+            entity.HasIndex(record => new { record.Direction, record.ContentSha256 });
+            entity.HasIndex(record => new { record.ClientId, record.CreatedAtUtc });
         });
     }
 

@@ -73,6 +73,8 @@ builder.Services.AddScoped(provider =>
 builder.Services.AddScoped<ClientCodeGenerator>();
 builder.Services.AddScoped<ClientOperationsService>();
 builder.Services.AddScoped<InvestmentSummaryService>();
+builder.Services.AddScoped<InvestmentReconciliationService>();
+builder.Services.AddScoped<ClientReviewTransferService>();
 builder.Services.AddScoped<ComplianceService>();
 builder.Services.AddScoped<ClientEvidenceReadinessService>();
 builder.Services.AddScoped<ClientEntityOwnershipService>();
@@ -198,6 +200,27 @@ app.MapGet("/investments/summary.csv", async Task<IResult> (
         "text/csv; charset=utf-8",
         $"KCAS-investment-summary-{DateTime.Today:yyyy-MM-dd}.csv");
 }).RequireAuthorization(KcasPermissions.InvestmentsView);
+
+app.MapGet("/compliance/review-transfers/{packageId}/download", async Task<IResult> (
+    string packageId,
+    ApplicationDbContext db,
+    CancellationToken cancellationToken) =>
+{
+    var record = await db.ClientReviewTransferRecords.AsNoTracking()
+        .SingleOrDefaultAsync(item =>
+            item.Direction == ClientReviewTransferDirections.Outgoing &&
+            item.PackageId == packageId,
+            cancellationToken);
+    if (record is null || !File.Exists(record.StoragePath))
+    {
+        return Results.NotFound();
+    }
+
+    return Results.File(
+        record.StoragePath,
+        "application/vnd.kcas.client-review",
+        record.FileName);
+}).RequireAuthorization(KcasPermissions.ComplianceManage);
 
 app.MapGet("/compliance/inspections/{id:int}/export.json", async Task<IResult> (int id, InspectionService inspections) =>
 {

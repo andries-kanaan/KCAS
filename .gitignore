@@ -27,6 +27,7 @@ backups/
 *.db-wal
 
 # Logs and temp files
+tmp/
 *.log
 *.tmp
 *.bak

@@ -608,7 +608,7 @@ Return deliberately to the client information and evidence population work only 
 
 - A portfolio review page shows lifecycle totals and outstanding verification counts before client-by-client work begins.
 - The main client register shows the controlled lifecycle separately from investment position and current ZAR value. It can filter current investments, no current investments, historical-only holdings and status corrections; an unreviewed client with no current investment is flagged for lifecycle review but is never closed automatically.
-- A portfolio-wide Investment Summary uses the same calculation for all-client and client-specific views. It supports client/shared-Kanaan-ID and investment filters, current/historical scope, underlying-fund allocations, SA/offshore totals, native and ZAR values, stale and unmatched valuations, correction indicators and CSV export. This provides the portfolio reconciliation view required during client-by-client verification without automatically changing lifecycle.
+- A portfolio-wide Investment Summary uses the same calculation for all-client and client-specific views. Each unique current fund valuation is counted exactly once; legacy account matches provide context but may neither multiply nor suppress the valuation. It supports client/shared-Kanaan-ID and investment filters, current/historical scope, underlying-fund allocations, SA/offshore totals, native and ZAR values, stale and unmatched valuations, correction indicators and CSV export. A protected Investment reconciliation page separately exposes duplicate account matches, current-valuation/surrender conflicts, unmatched valuations and accounts without a current value, with direct links to correct the underlying client records. This provides the portfolio reconciliation view required during client-by-client verification without automatically changing lifecycle.
 - Each client has a controlled lifecycle classification with mandatory reason, reviewer and timestamp; duplicate classification requires a canonical client.
 - Assisted/imported facts and Codex recommendations are held in a pending register with current value, proposed value, source, recommendation and blocking flag.
 - Accepting a replacement applies only a supported field and fails safely if the underlying value changed after the recommendation was created.
@@ -645,6 +645,14 @@ Pilot result:
 - Approval boundary: the Compliance Officer prepared and recorded the review after explicit user decisions. One active governance-register KI may later sign off the operational methodology; formal BRA and RMCP adoption remains a Board of Trustees decision.
 
 For every later client, repeat the same sequence and retain client-specific judgement. The pilot outcome is a workflow precedent, not a template conclusion or automatic risk score.
+
+### Controlled transfer from collaborative review to live KCAS
+
+Client-specific operational decisions are never committed as EF migrations or repository seed data. After a client review is finalised locally, KCAS can export an encrypted `.kcas-review` package containing the stable client identifiers, verified evidence metadata and file hashes, approved exceptions, decided verification items, pinned methodology and completed assessment. Document content is not included.
+
+The protected live `Compliance > Review transfers` workflow decrypts and previews the package, resolves stable client/methodology/factor/option keys, reports new and existing evidence, and blocks client mismatches, methodology drift, existing assessment conflicts and duplicate application. Applying the reviewed preview is atomic, retains the encrypted package and creates a compliance audit event identifying the live importer and approval reason.
+
+Local packages are held outside source control under `backups\client-review-packages\outgoing` and `incoming`. Production packages are held in the release-independent shared area `D:\Deploy\KCAS\shared\client-review-packages`, unless `ClientReviewTransfers:StorageRoot` explicitly selects another protected location. Passphrases must be transferred separately and are never stored by KCAS.
 
 ## 15. Cross-cutting requirements
 

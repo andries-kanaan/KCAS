@@ -17,6 +17,11 @@
         {
             <a class="btn btn-outline-secondary" href="@($"/clients/{clientId.Value}#investments")">Back to client</a>
         }
+        <AuthorizeView Policy="@KcasPermissions.InvestmentsManage">
+            <Authorized>
+                <a class="btn btn-outline-secondary" href="/investments/reconciliation">Reconciliation</a>
+            </Authorized>
+        </AuthorizeView>
         <a class="btn btn-outline-secondary" href="@ExportUrl">Export CSV</a>
     </div>
 </div>

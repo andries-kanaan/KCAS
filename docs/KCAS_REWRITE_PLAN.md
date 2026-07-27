@@ -267,12 +267,19 @@ Build status:
   - Added KYC recommendations and KYC copy/transfer behavior behind `Kyc.Manage`.
   - Added focused service tests for investment editing, fund summaries, recommendations, and KYC copy/transfer.
 - Added the portfolio Investment Summary (IS) parity slice:
+  - Current portfolio value is valuation-led: every unique current fund valuation is counted exactly once. Duplicate legacy account matches can no longer multiply a value, and an account surrender date can no longer silently suppress a newer current valuation.
+  - Added a protected Investment reconciliation page for duplicate account matches, current-valuation/surrender conflicts, unmatched valuations and accounts without a current valuation. Corrections are made against the underlying client account, after which resolved issues disappear from the live queue.
   - Added a top-level `/investments/summary` page using the same underlying calculation as the client-specific investment summary.
   - Added all-client, client, shared Kanaan ID, lifecycle, position, fund, administrator and free-text filtering.
   - Added current ZAR assets, SA/offshore totals, underlying-fund allocation and percentages, client/holding counts, latest and stale valuation indicators, unmatched valuations and status-correction counts.
   - Preserved native USD/GBP values alongside converted ZAR values and exposed current/historical detail without using investment position to decide client lifecycle.
   - Added a permission-controlled CSV export and retained `/clients/{id}/fund-summary` as a redirect to the shared IS calculation.
   - Kept legacy income, premium, IFA-fee and management-fee calculations deferred until their source data and formulas are separately reconciled and approved.
+- Added controlled client-review transfer:
+  - A completed local client review can be exported as an AES-256-GCM encrypted `.kcas-review` package containing stable client keys, verified evidence metadata and SHA-256 document hashes, evidence exceptions, decided verification items, the pinned methodology, factor responses, assessment outcome and audit provenance. Raw client documents are not embedded.
+  - A protected live preview resolves the client, methodology, factor and option codes before applying anything; mismatches and existing assessments block import, identical packages are idempotently rejected, and no live decision is silently overwritten.
+  - Applying a package is a deliberate authenticated live action, uses one database transaction, retains the encrypted incoming package and records the importer, reason and compliance audit event.
+  - Local packages are stored outside Git under `backups\client-review-packages`; deployed packages use `D:\Deploy\KCAS\shared\client-review-packages` by default so releases do not remove them. The package passphrase is never stored.
 - Added the KCAS favicon update and merged it through PR #12:
   - Replaced the default Blazor favicon with the KCAS `K` icon.
   - Added a favicon cache-busting query string.
