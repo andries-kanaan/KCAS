@@ -56,6 +56,11 @@ public sealed class KcasWebApplicationFactory : WebApplicationFactory<Program>, 
         {
             throw new InvalidOperationException("The test connection string must include a database name.");
         }
+        if (!databaseName.Contains("test", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Refusing to recreate non-test database '{databaseName}'.");
+        }
 
         builder.Database = "";
         await using var connection = new MySqlConnection(builder.ConnectionString);

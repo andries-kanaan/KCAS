@@ -321,6 +321,7 @@ MySQL backups are stored under:
 
 ```text
 D:\Deploy\KCAS\shared\database-backups
+D:\Deploy\KCAS\shared\client-review-packages
 ```
 
 Migrations should use an expand-and-contract approach where practical so that the previous application remains compatible during application rollback.

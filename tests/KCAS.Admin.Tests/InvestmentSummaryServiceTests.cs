@@ -8,6 +8,128 @@ namespace KCAS.Admin.Tests;
 public sealed class InvestmentSummaryServiceTests(KcasWebApplicationFactory factory)
 {
     [Fact]
+    public void BuildRows_counts_each_valuation_once_and_does_not_suppress_surrender_conflicts()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var accounts = new[]
+        {
+            new ClientInvestmentAccount
+            {
+                Id = 1,
+                AccountNumber = "DUP-001",
+                Administrator = "Platform",
+                SurrenderDate = today.AddYears(-1)
+            },
+            new ClientInvestmentAccount
+            {
+                Id = 2,
+                AccountNumber = "DUP 001",
+                Administrator = "Platform",
+                SurrenderDate = today.AddMonths(-6)
+            }
+        };
+        var valuations = new[]
+        {
+            new ClientFundValuation
+            {
+                LegacyFundId = 1234,
+                InvestmentUniqueNumber = "DUP001",
+                Administrator = "Platform",
+                FundName = "Current Fund",
+                AmountZar = 125_000m,
+                ValuationDate = today
+            }
+        };
+
+        var rows = InvestmentSummaryCalculator.BuildRows(accounts, valuations);
+
+        var row = Assert.Single(rows);
+        Assert.False(row.IsHistorical);
+        Assert.Equal(125_000m, row.CurrentValueZar);
+        Assert.True(row.NeedsStatusCorrection);
+        Assert.Contains("2 investment account records", row.StatusReason);
+        Assert.Contains("surrendered", row.StatusReason);
+    }
+
+    [Fact]
+    public void Reconciliation_identifies_issues_and_clears_them_after_source_correction()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var client = new Client
+        {
+            Id = 77,
+            DisplayName = "Reconciliation Client",
+            SurnameOrEntityName = "Reconciliation Client",
+            InvestmentAccounts =
+            {
+                new ClientInvestmentAccount
+                {
+                    Id = 1,
+                    AccountNumber = "REC-001",
+                    Administrator = "Platform",
+                    SurrenderDate = today.AddDays(-10)
+                },
+                new ClientInvestmentAccount
+                {
+                    Id = 2,
+                    AccountNumber = "REC001",
+                    Administrator = "Platform",
+                    SurrenderDate = today.AddDays(-5)
+                },
+                new ClientInvestmentAccount
+                {
+                    Id = 3,
+                    AccountNumber = "NO-VALUE",
+                    Administrator = "Platform"
+                }
+            },
+            FundValuations =
+            {
+                new ClientFundValuation
+                {
+                    LegacyFundId = 5001,
+                    InvestmentUniqueNumber = "REC001",
+                    Administrator = "Platform",
+                    FundName = "Current Fund",
+                    AmountZar = 10_000m,
+                    ValuationDate = today
+                },
+                new ClientFundValuation
+                {
+                    LegacyFundId = 5002,
+                    InvestmentUniqueNumber = "UNMATCHED",
+                    Administrator = "Other Platform",
+                    FundName = "Other Fund",
+                    AmountZar = 20_000m,
+                    ValuationDate = today
+                }
+            }
+        };
+
+        var issues = InvestmentReconciliationService.BuildIssues(client);
+        Assert.Contains(issues, issue =>
+            issue.IssueType == InvestmentReconciliationIssueTypes.DuplicateAccountMatch);
+        Assert.Contains(issues, issue =>
+            issue.IssueType == InvestmentReconciliationIssueTypes.CurrentValuationAfterSurrender);
+        Assert.Contains(issues, issue =>
+            issue.IssueType == InvestmentReconciliationIssueTypes.UnmatchedValuation);
+        Assert.Contains(issues, issue =>
+            issue.IssueType == InvestmentReconciliationIssueTypes.MissingCurrentValuation);
+
+        client.InvestmentAccounts.Remove(client.InvestmentAccounts.Single(account => account.Id == 2));
+        client.InvestmentAccounts.Single(account => account.Id == 1).SurrenderDate = null;
+        client.InvestmentAccounts.Single(account => account.Id == 3).SurrenderDate = today;
+        client.InvestmentAccounts.Add(new ClientInvestmentAccount
+        {
+            Id = 4,
+            AccountNumber = "UNMATCHED",
+            Administrator = "Other Platform"
+        });
+
+        Assert.Empty(InvestmentReconciliationService.BuildIssues(client));
+    }
+
+    [Fact]
     public async Task LoadAsync_builds_portfolio_client_and_historical_views_from_one_calculation()
     {
         using var scope = factory.Services.CreateScope();
@@ -132,7 +254,7 @@ public sealed class InvestmentSummaryServiceTests(KcasWebApplicationFactory fact
         Assert.Equal(2, portfolio.CurrentClientCount);
         Assert.Equal(3, portfolio.CurrentHoldingCount);
         Assert.Equal(2, portfolio.HistoricalHoldingCount);
-        Assert.Equal(1, portfolio.StatusCorrectionCount);
+        Assert.Equal(2, portfolio.StatusCorrectionCount);
         Assert.Equal(1, portfolio.UnmatchedValuationCount);
         Assert.Equal(1, portfolio.StaleValuationCount);
         Assert.Contains(portfolio.Rows, row =>

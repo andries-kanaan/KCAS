@@ -1,0 +1,181 @@
+@page "/investments/reconciliation"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.InvestmentsManage)]
+@using KCAS.Admin.Data
+@inject InvestmentReconciliationService ReconciliationService
+
+<PageTitle>Investment reconciliation</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Portfolio investments</p>
+        <h1>Investment reconciliation</h1>
+        <p class="lede">Review account and current-valuation conflicts without changing the Investment Summary total.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="/investments/summary">Investment Summary (IS)</a>
+</div>
+
+<section class="stat-grid">
+    <article class="stat-card"><span>All open issues</span><strong>@model.TotalIssueCount</strong></article>
+    <article class="stat-card"><span>Current / surrendered</span><strong>@model.SurrenderConflictCount</strong></article>
+    <article class="stat-card"><span>No matching account</span><strong>@model.UnmatchedValuationCount</strong></article>
+    <article class="stat-card"><span>Multiple matches</span><strong>@model.DuplicateMatchCount</strong></article>
+    <article class="stat-card"><span>No current valuation</span><strong>@model.MissingCurrentValueCount</strong></article>
+</section>
+
+<section class="detail-panel">
+    <div class="filter-grid">
+        <label>
+            Issue
+            <select class="form-select" @bind="issueType">
+                <option value="">All issue types</option>
+                @foreach (var value in InvestmentReconciliationIssueTypes.All)
+                {
+                    <option value="@value">@InvestmentReconciliationIssueTypes.Label(value)</option>
+                }
+            </select>
+        </label>
+        <label>
+            Client
+            <select class="form-select" @bind="clientId">
+                <option value="">All clients</option>
+                @foreach (var client in model.ClientOptions)
+                {
+                    <option value="@client.Id">@client.DisplayName (@Display(client.KanaanId))</option>
+                }
+            </select>
+        </label>
+        <label>
+            Search
+            <input class="form-control" @bind="search" placeholder="Client, account, fund or administrator" />
+        </label>
+    </div>
+    <div class="row-actions mt-3">
+        <button class="btn btn-primary" type="button" @onclick="LoadAsync" disabled="@isBusy">
+            @(isBusy ? "Loading..." : "Apply filters")
+        </button>
+        <button class="btn btn-outline-secondary" type="button" @onclick="ResetAsync" disabled="@isBusy">Reset</button>
+    </div>
+</section>
+
+<div class="alert alert-info mt-3">
+    The issues are calculated from the live investment data. Correct the underlying account record and
+    refresh this page; a resolved issue disappears automatically. Current valuations remain included once
+    in the IS total while an issue is open.
+</div>
+
+<section class="detail-panel">
+    @if (model.Issues.Count == 0)
+    {
+        <p class="mb-0">No reconciliation issues match the selected filters.</p>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead>
+                    <tr>
+                        <th>Issue</th>
+                        <th>Client</th>
+                        <th>Account / fund</th>
+                        <th>Current valuation</th>
+                        <th>Finding and resolution</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var issue in model.Issues)
+                    {
+                        <tr class="@(issue.SeverityOrder >= 4 ? "table-danger" : "table-warning")">
+                            <td><span class="badge text-bg-warning">@issue.IssueLabel</span></td>
+                            <td>
+                                <a href="@($"/clients/{issue.ClientId}#investments")">@issue.ClientDisplayName</a>
+                                <div class="text-muted small">@Display(issue.KanaanId)</div>
+                            </td>
+                            <td>
+                                <strong>@Display(issue.AccountNumber)</strong>
+                                <div>@Display(issue.FundName)</div>
+                                <div class="text-muted small">@Display(issue.Administrator)</div>
+                            </td>
+                            <td>
+                                @Money(issue.AmountZar)
+                                <div class="text-muted small">@Date(issue.ValuationDate)</div>
+                                @if (issue.LegacyFundId.HasValue)
+                                {
+                                    <div class="text-muted small">Legacy fund @issue.LegacyFundId</div>
+                                }
+                            </td>
+                            <td>
+                                <div>@issue.Details</div>
+                                <div class="text-muted small mt-1">@issue.RecommendedAction</div>
+                            </td>
+                            <td>
+                                <div class="row-actions">
+                                    @foreach (var accountId in issue.AccountIds)
+                                    {
+                                        <a class="btn btn-outline-primary btn-sm"
+                                           href="@($"/clients/{issue.ClientId}/investments/{accountId}/edit")">
+                                            Edit account @accountId
+                                        </a>
+                                    }
+                                    @if (issue.AccountIds.Count == 0)
+                                    {
+                                        <a class="btn btn-outline-primary btn-sm"
+                                           href="@($"/clients/{issue.ClientId}/investments/new")">
+                                            Add account
+                                        </a>
+                                    }
+                                    <a class="btn btn-outline-secondary btn-sm"
+                                       href="@($"/clients/{issue.ClientId}#investments")">
+                                        View client
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@code {
+    private InvestmentReconciliationModel model = new();
+    private string? issueType;
+    private int? clientId;
+    private string? search;
+    private bool isBusy;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        isBusy = true;
+        try
+        {
+            model = await ReconciliationService.LoadAsync(
+                new InvestmentReconciliationQuery(issueType, clientId, search));
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task ResetAsync()
+    {
+        issueType = null;
+        clientId = null;
+        search = null;
+        await LoadAsync();
+    }
+
+    private static string Display(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "Not captured" : value;
+
+    private static string Money(decimal? value) =>
+        value.HasValue ? $"R {value.Value:N2}" : "—";
+
+    private static string Date(DateOnly? value) =>
+        value?.ToString("yyyy-MM-dd") ?? "No date";
+}

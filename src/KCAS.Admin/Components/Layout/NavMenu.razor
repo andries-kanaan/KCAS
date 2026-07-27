@@ -37,6 +37,16 @@
             </Authorized>
         </AuthorizeView>
 
+        <AuthorizeView Policy="@KcasPermissions.InvestmentsManage">
+            <Authorized>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="investments/reconciliation">
+                        <span class="bi bi-arrow-repeat" aria-hidden="true"></span> Investment reconciliation
+                    </NavLink>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+
         <AuthorizeView Policy="@KcasPermissions.ClientsView">
             <Authorized>
                 <div class="nav-item px-3">
@@ -99,6 +109,13 @@
                         <div class="nav-item px-3">
                             <NavLink class="nav-link" href="compliance/work-register">Monitoring</NavLink>
                         </div>
+                        <AuthorizeView Policy="@KcasPermissions.ComplianceManage">
+                            <Authorized Context="transferContext">
+                                <div class="nav-item px-3">
+                                    <NavLink class="nav-link" href="compliance/review-transfers">Review transfers</NavLink>
+                                </div>
+                            </Authorized>
+                        </AuthorizeView>
                         <AuthorizeView Policy="@KcasPermissions.InspectionsView">
                             <Authorized Context="inspectionContext">
                                 <div class="nav-item px-3">
