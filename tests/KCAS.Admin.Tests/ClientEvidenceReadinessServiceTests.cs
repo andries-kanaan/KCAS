@@ -21,6 +21,8 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
         Assert.True(readiness.RequiredCount >= 10);
         Assert.False(readiness.IsReadyForRiskAssessment);
         Assert.True(readiness.BlockedCount > 0);
+        Assert.False(readiness.Requirements.Single(requirement => requirement.EvidenceType == "Identity").RequiresExpiryDate);
+        Assert.False(readiness.Requirements.Single(requirement => requirement.EvidenceType == "Address").RequiresExpiryDate);
     }
 
     [Fact]

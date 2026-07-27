@@ -164,6 +164,17 @@ else
                 }
                 else if (model.Assessment.Status is ClientRiskAssessmentStatuses.Finalised or ClientRiskAssessmentStatuses.Approved)
                 {
+                    <AuthorizeView Policy="@KcasPermissions.ComplianceManage">
+                        <Authorized>
+                            <div class="alert alert-success">
+                                This assessment is ready for controlled transfer.
+                                <a class="btn btn-primary btn-sm ms-2"
+                                   href="@($"/compliance/review-transfers?clientId={ClientId}")">
+                                    Create review package
+                                </a>
+                            </div>
+                        </Authorized>
+                    </AuthorizeView>
                     <div class="workspace-grid">
                         <select class="form-select" @bind="reassessmentTriggerType" disabled="@(!canPrepare)">
                             @foreach (var trigger in ClientRiskReviewTriggerTypes.ReassessmentTypes)

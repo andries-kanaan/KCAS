@@ -1759,5 +1759,12 @@ CREATE UNIQUE INDEX `IX_ClientReviewTransferRecords_Direction_PackageId` ON `Cli
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
 VALUES ('20260727083241_AddClientReviewTransfers', '10.0.10');
 
+UPDATE `ClientEvidenceRequirements`
+SET `RequiresExpiryDate` = FALSE
+WHERE `EvidenceType` IN ('Identity', 'Address');
+
+INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
+VALUES ('20260727103500_RemoveArtificialIdentityAddressExpiry', '10.0.10');
+
 COMMIT;
 

@@ -1106,8 +1106,8 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         }
 
         db.ClientEvidenceRequirements.AddRange(
-            Requirement("Identity", "Identity", "Identity and verification document", "Current identity, registration or trust instrument evidence.", 10, true, true),
-            Requirement("Address", "Address", "Residential or operating address evidence", "Current address evidence or acceptable verification note.", 20, true, true),
+            Requirement("Identity", "Identity", "Identity and verification document", "Current identity, registration or trust instrument evidence.", 10, true, false),
+            Requirement("Address", "Address", "Residential or operating address evidence", "Current address evidence or acceptable verification note.", 20, true, false),
             Requirement("TaxResidency", "Profile", "Tax and residency profile", "Tax number, residency and relevant cross-border indicators.", 30, true, false),
             Requirement("SourceOfFunds", "Funds and wealth", "Source of funds evidence", "Corroborated source of funds for investment activity.", 40, true, false),
             Requirement("SourceOfWealth", "Funds and wealth", "Source of wealth evidence", "Corroborated source of wealth where required by risk profile.", 50, true, false),

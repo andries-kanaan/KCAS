@@ -40,6 +40,12 @@
                 }
             </select>
         </label>
+        @if (requestedClientSelected)
+        {
+            <div class="text-muted small">
+                The completed client assessment was selected from the client risk page.
+            </div>
+        }
         <label>Export reason <textarea class="form-control" @bind="exportReason"></textarea></label>
         <label>
             Package passphrase
@@ -131,8 +137,12 @@
 </section>
 
 @code {
+    [SupplyParameterFromQuery(Name = "clientId")]
+    private int? requestedClientId { get; set; }
+
     private List<InvestmentSummaryClientOption> clients = [];
     private int exportClientId;
+    private bool requestedClientSelected;
     private string? exportReason;
     private string? exportPassphrase;
     private string? exportPassphraseConfirm;
@@ -147,8 +157,16 @@
     private bool isError;
     private string? statusMessage;
 
-    protected override async Task OnInitializedAsync() =>
+    protected override async Task OnParametersSetAsync()
+    {
         clients = await TransferService.LoadClientOptionsAsync();
+        requestedClientSelected = requestedClientId.HasValue &&
+                                  clients.Any(client => client.Id == requestedClientId.Value);
+        if (requestedClientSelected)
+        {
+            exportClientId = requestedClientId!.Value;
+        }
+    }
 
     private async Task ExportAsync()
     {
