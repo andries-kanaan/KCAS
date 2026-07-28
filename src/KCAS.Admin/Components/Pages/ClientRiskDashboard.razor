@@ -3,66 +3,216 @@
 @attribute [Authorize(Policy = KcasPermissions.RiskAssessmentsView)]
 @using KCAS.Admin.Data
 @inject ClientRiskAssessmentService RiskService
+@inject AuthenticationStateProvider AuthenticationStateProvider
 
-<PageTitle>Client risk</PageTitle>
+<PageTitle>Client risk assessment register</PageTitle>
 
 <div class="page-header">
     <div>
         <p class="eyebrow">Compliance</p>
-        <h1>Client risk</h1>
-        <p class="text-muted mb-0">A proportional view of current Kanaan client assessments.</p>
+        <h1>Client risk assessment register</h1>
+        <p class="text-muted mb-0">Population-complete assessment coverage, readiness, risk and review oversight for every current Kanaan client.</p>
     </div>
-    <div class="header-actions"><a class="btn btn-outline-secondary" href="/compliance">Compliance dashboard</a></div>
+    <div class="header-actions">
+        <a class="btn btn-outline-primary" href="@CsvUrl">Export CSV</a>
+        @if (canExportInspection)
+        {
+            <a class="btn btn-outline-primary" href="@SnapshotUrl">Export full inspection JSON</a>
+        }
+        <a class="btn btn-outline-secondary" href="/compliance">Compliance dashboard</a>
+    </div>
 </div>
 
-<section class="work-area">
-    <div class="workspace-grid">
-        <input class="form-control" @bind="search" placeholder="Search client, Kanaan ID or risk" />
-        <select class="form-select" @bind="rating">
-            <option value="">All ratings</option><option value="Low">Low</option><option value="Standard">Standard</option><option value="High">High</option>
-        </select>
-        <select class="form-select" @bind="status">
-            <option value="">All statuses</option>
-            <option value="@ClientRiskAssessmentStatuses.Finalised">Finalised</option>
-            <option value="@ClientRiskAssessmentStatuses.PendingKiApproval">Pending KI approval</option>
-            <option value="@ClientRiskAssessmentStatuses.Approved">Approved</option>
-        </select>
-        <select class="form-select" @bind="reviewState">
-            <option value="">All review dates</option>
-            <option value="@ClientRiskReviewStates.DueSoon">Due in three months</option>
-            <option value="@ClientRiskReviewStates.Overdue">Overdue</option>
-        </select>
-        <button type="button" class="btn btn-primary" @onclick="LoadAsync">Apply filters</button>
+@if (register is null)
+{
+    <p>Loading client risk register...</p>
+}
+else
+{
+    <section class="summary-grid">
+        <article class="summary-card"><span>Current clients</span><strong>@register.Summary.TotalCurrentClients</strong></article>
+        <article class="summary-card"><span>Assessment coverage</span><strong>@register.Summary.CoveragePercentage%</strong></article>
+        <article class="summary-card"><span>Completed</span><strong>@register.Summary.CompletedCount</strong></article>
+        <article class="summary-card"><span>Outstanding</span><strong>@register.Summary.OutstandingCount</strong></article>
+        <article class="summary-card"><span>In progress</span><strong>@register.Summary.InProgressCount</strong></article>
+        <article class="summary-card"><span>Readiness blocked</span><strong>@register.Summary.BlockedCount</strong></article>
+        <article class="summary-card"><span>Low / Standard / High</span><strong>@register.Summary.LowCount / @register.Summary.StandardCount / @register.Summary.HighCount</strong></article>
+        <article class="summary-card"><span>EDD / pending KI</span><strong>@register.Summary.EddCount / @register.Summary.PendingKiCount</strong></article>
+        <article class="summary-card"><span>Overdue / due soon</span><strong>@register.Summary.OverdueCount / @register.Summary.DueSoonCount</strong></article>
+    </section>
+
+    <div class="alert @(register.MethodologyStatus == ComplianceStatuses.Active ? "alert-success" : "alert-warning")">
+        <strong>Available methodology:</strong>
+        @(Display(register.MethodologyName)) @(Display(register.MethodologyVersion)) · @(Display(register.MethodologyStatus)).
+        Register as at @register.AsAtDate.ToString("yyyy-MM-dd"); generated @register.GeneratedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm").
     </div>
-    <p class="mt-3 mb-2">
-        Low: @items.Count(item => item.Rating == "Low") |
-        Standard: @items.Count(item => item.Rating == "Standard") |
-        High: @items.Count(item => item.Rating == "High") |
-        Pending KI approval: @items.Count(item => item.Status == ClientRiskAssessmentStatuses.PendingKiApproval)
-    </p>
-    <div class="table-responsive">
-        <table class="table align-middle">
-            <thead><tr><th>Client</th><th>Kanaan ID</th><th>Risk</th><th>Status</th><th>Next review</th><th></th></tr></thead>
-            <tbody>
-                @foreach (var item in items)
-                {
+
+    <section class="work-area">
+        <h2>Register filters</h2>
+        <div class="workspace-grid">
+            <input class="form-control" @bind="search" placeholder="Search client, Kanaan ID or risk" />
+            <select class="form-select" @bind="coverageState">
+                <option value="">All coverage</option>
+                <option value="@ClientRiskCoverageStates.Outstanding">Outstanding</option>
+                <option value="@ClientRiskCoverageStates.InProgress">In progress</option>
+                <option value="@ClientRiskCoverageStates.Completed">Completed</option>
+            </select>
+            <select class="form-select" @bind="rating">
+                <option value="">All ratings</option>
+                <option value="Low">Low</option>
+                <option value="Standard">Standard</option>
+                <option value="High">High</option>
+            </select>
+            <select class="form-select" @bind="status">
+                <option value="">All workflow statuses</option>
+                <option value="@ClientRiskAssessmentStatuses.Draft">Draft</option>
+                <option value="@ClientRiskAssessmentStatuses.Finalised">Finalised</option>
+                <option value="@ClientRiskAssessmentStatuses.PendingKiApproval">Pending KI approval</option>
+                <option value="@ClientRiskAssessmentStatuses.Approved">Approved</option>
+            </select>
+            <select class="form-select" @bind="readinessState">
+                <option value="">All readiness</option>
+                <option value="@ClientRiskReadinessStates.Ready">Ready</option>
+                <option value="@ClientRiskReadinessStates.Blocked">Blocked</option>
+            </select>
+            <select class="form-select" @bind="reviewState">
+                <option value="">All review dates</option>
+                <option value="@ClientRiskReviewStates.Current">Current</option>
+                <option value="@ClientRiskReviewStates.DueSoon">Due in three months</option>
+                <option value="@ClientRiskReviewStates.Overdue">Overdue</option>
+            </select>
+            <select class="form-select" @bind="eddState">
+                <option value="">All EDD states</option>
+                <option value="true">EDD required</option>
+                <option value="false">EDD not required</option>
+            </select>
+            <label>As-at date<InputDate class="form-control" @bind-Value="asAtDate" /></label>
+            <button type="button" class="btn btn-primary" @onclick="LoadAsync">Apply filters</button>
+            <button type="button" class="btn btn-outline-secondary" @onclick="ClearFiltersAsync">Clear</button>
+        </div>
+        <p class="mt-3 mb-2">
+            Showing <strong>@register.Rows.Count</strong> of <strong>@register.Summary.TotalCurrentClients</strong> current clients.
+            Outstanding clients remain visible even though no assessment exists.
+        </p>
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead>
                     <tr>
-                        <td>@item.DisplayName</td><td>@(item.KanaanId ?? "-")</td><td>@(item.Rating ?? "-")</td><td>@item.Status</td><td>@(item.NextReviewDate?.ToString("yyyy-MM-dd") ?? "-")</td>
-                        <td class="text-end"><a class="btn btn-sm btn-outline-primary" href="@($"/clients/{item.ClientId}/risk")">Open</a></td>
+                        <th>Client</th><th>Coverage</th><th>Readiness</th><th>Risk</th><th>Workflow</th>
+                        <th>EDD</th><th>Methodology</th><th>Prepared / finalised</th><th>Review</th><th></th>
                     </tr>
-                }
-            </tbody>
-        </table>
-    </div>
-</section>
+                </thead>
+                <tbody>
+                    @foreach (var item in register.Rows)
+                    {
+                        <tr class="@(item.CoverageState == ClientRiskCoverageStates.Outstanding ? "table-warning" : item.ReviewState == ClientRiskReviewStates.Overdue ? "table-danger" : null)">
+                            <td>
+                                <strong>@item.DisplayName</strong>
+                                <div class="small text-muted">Client #@item.ClientId · Kanaan @(item.KanaanId ?? "-") · @item.ClientCategory</div>
+                            </td>
+                            <td>@Coverage(item.CoverageState)</td>
+                            <td>
+                                @(item.IsReadyForAssessment ? "Ready" : "Blocked")
+                                @if (!item.IsReadyForAssessment)
+                                {
+                                    <div class="small text-muted">@item.EvidenceBlockerCount evidence · @item.VerificationBlockerCount verification</div>
+                                }
+                            </td>
+                            <td>@(item.Rating ?? "-") @if (item.Score.HasValue) { <span>(@item.Score.Value.ToString("0.##"))</span> }</td>
+                            <td>
+                                @(item.Status ?? "Not started")
+                                @if (item.KiApprovalCount > 0)
+                                {
+                                    <div class="small text-muted">@item.KiApprovalCount KI approval(s)</div>
+                                }
+                            </td>
+                            <td>@(item.RequiresEdd ? "Required" : "No")</td>
+                            <td>
+                                @Display(item.MethodologyVersion)
+                                <div class="small text-muted">@Display(item.MethodologyStatus)</div>
+                            </td>
+                            <td>
+                                @Display(item.PreparedBy)
+                                <div class="small text-muted">@Display(item.FinalisedBy)</div>
+                            </td>
+                            <td>
+                                @Date(item.NextReviewDate)
+                                <div class="small text-muted">@Review(item.ReviewState)</div>
+                            </td>
+                            <td class="text-end">
+                                <a class="btn btn-sm btn-outline-secondary" href="@($"/clients/{item.ClientId}/evidence")">Evidence</a>
+                                <a class="btn btn-sm btn-outline-primary" href="@($"/clients/{item.ClientId}/risk")">Assessment</a>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}
 
 @code {
-    private IReadOnlyList<ClientRiskPortfolioItem> items = [];
+    private ClientRiskRegisterModel? register;
     private string? search;
     private string? rating;
     private string? status;
     private string? reviewState;
+    private string? coverageState;
+    private string? readinessState;
+    private string? eddState;
+    private DateOnly asAtDate = DateOnly.FromDateTime(DateTime.Today);
+    private bool canExportInspection;
 
-    protected override async Task OnInitializedAsync() => await LoadAsync();
-    private async Task LoadAsync() => items = await RiskService.LoadPortfolioAsync(search, rating, status, reviewState);
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        canExportInspection = auth.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.InspectionsExport);
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync() =>
+        register = await RiskService.LoadRegisterAsync(CurrentQuery());
+
+    private async Task ClearFiltersAsync()
+    {
+        search = rating = status = reviewState = coverageState = readinessState = eddState = null;
+        asAtDate = DateOnly.FromDateTime(DateTime.Today);
+        await LoadAsync();
+    }
+
+    private ClientRiskRegisterQuery CurrentQuery() => new(
+        search,
+        rating,
+        status,
+        reviewState,
+        coverageState,
+        readinessState,
+        bool.TryParse(eddState, out var requiresEdd) ? requiresEdd : null,
+        asAtDate);
+
+    private string CsvUrl => $"/compliance/client-risk/register.csv?{BuildQueryString()}";
+    private string SnapshotUrl => $"/compliance/client-risk/register.json?asAtDate={asAtDate:yyyy-MM-dd}";
+
+    private string BuildQueryString()
+    {
+        var values = new Dictionary<string, string?>
+        {
+            ["search"] = search,
+            ["rating"] = rating,
+            ["status"] = status,
+            ["reviewState"] = reviewState,
+            ["coverageState"] = coverageState,
+            ["readinessState"] = readinessState,
+            ["requiresEdd"] = eddState,
+            ["asAtDate"] = asAtDate.ToString("yyyy-MM-dd")
+        };
+        return string.Join("&", values
+            .Where(item => !string.IsNullOrWhiteSpace(item.Value))
+            .Select(item => $"{Uri.EscapeDataString(item.Key)}={Uri.EscapeDataString(item.Value!)}"));
+    }
+
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+    private static string Date(DateOnly? value) => value?.ToString("yyyy-MM-dd") ?? "-";
+    private static string Coverage(string value) => value == ClientRiskCoverageStates.InProgress ? "In progress" : value;
+    private static string Review(string value) => value == ClientRiskReviewStates.DueSoon ? "Due soon" : value;
 }

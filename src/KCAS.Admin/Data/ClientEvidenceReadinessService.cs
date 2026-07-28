@@ -251,6 +251,66 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         };
     }
 
+    public async Task<IReadOnlyDictionary<int, ClientEvidencePortfolioReadiness>> LoadPortfolioReadinessAsync(
+        IReadOnlyCollection<int> clientIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (clientIds.Count == 0)
+        {
+            return new Dictionary<int, ClientEvidencePortfolioReadiness>();
+        }
+
+        await EnsureDefaultRequirementsAsync();
+        var selectedIds = clientIds.Distinct().ToList();
+        var clients = await db.Clients.AsNoTracking()
+            .Where(client => selectedIds.Contains(client.Id))
+            .Select(client => new { client.Id, client.ClientCategory })
+            .ToListAsync(cancellationToken);
+        var requirements = await LoadActiveRequirementsAsync(cancellationToken);
+        var items = await db.ClientEvidenceItems.AsNoTracking()
+            .Where(item => selectedIds.Contains(item.ClientId))
+            .ToListAsync(cancellationToken);
+        var exceptions = await db.ClientEvidenceExceptions.AsNoTracking()
+            .Where(item => selectedIds.Contains(item.ClientId) && item.IsActive)
+            .ToListAsync(cancellationToken);
+        var profiles = await db.ClientEntityProfiles.AsNoTracking()
+            .Where(item => selectedIds.Contains(item.ClientId))
+            .ToListAsync(cancellationToken);
+        var relatedParties = await db.ClientRelatedParties.AsNoTracking()
+            .AsSplitQuery()
+            .Where(item => selectedIds.Contains(item.ClientId))
+            .Include(item => item.Roles)
+            .Include(item => item.EvidenceLinks).ThenInclude(link => link.EvidenceItem)
+            .ToListAsync(cancellationToken);
+        var today = DateOnly.FromDateTime(DateTime.Today);
+
+        return clients.ToDictionary(
+            client => client.Id,
+            client =>
+            {
+                var readiness = CalculateReadiness(
+                    client.Id,
+                    client.ClientCategory,
+                    requirements,
+                    items,
+                    exceptions,
+                    today);
+                var ownershipBlockers = EntityOwnershipRules.CalculateBlockers(
+                    client.ClientCategory,
+                    profiles.FirstOrDefault(profile => profile.ClientId == client.Id),
+                    relatedParties.Where(party => party.ClientId == client.Id),
+                    items.Where(item => item.ClientId == client.Id),
+                    today);
+                var blockedCount = readiness.BlockedCount + ownershipBlockers.Count;
+                return new ClientEvidencePortfolioReadiness(
+                    readiness.RequiredCount,
+                    readiness.CompleteCount,
+                    readiness.ExceptionCount,
+                    blockedCount,
+                    blockedCount == 0);
+            });
+    }
+
     public async Task SaveScanRootAsync(string rootPath, string? userName, string reason)
     {
         RequireReason(reason);
@@ -1929,6 +1989,13 @@ public sealed class ClientEvidenceDashboardModel
     public List<ClientEvidenceSharedFolderModel> SharedFolders { get; set; } = [];
     public List<ClientEvidenceOwnershipReviewModel> OwnershipReviews { get; set; } = [];
 }
+
+public sealed record ClientEvidencePortfolioReadiness(
+    int RequiredCount,
+    int CompleteCount,
+    int ExceptionCount,
+    int BlockedCount,
+    bool IsReady);
 
 public sealed class ClientEvidenceSharedFolderModel
 {

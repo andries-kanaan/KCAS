@@ -1,4 +1,6 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text;
+using System.Text.Json;
 using KCAS.Admin.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -162,6 +164,81 @@ public sealed class ClientRiskAssessmentServiceTests(KcasWebApplicationFactory f
         var assessment = await db.ClientRiskAssessments.AsNoTracking().SingleAsync(item => item.Id == assessmentId);
         Assert.Equal(methodologyId, assessment.RiskMethodologyVersionId);
         Assert.Equal(ClientRiskAssessmentStatuses.Finalised, assessment.Status);
+    }
+
+    [Fact]
+    public async Task Register_includes_completed_and_unassessed_current_clients_and_exports_them()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var compliance = scope.ServiceProvider.GetRequiredService<ComplianceService>();
+        var evidence = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var service = scope.ServiceProvider.GetRequiredService<ClientRiskAssessmentService>();
+        await ActivateMethodologyAsync(compliance, db, "Register methodology");
+        var prefix = $"Register {Guid.NewGuid():N}";
+        var completedClientId = await CreateReadyClientAsync(db, evidence, $"{prefix} completed");
+        var outstandingClientId = await CreateClientAsync(db, $"{prefix} outstanding");
+
+        var assessmentId = await service.CreateDraftAsync(
+            completedClientId,
+            "compliance@example.test",
+            "Start completed register assessment.");
+        var page = await service.LoadAsync(completedClientId);
+        await service.SaveDraftAsync(
+            assessmentId,
+            BuildEdit(page, useHighOption: false),
+            "compliance@example.test",
+            "Complete register assessment.");
+        await service.FinaliseAsync(
+            assessmentId,
+            "compliance@example.test",
+            "Finalise register assessment.");
+
+        var query = new ClientRiskRegisterQuery(
+            prefix,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            DateOnly.FromDateTime(DateTime.Today));
+        var register = await service.LoadRegisterAsync(query);
+
+        Assert.Equal(2, register.Rows.Count);
+        var completed = Assert.Single(register.Rows, item => item.ClientId == completedClientId);
+        Assert.Equal(ClientRiskCoverageStates.Completed, completed.CoverageState);
+        Assert.True(completed.IsReadyForAssessment);
+        Assert.Equal(ClientRiskAssessmentStatuses.Finalised, completed.Status);
+        var outstanding = Assert.Single(register.Rows, item => item.ClientId == outstandingClientId);
+        Assert.Equal(ClientRiskCoverageStates.Outstanding, outstanding.CoverageState);
+        Assert.False(outstanding.IsReadyForAssessment);
+        Assert.True(outstanding.EvidenceBlockerCount > 0);
+        Assert.Null(outstanding.AssessmentId);
+        Assert.True(register.Summary.TotalCurrentClients >= 2);
+        Assert.True(register.Summary.CompletedCount >= 1);
+        Assert.True(register.Summary.OutstandingCount >= 1);
+
+        var outstandingOnly = await service.LoadRegisterAsync(query with
+        {
+            CoverageState = ClientRiskCoverageStates.Outstanding
+        });
+        Assert.Single(outstandingOnly.Rows);
+        Assert.Equal(outstandingClientId, outstandingOnly.Rows[0].ClientId);
+
+        var csv = Encoding.UTF8.GetString(await service.ExportRegisterCsvAsync(query));
+        Assert.Contains($"{prefix} completed", csv);
+        Assert.Contains($"{prefix} outstanding", csv);
+        Assert.Contains("EvidenceBlockers", csv);
+
+        using var snapshot = JsonDocument.Parse(await service.ExportRegisterSnapshotAsync(query));
+        Assert.Equal(1, snapshot.RootElement.GetProperty("schemaVersion").GetInt32());
+        var exportedClientIds = snapshot.RootElement.GetProperty("clients")
+            .EnumerateArray()
+            .Select(item => item.GetProperty("clientId").GetInt32())
+            .ToList();
+        Assert.Contains(completedClientId, exportedClientIds);
+        Assert.Contains(outstandingClientId, exportedClientIds);
     }
 
     private static async Task ActivateMethodologyAsync(ComplianceService service, ApplicationDbContext db, string name)

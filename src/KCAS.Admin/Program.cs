@@ -201,6 +201,34 @@ app.MapGet("/investments/summary.csv", async Task<IResult> (
         $"KCAS-investment-summary-{DateTime.Today:yyyy-MM-dd}.csv");
 }).RequireAuthorization(KcasPermissions.InvestmentsView);
 
+app.MapGet("/compliance/client-risk/register.csv", async Task<IResult> (
+    HttpContext context,
+    ClientRiskAssessmentService risk,
+    CancellationToken cancellationToken) =>
+{
+    var query = ParseClientRiskRegisterQuery(context.Request.Query);
+    var csv = await risk.ExportRegisterCsvAsync(query, cancellationToken);
+    var asAtDate = query.AsAtDate ?? DateOnly.FromDateTime(DateTime.Today);
+    return Results.File(
+        csv,
+        "text/csv; charset=utf-8",
+        $"KCAS-client-risk-register-{asAtDate:yyyy-MM-dd}.csv");
+}).RequireAuthorization(KcasPermissions.RiskAssessmentsView);
+
+app.MapGet("/compliance/client-risk/register.json", async Task<IResult> (
+    HttpContext context,
+    ClientRiskAssessmentService risk,
+    CancellationToken cancellationToken) =>
+{
+    var query = ParseClientRiskRegisterQuery(context.Request.Query);
+    var snapshot = await risk.ExportRegisterSnapshotAsync(query, cancellationToken);
+    var asAtDate = query.AsAtDate ?? DateOnly.FromDateTime(DateTime.Today);
+    return Results.File(
+        snapshot,
+        "application/json",
+        $"KCAS-client-risk-register-{asAtDate:yyyy-MM-dd}.json");
+}).RequireAuthorization(KcasPermissions.InspectionsExport);
+
 app.MapGet("/compliance/review-transfers/{packageId}/download", async Task<IResult> (
     string packageId,
     ApplicationDbContext db,
@@ -284,5 +312,24 @@ if (!app.Environment.IsEnvironment("Testing"))
 }
 
 app.Run();
+
+static ClientRiskRegisterQuery ParseClientRiskRegisterQuery(IQueryCollection values)
+{
+    var asAtDate = DateOnly.TryParse(values["asAtDate"], out var parsedAsAtDate)
+        ? parsedAsAtDate
+        : DateOnly.FromDateTime(DateTime.Today);
+    bool? requiresEdd = bool.TryParse(values["requiresEdd"], out var parsedRequiresEdd)
+        ? parsedRequiresEdd
+        : null;
+    return new ClientRiskRegisterQuery(
+        values["search"],
+        values["rating"],
+        values["status"],
+        values["reviewState"],
+        values["coverageState"],
+        values["readinessState"],
+        requiresEdd,
+        asAtDate);
+}
 
 public partial class Program;

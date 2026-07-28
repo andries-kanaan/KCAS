@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 
@@ -469,61 +470,257 @@ public sealed class ClientRiskAssessmentService(
         string? status = null,
         string? reviewState = null)
     {
-        var query = db.ClientRiskAssessments.AsNoTracking()
-            .Where(item => item.Status != ClientRiskAssessmentStatuses.Draft &&
-                           item.Status != ClientRiskAssessmentStatuses.Superseded)
-            .Include(item => item.Client)
-            .AsQueryable();
-        if (!string.IsNullOrWhiteSpace(search))
-        {
-            var term = search.Trim();
-            query = query.Where(item => item.Client!.DisplayName.Contains(term) ||
-                                        (item.Client.KanaanId != null && item.Client.KanaanId.Contains(term)) ||
-                                        (item.FinalRating != null && item.FinalRating.Contains(term)));
-        }
-        if (!string.IsNullOrWhiteSpace(rating))
-        {
-            query = query.Where(item => (item.FinalRating ?? item.CalculatedRating) == rating);
-        }
-        if (!string.IsNullOrWhiteSpace(status))
-        {
-            query = query.Where(item => item.Status == status);
-        }
-        var today = DateOnly.FromDateTime(DateTime.Today);
-        if (reviewState == ClientRiskReviewStates.Overdue)
-        {
-            query = query.Where(item => item.NextReviewDate < today);
-        }
-        else if (reviewState == ClientRiskReviewStates.DueSoon)
-        {
-            var dueLimit = today.AddMonths(3);
-            query = query.Where(item => item.NextReviewDate >= today && item.NextReviewDate <= dueLimit);
-        }
-
-        var rows = await query.OrderByDescending(item => item.Id)
-            .Select(item => new
-            {
-                item.Id,
-                item.ClientId,
-                item.Client!.DisplayName,
-                item.Client.KanaanId,
-                Rating = item.FinalRating ?? item.CalculatedRating,
-                item.Status,
-                item.NextReviewDate
-            })
-            .ToListAsync();
-        return rows.GroupBy(item => item.ClientId)
-            .Select(group => group.OrderByDescending(item => item.Id).First())
-            .OrderBy(item => item.Rating)
-            .ThenBy(item => item.DisplayName)
+        var register = await LoadRegisterAsync(new ClientRiskRegisterQuery(
+            search,
+            rating,
+            status,
+            reviewState,
+            null,
+            null,
+            null,
+            DateOnly.FromDateTime(DateTime.Today)));
+        return register.Rows
+            .Where(item => item.AssessmentId.HasValue &&
+                           item.Status != ClientRiskAssessmentStatuses.Draft)
             .Select(item => new ClientRiskPortfolioItem(
                 item.ClientId,
                 item.DisplayName,
                 item.KanaanId,
                 item.Rating,
-                item.Status,
+                item.Status ?? ClientRiskCoverageStates.Outstanding,
                 item.NextReviewDate))
             .ToList();
+    }
+
+    public async Task<ClientRiskRegisterModel> LoadRegisterAsync(
+        ClientRiskRegisterQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        var asAtDate = query.AsAtDate ?? DateOnly.FromDateTime(DateTime.Today);
+        var clients = await db.Clients.AsNoTracking()
+            .Where(client => client.LifecycleStatus == ClientLifecycleStatuses.Current)
+            .Include(client => client.RiskAssessments.Where(assessment =>
+                assessment.Status != ClientRiskAssessmentStatuses.Superseded))
+                .ThenInclude(assessment => assessment.MethodologyVersion)
+            .Include(client => client.RiskAssessments.Where(assessment =>
+                assessment.Status != ClientRiskAssessmentStatuses.Superseded))
+                .ThenInclude(assessment => assessment.Approvals)
+            .AsSplitQuery()
+            .OrderBy(client => client.DisplayName)
+            .ToListAsync(cancellationToken);
+        var clientIds = clients.Select(client => client.Id).ToList();
+        var readiness = await evidenceReadinessService.LoadPortfolioReadinessAsync(
+            clientIds,
+            cancellationToken);
+        var verificationBlockers = await db.ClientVerificationItems.AsNoTracking()
+            .Where(item =>
+                clientIds.Contains(item.ClientId) &&
+                item.Status == ClientVerificationStatuses.Pending &&
+                item.IsBlocking)
+            .GroupBy(item => item.ClientId)
+            .Select(group => new { ClientId = group.Key, Count = group.Count() })
+            .ToDictionaryAsync(item => item.ClientId, item => item.Count, cancellationToken);
+        var availableMethodology = await FindAvailableMethodologyAsync(asNoTracking: true);
+
+        var allRows = clients.Select(client =>
+        {
+            var assessment = client.RiskAssessments
+                .OrderByDescending(item => item.Id)
+                .FirstOrDefault();
+            var evidence = readiness.GetValueOrDefault(client.Id)
+                ?? new ClientEvidencePortfolioReadiness(0, 0, 0, 0, false);
+            var pendingVerification = verificationBlockers.GetValueOrDefault(client.Id);
+            var isCompleted = assessment?.Status is
+                ClientRiskAssessmentStatuses.Finalised or
+                ClientRiskAssessmentStatuses.PendingKiApproval or
+                ClientRiskAssessmentStatuses.Approved;
+            var coverageState = isCompleted
+                ? ClientRiskCoverageStates.Completed
+                : assessment is null
+                    ? ClientRiskCoverageStates.Outstanding
+                    : ClientRiskCoverageStates.InProgress;
+            var nextReviewDate = assessment?.NextReviewDate;
+            var reviewState = nextReviewDate.HasValue && nextReviewDate.Value < asAtDate
+                ? ClientRiskReviewStates.Overdue
+                : nextReviewDate.HasValue && nextReviewDate.Value <= asAtDate.AddMonths(3)
+                    ? ClientRiskReviewStates.DueSoon
+                    : ClientRiskReviewStates.Current;
+
+            return new ClientRiskRegisterRow(
+                client.Id,
+                client.DisplayName,
+                client.KanaanId,
+                client.ClientCategory,
+                coverageState,
+                assessment?.Id,
+                assessment?.Status,
+                assessment?.CalculatedScore,
+                assessment?.FinalRating ?? assessment?.CalculatedRating,
+                assessment?.RequiresEdd ?? false,
+                evidence.BlockedCount,
+                pendingVerification,
+                evidence.IsReady && pendingVerification == 0,
+                assessment?.MethodologyVersion?.Name,
+                assessment?.MethodologyVersion?.VersionLabel,
+                assessment?.MethodologyVersion?.Status,
+                assessment?.PreparedBy,
+                assessment?.FinalisedBy,
+                assessment?.Approvals.Count ?? 0,
+                assessment?.EffectiveDate,
+                nextReviewDate,
+                reviewState);
+        }).ToList();
+
+        var summary = new ClientRiskRegisterSummary(
+            allRows.Count,
+            allRows.Count(item => item.CoverageState == ClientRiskCoverageStates.Completed),
+            allRows.Count(item => item.CoverageState == ClientRiskCoverageStates.InProgress),
+            allRows.Count(item => item.CoverageState == ClientRiskCoverageStates.Outstanding),
+            allRows.Count(item => item.Rating == "Low"),
+            allRows.Count(item => item.Rating == "Standard"),
+            allRows.Count(item => item.Rating == "High"),
+            allRows.Count(item => item.Status == ClientRiskAssessmentStatuses.PendingKiApproval),
+            allRows.Count(item => item.RequiresEdd),
+            allRows.Count(item => !item.IsReadyForAssessment),
+            allRows.Count(item => item.ReviewState == ClientRiskReviewStates.Overdue),
+            allRows.Count(item => item.ReviewState == ClientRiskReviewStates.DueSoon));
+
+        IEnumerable<ClientRiskRegisterRow> filtered = allRows;
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            var term = query.Search.Trim();
+            filtered = filtered.Where(item =>
+                item.DisplayName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                (item.KanaanId?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (item.Rating?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false));
+        }
+        if (!string.IsNullOrWhiteSpace(query.Rating))
+        {
+            filtered = filtered.Where(item => item.Rating == query.Rating);
+        }
+        if (!string.IsNullOrWhiteSpace(query.Status))
+        {
+            filtered = filtered.Where(item => item.Status == query.Status);
+        }
+        if (!string.IsNullOrWhiteSpace(query.ReviewState))
+        {
+            filtered = filtered.Where(item => item.ReviewState == query.ReviewState);
+        }
+        if (!string.IsNullOrWhiteSpace(query.CoverageState))
+        {
+            filtered = filtered.Where(item => item.CoverageState == query.CoverageState);
+        }
+        if (query.ReadinessState == ClientRiskReadinessStates.Ready)
+        {
+            filtered = filtered.Where(item => item.IsReadyForAssessment);
+        }
+        else if (query.ReadinessState == ClientRiskReadinessStates.Blocked)
+        {
+            filtered = filtered.Where(item => !item.IsReadyForAssessment);
+        }
+        if (query.RequiresEdd.HasValue)
+        {
+            filtered = filtered.Where(item => item.RequiresEdd == query.RequiresEdd.Value);
+        }
+
+        return new ClientRiskRegisterModel(
+            asAtDate,
+            DateTime.UtcNow,
+            availableMethodology?.Name,
+            availableMethodology?.VersionLabel,
+            availableMethodology?.Status,
+            summary,
+            filtered
+                .OrderBy(item => CoverageOrder(item.CoverageState))
+                .ThenBy(item => item.Rating)
+                .ThenBy(item => item.DisplayName)
+                .ToList());
+    }
+
+    public async Task<byte[]> ExportRegisterCsvAsync(
+        ClientRiskRegisterQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        var register = await LoadRegisterAsync(query, cancellationToken);
+        var csv = new StringBuilder();
+        csv.AppendLine("AsAtDate,GeneratedAtUtc,ClientId,Client,KanaanId,Category,Coverage,Status,Score,Rating,EDD,EvidenceBlockers,VerificationBlockers,Ready,Methodology,MethodologyVersion,MethodologyStatus,PreparedBy,FinalisedBy,KIApprovals,EffectiveDate,NextReviewDate,ReviewState");
+        foreach (var item in register.Rows)
+        {
+            csv.AppendLine(string.Join(",",
+                Csv(register.AsAtDate.ToString("yyyy-MM-dd")),
+                Csv(register.GeneratedAtUtc.ToString("O")),
+                item.ClientId,
+                Csv(item.DisplayName),
+                Csv(item.KanaanId),
+                Csv(item.ClientCategory),
+                Csv(item.CoverageState),
+                Csv(item.Status),
+                item.Score?.ToString("0.####") ?? "",
+                Csv(item.Rating),
+                item.RequiresEdd ? "Yes" : "No",
+                item.EvidenceBlockerCount,
+                item.VerificationBlockerCount,
+                item.IsReadyForAssessment ? "Yes" : "No",
+                Csv(item.MethodologyName),
+                Csv(item.MethodologyVersion),
+                Csv(item.MethodologyStatus),
+                Csv(item.PreparedBy),
+                Csv(item.FinalisedBy),
+                item.KiApprovalCount,
+                item.EffectiveDate?.ToString("yyyy-MM-dd") ?? "",
+                item.NextReviewDate?.ToString("yyyy-MM-dd") ?? "",
+                Csv(item.ReviewState)));
+        }
+        return new UTF8Encoding(encoderShouldEmitUTF8Identifier: true).GetBytes(csv.ToString());
+    }
+
+    public async Task<byte[]> ExportRegisterSnapshotAsync(
+        ClientRiskRegisterQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        var register = await LoadRegisterAsync(query with
+        {
+            Search = null,
+            Rating = null,
+            Status = null,
+            ReviewState = null,
+            CoverageState = null,
+            ReadinessState = null,
+            RequiresEdd = null
+        }, cancellationToken);
+        return JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            SchemaVersion = 1,
+            Register = "KCAS client risk assessment register",
+            register.AsAtDate,
+            register.GeneratedAtUtc,
+            Methodology = new
+            {
+                register.MethodologyName,
+                register.MethodologyVersion,
+                register.MethodologyStatus
+            },
+            register.Summary,
+            Clients = register.Rows
+        }, SnapshotOptions);
+    }
+
+    private static int CoverageOrder(string coverageState) => coverageState switch
+    {
+        ClientRiskCoverageStates.Outstanding => 0,
+        ClientRiskCoverageStates.InProgress => 1,
+        _ => 2
+    };
+
+    private static string Csv(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return "";
+        }
+        return value.IndexOfAny([',', '"', '\r', '\n']) >= 0
+            ? $"\"{value.Replace("\"", "\"\"")}\""
+            : value;
     }
 
     public async Task<ClientRiskPrintableModel> LoadPrintableAsync(int clientId, int assessmentId)
@@ -868,6 +1065,63 @@ public sealed record ClientRiskEvidenceOption(int Id, string EvidenceType, strin
 public sealed record ClientRiskApprovalSummary(string Approver, string Reason, DateTime DecidedAtUtc);
 public sealed record ClientRiskAssessmentHistoryItem(int Id, string Status, string? Rating, decimal Score, DateOnly? EffectiveDate, DateOnly? NextReviewDate, string? FinalisedBy, string ReviewTriggerType, string? ReviewTriggerReason);
 public sealed record ClientRiskPortfolioItem(int ClientId, string DisplayName, string? KanaanId, string? Rating, string Status, DateOnly? NextReviewDate);
+public sealed record ClientRiskRegisterQuery(
+    string? Search,
+    string? Rating,
+    string? Status,
+    string? ReviewState,
+    string? CoverageState,
+    string? ReadinessState,
+    bool? RequiresEdd,
+    DateOnly? AsAtDate);
+public sealed record ClientRiskRegisterModel(
+    DateOnly AsAtDate,
+    DateTime GeneratedAtUtc,
+    string? MethodologyName,
+    string? MethodologyVersion,
+    string? MethodologyStatus,
+    ClientRiskRegisterSummary Summary,
+    IReadOnlyList<ClientRiskRegisterRow> Rows);
+public sealed record ClientRiskRegisterSummary(
+    int TotalCurrentClients,
+    int CompletedCount,
+    int InProgressCount,
+    int OutstandingCount,
+    int LowCount,
+    int StandardCount,
+    int HighCount,
+    int PendingKiCount,
+    int EddCount,
+    int BlockedCount,
+    int OverdueCount,
+    int DueSoonCount)
+{
+    public decimal CoveragePercentage =>
+        TotalCurrentClients == 0 ? 0 : decimal.Round(CompletedCount * 100m / TotalCurrentClients, 1);
+}
+public sealed record ClientRiskRegisterRow(
+    int ClientId,
+    string DisplayName,
+    string? KanaanId,
+    string ClientCategory,
+    string CoverageState,
+    int? AssessmentId,
+    string? Status,
+    decimal? Score,
+    string? Rating,
+    bool RequiresEdd,
+    int EvidenceBlockerCount,
+    int VerificationBlockerCount,
+    bool IsReadyForAssessment,
+    string? MethodologyName,
+    string? MethodologyVersion,
+    string? MethodologyStatus,
+    string? PreparedBy,
+    string? FinalisedBy,
+    int KiApprovalCount,
+    DateOnly? EffectiveDate,
+    DateOnly? NextReviewDate,
+    string ReviewState);
 public sealed record ClientRiskPrintableModel(
     int Id,
     string DisplayName,
@@ -885,6 +1139,20 @@ public sealed record ClientRiskPrintableModel(
 
 public static class ClientRiskReviewStates
 {
+    public const string Current = "Current";
     public const string DueSoon = "DueSoon";
     public const string Overdue = "Overdue";
+}
+
+public static class ClientRiskCoverageStates
+{
+    public const string Outstanding = "Outstanding";
+    public const string InProgress = "InProgress";
+    public const string Completed = "Completed";
+}
+
+public static class ClientRiskReadinessStates
+{
+    public const string Ready = "Ready";
+    public const string Blocked = "Blocked";
 }
