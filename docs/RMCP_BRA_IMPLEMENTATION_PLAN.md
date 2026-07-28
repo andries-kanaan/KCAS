@@ -403,7 +403,7 @@ Produce consistent, explainable and repeatable client risk assessments suited to
 - Both KIs must approve High-risk clients, overrides, material evidence exceptions and acceptance of escalated relationships.
 - Effective date, next review date, supersession and event-triggered reassessment.
 - Frozen assessment snapshot so later methodology, evidence or client edits do not rewrite history.
-- A simple searchable client-risk list and counts by classification; no bank-scale portfolio analytics.
+- A population-complete client-risk assessment register covering every Current client, with proportionate coverage, readiness, classification, workflow, EDD and review-date oversight rather than bank-scale analytics.
 
 ### Implemented in current Phase 3 branch
 
@@ -412,7 +412,7 @@ Produce consistent, explainable and repeatable client risk assessments suited to
 - One active Key Individual recorded in the governance register provides the later operational methodology sign-off. The Compliance Officer may prepare, submit and use the methodology but cannot supply the KI sign-off.
 - Approval and activation remain visible governance milestones. Rejected, Draft or Superseded methodologies cannot be used to finalise assessments.
 - Six-factor 1–3 starter scale, configurable weighted score, Low/Standard/High bands and configurable review periods.
-- Compact per-client assessment page and searchable client-risk list.
+- Compact per-client assessment page and formal client-risk register. The register includes assessed, in-progress and entirely unassessed Current clients so apparent coverage cannot be created by omitting outstanding clients.
 - Evidence-readiness finalisation gate and links to current, confirmed, verified client evidence.
 - Representative/KI routine finalisation for Low or Standard assessments.
 - Mandatory escalation for High risk, PEP, adverse information and overrides, with two distinct KI approvals.
@@ -420,7 +420,9 @@ Produce consistent, explainable and repeatable client risk assessments suited to
 - Frozen assessment snapshot, effective and next-review dates, supersession and audited return-to-draft workflow.
 - Full read-only methodology review showing factors, options, weights, mandatory triggers, bands and review periods.
 - Structured reassessment triggers linked to the prior assessment, with copied answers remaining unconfirmed until reviewed again.
-- Due, overdue, status and rating filters plus a printable frozen assessment/history record.
+- Coverage, readiness, EDD, due, overdue, status and rating filters plus a printable frozen assessment/history record.
+- Current-population totals, assessment coverage percentage, Low/Standard/High distribution, pending-KI/EDD, blocker and review-due counts.
+- Permission-controlled as-at CSV and full-population inspection JSON exports retaining client IDs, methodology version/status, workflow, readiness, preparer/finaliser and review dates for audit sampling and inspection-pack indexing. The inspection export deliberately ignores screen filters so an apparent complete register cannot be produced by omitting clients.
 
 ### Operational acceptance gate 3 — deferred to Phase 8
 
