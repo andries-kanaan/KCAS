@@ -1,6 +1,6 @@
 # KCAS Blazor Rewrite Plan
 
-Last updated: 2026-07-26
+Last updated: 2026-07-28
 
 The authoritative staged roadmap for client risk evaluation, the Business Risk Assessment, the RMCP and inspection readiness is [RMCP_BRA_IMPLEMENTATION_PLAN.md](RMCP_BRA_IMPLEMENTATION_PLAN.md).
 
@@ -385,6 +385,9 @@ Still to verify manually in browser:
    - Design for Kanaan's small operating structure rather than bank-scale approval, case-management and analytics workflows.
    - After those tools are complete, return to the mandatory client-by-client operational population and human-verification gate; do not allow that deferred work to disappear from the programme.
    - Phase 7 inspection readiness was browser-checked by the user on 2026-07-26.
+   - Time-critical operational inspection readiness is now the immediate priority: complete the 3 August 2026 document response and approval evidence, then continue operating-effectiveness evidence and Phase 8 client population before the 22 September onsite inspection.
+   - The external readiness pack was reconciled on 2026-07-28 with BRA v0.11, revised RMCP v0.10, the revised governance organogram, the prepared Board resolution, four explanatory/factual letters, the scheduled 29 July training pack, goAML continuity and the Badenhorst KCAS pilot.
+   - Do not record the 29 July training, signatures, Board approval, full client population or TFS coverage as complete until the corresponding evidence exists.
    - Phase 8 starts with lifecycle classification and a per-fact assisted/imported verification register. Its technical control must be deployed and browser-checked before any live client is classified or changed.
    - Once that control is accepted, proceed client by client in Codex: inspect the selected folder and documents, report differences and recommendations, and wait for explicit user approval before applying any client fact.
    - Add reference-data administration screens only if operational users need to maintain values inside KCAS.

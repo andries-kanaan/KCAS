@@ -2,7 +2,7 @@
 
 Status: Active source of truth  
 Plan owner: Kanaan / KCAS  
-Last updated: 2026-07-26
+Last updated: 2026-07-29
 Implementation approach: gated, incremental releases
 
 ## 1. Purpose
@@ -162,7 +162,12 @@ Do not resolve a material conflict merely by choosing the newest filename. Recor
 | 7 | Inspection readiness, reporting and rollout | Technical foundation delivered and browser-checked by the user on 2026-07-26; operational acceptance is part of Phase 8 | Inspection pack, security, recovery and rollout accepted |
 | 8 | Controlled operational population and verification | In progress: lifecycle and per-fact human-verification control implementation started after Phase 7 browser acceptance | Every current client is reviewed, verified and assessed |
 
-Current resume point: **continue Phase 8 client by client under explicit user approval, using the completed Prof Philip Nel Badenhorst pilot review as the operational pattern.**
+Current resume point: **complete the time-critical 2026 FSCA document-readiness and approval work for the 3 August submission deadline, then resume Phase 8 client by client under explicit user approval using the completed Prof Philip Nel Badenhorst pilot as the operational pattern.**
+
+The inspection-readiness work does not replace or cancel Phase 8. It creates two controlled horizons:
+
+1. By 3 August 2026, complete the training evidence, explanatory-letter signatures, management validation, exact BRA/RMCP version-locking, Board approval, Appendix A page mapping, numbered submission pack and delivery evidence.
+2. Before the onsite inspection on 22 September 2026, continue the KCAS current-client population, TFS/screening coverage, representative control testing, goAML continuity evidence and mock inspection/retrieval exercise.
 
 Phase 0 remains available for operational import acceptance and final data switch-over evidence, but it is no longer the active development blocker.
 
@@ -400,7 +405,7 @@ Produce consistent, explainable and repeatable client risk assessments suited to
 - Kanaan's ordinary controls recorded in the methodology; only client-specific control failures, EDD and exceptions are repeated on an assessment.
 - Sanctions/TFS concerns stop finalisation and require escalation; PEP and designated elevated-risk cases require EDD.
 - A representative or KI may finalise ordinary Low or Standard assessments.
-- Both KIs must approve High-risk clients, overrides, material evidence exceptions and acceptance of escalated relationships.
+- One authorised KI approves High-risk clients, overrides, material evidence exceptions and acceptance of escalated relationships; the other KI is the backup or conflict alternative.
 - Effective date, next review date, supersession and event-triggered reassessment.
 - Frozen assessment snapshot so later methodology, evidence or client edits do not rewrite history.
 - A population-complete client-risk assessment register covering every Current client, with proportionate coverage, readiness, classification, workflow, EDD and review-date oversight rather than bank-scale analytics.
@@ -415,7 +420,7 @@ Produce consistent, explainable and repeatable client risk assessments suited to
 - Compact per-client assessment page and formal client-risk register. The register includes assessed, in-progress and entirely unassessed Current clients so apparent coverage cannot be created by omitting outstanding clients.
 - Evidence-readiness finalisation gate and links to current, confirmed, verified client evidence.
 - Representative/KI routine finalisation for Low or Standard assessments.
-- Mandatory escalation for High risk, PEP, adverse information and overrides, with two distinct KI approvals.
+- Mandatory escalation for High risk, PEP, adverse information and overrides, with one authorised KI approval and the other KI retained as the backup or conflict alternative.
 - Sanctions/TFS concerns block finalisation, and mandatory High triggers cannot be overridden downward.
 - Frozen assessment snapshot, effective and next-review dates, supersession and audited return-to-draft workflow.
 - Full read-only methodology review showing factors, options, weights, mandatory triggers, bands and review periods.
@@ -429,7 +434,7 @@ Produce consistent, explainable and repeatable client risk assessments suited to
 - An agreed pilot sample is scored manually and in KCAS with matching results.
 - Every result is explainable from recorded evidence and methodology.
 - High-risk mandatory rules cannot be neutralised by ordinary weighting.
-- High-risk decisions, overrides and material exceptions contain both KI approvals and reasons.
+- High-risk decisions, overrides and material exceptions contain one authorised KI approval and reason.
 - Provisional methodology use is clearly labelled, does not block ordinary client assessments and retains the exact version used; one designated KI can sign it off later.
 - Historical assessments remain unchanged after methodology or client-data updates.
 
@@ -563,7 +568,7 @@ Produce a defensible inspection evidence pack and put the proportional Kanaan so
 - Dedicated inspection view/manage/export permissions are assigned proportionately to existing compliance roles.
 - No live inspection case, request item or readiness result was created during technical delivery.
 
-### Operational acceptance gate 7 — completed during Phase 8 rollout
+### Operational acceptance gate 7 — in progress during Phase 8 rollout
 
 - A mock inspection request can be answered from KCAS with a complete evidence index.
 - Reports reproduce the approved records as at the selected date.
@@ -663,6 +668,23 @@ Local packages are held outside source control under `backups\client-review-pack
 
 Package filenames use `KCAS-review-C{client ID}-{surname or entity}-{date}-{unique token}.kcas-review`. The database client ID makes the source package unique even where a Kanaan ID is shared. Each text segment is length-limited and reduced to filename-safe letters, digits and hyphens. The encrypted payload continues to use the stable legacy and Kanaan identifiers for cross-environment matching because internal database IDs can differ between installations.
 
+### 2026 FSCA inspection readiness status — 28 July 2026
+
+The external readiness records under `C:\Download\_kanaan\Compliance\FSCA inspections\2026\Readiness prep` were reconciled with the latest working documents on 28 July 2026.
+
+Current prepared position:
+
+- The approved 3 July 2025 RMCP is retained as the previous approved version.
+- `Kanaan Business Risk Assessment 2026 - working draft.docx` is version 0.11, a management-review draft with confirmed business and governance facts.
+- `Kanaan RMCP 2026 - revised working draft.docx` is version 0.10, a management-confirmed working draft linked to the BRA and KCAS controls.
+- `Kanaan Governance and Organisational Structure 2026 - Revised.docx` records Andries below Andre and Gert operationally, with direct unrestricted compliance escalation to the Board.
+- The 2026 Board approval resolution and four explanatory/factual letters are prepared but unsigned.
+- The FIC Act/RMCP core training deck, MLCO/goAML/TFS operational deck, assessment and register are prepared for the scheduled 29 July 2026 session. The session is not recorded as complete until signed attendance, results and any remediation exist.
+- Every-business-day goAML message-board checking commenced on 28 July 2026; Andre's separate backup access is confirmed and must be evidenced and tested.
+- KCAS provides the technical evidence, screening, assessment, BRA/RMCP, monitoring and inspection-pack destination. The Badenhorst pilot proves the client workflow; the remaining population and TFS coverage remain operational work.
+
+The submission and onsite dates are controlled separately. Draft preparation is not approval, signature or operating evidence. The final submission must use the exact signed/approved files and retain the delivery receipt, while transparent dated implementation actions may continue toward the onsite inspection.
+
 ## 15. Cross-cutting requirements
 
 These apply to every phase:
@@ -712,14 +734,12 @@ Do not infer completion from code alone. Recheck the acceptance evidence and dep
 
 ## 18. Current open decisions
 
-These decisions are deliberately deferred until their phase starts:
+Current open decisions and signing gates:
 
-- The approved client-risk factors, weights, mandatory rules, bands and review frequencies.
-- The evidence-storage approach for sensitive client documents.
-- The final BRA scoring methodology and risk appetite/tolerance formulation.
-- The final signed RMCP document format and export requirements.
-- Which external screening or compliance systems, if any, will integrate with KCAS.
-- Notification channels and escalation timeframes.
-- Retention periods and read-only inspector access policy.
-
-These are not blockers for Phase 0. They must be resolved before the relevant later phase's design is accepted.
+- Management must validate the BRA v0.11 ratings, treatments, owners and dates before version-locking.
+- The revised RMCP v0.10 must be reconciled with the final BRA and corrected to reflect the actual training/signature state at the time it is approved.
+- The Board resolution schedules must identify the exact final filenames, versions, dates, page counts and hashes, and the trust-deed decision/quorum/signature mechanics must be completed.
+- The resolution's client-register signing condition must be reconciled with the transparent post-submission implementation action plan; the record must not simultaneously require completed population coverage and describe that same work as outstanding.
+- Final stable PDFs and Appendix A section 42 page references remain to be produced.
+- The numbered evidence pack, cover response, exact file index and submission receipt remain to be assembled and retained.
+- External screening integration, notification channels, long-term retention refinements and any inspector-access mechanism remain later operational choices; they do not replace the immediate KCAS and controlled-document evidence.
