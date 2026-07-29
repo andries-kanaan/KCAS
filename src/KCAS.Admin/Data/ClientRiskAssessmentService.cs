@@ -425,16 +425,13 @@ public sealed class ClientRiskAssessmentService(
             Decision = ComplianceStatuses.Approved,
             Reason = reason.Trim()
         });
-        if (assessment.Approvals.Count(item => item.Decision == ComplianceStatuses.Approved) >= 2)
-        {
-            assessment.Status = ClientRiskAssessmentStatuses.Approved;
-            assessment.ApprovedAtUtc = DateTime.UtcNow;
-            await SupersedePriorAssessmentsAsync(assessment);
-        }
+        assessment.Status = ClientRiskAssessmentStatuses.Approved;
+        assessment.ApprovedAtUtc = DateTime.UtcNow;
+        await SupersedePriorAssessmentsAsync(assessment);
         assessment.UpdatedAtUtc = DateTime.UtcNow;
         db.ComplianceAuditEvents.Add(CreateAudit(
             assessment.Id,
-            assessment.Status == ClientRiskAssessmentStatuses.Approved ? "ApprovedByBothKIs" : "KiApprovalRecorded",
+            "ApprovedByKI",
             approver,
             reason,
             new { assessment.Status, ApprovalCount = assessment.Approvals.Count }));

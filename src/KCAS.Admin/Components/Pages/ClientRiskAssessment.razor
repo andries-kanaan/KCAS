@@ -157,7 +157,10 @@ else
                 </dl>
                 @if (model.Assessment.Status == ClientRiskAssessmentStatuses.PendingKiApproval)
                 {
-                    <div class="alert alert-warning">This elevated assessment requires two distinct KI approvals. @model.Assessment.Approvals.Count of 2 recorded.</div>
+                    <div class="alert alert-warning">
+                        This High, EDD or override assessment requires one authorised KI approval.
+                        The other KI remains available as the backup or conflict alternative.
+                    </div>
                     <input class="form-control" @bind="reason" placeholder="Reason for approval or return" />
                     <button type="button" class="btn btn-primary mt-2" @onclick="ApproveAsync" disabled="@(!canApprove)">Record KI approval</button>
                     <button type="button" class="btn btn-outline-danger mt-2 ms-1" @onclick="ReturnToDraftAsync" disabled="@(!canApprove)">Return to draft</button>

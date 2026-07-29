@@ -66,7 +66,7 @@ public sealed class ClientRiskAssessmentServiceTests(KcasWebApplicationFactory f
     }
 
     [Fact]
-    public async Task Elevated_assessment_requires_two_distinct_ki_approvals()
+    public async Task Elevated_assessment_requires_one_authorised_ki_approval()
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -83,16 +83,21 @@ public sealed class ClientRiskAssessmentServiceTests(KcasWebApplicationFactory f
         await service.SaveDraftAsync(assessmentId, edit, "rep@example.test", "Complete elevated assessment.");
         await service.FinaliseAsync(assessmentId, "rep@example.test", "Escalate elevated assessment.");
 
-        await service.ApproveAsync(assessmentId, "ki-one@example.test", "First KI accepts EDD relationship.");
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.ApproveAsync(assessmentId, "ki-one@example.test", "Try duplicate approval."));
-        await service.ApproveAsync(assessmentId, "ki-two@example.test", "Second KI accepts EDD relationship.");
+        await service.ApproveAsync(assessmentId, "ki-one@example.test", "KI accepts EDD relationship.");
 
         var assessment = await db.ClientRiskAssessments.AsNoTracking()
             .Include(item => item.Approvals)
             .SingleAsync(item => item.Id == assessmentId);
         Assert.Equal(ClientRiskAssessmentStatuses.Approved, assessment.Status);
-        Assert.Equal(2, assessment.Approvals.Count);
+        Assert.Single(assessment.Approvals);
+        Assert.NotNull(assessment.ApprovedAtUtc);
+
+        var audit = await db.ComplianceAuditEvents.AsNoTracking()
+            .SingleAsync(item =>
+                item.EntityType == nameof(ClientRiskAssessment) &&
+                item.EntityId == assessmentId &&
+                item.Action == "ApprovedByKI");
+        Assert.Equal("ki-one@example.test", audit.UserName);
     }
 
     [Fact]
