@@ -160,7 +160,7 @@ else
                 Orphaned @selectedRun.OrphanedCount · Failed @selectedRun.FailedCount
             </p>
             <p class="text-muted mb-1">Source database: @selectedRun.SourceLabel · Snapshot SHA-256: @ShortHash(selectedRun.SourceSnapshotSha256)</p>
-            <p class="text-muted">During incremental reconciliation, fund valuations and KYC policies remain review-only where legacy replacement workflows create new primary IDs.</p>
+            <p class="text-muted">During incremental reconciliation, fund valuations remain review-only because monthly replacement workflows create new primary IDs.</p>
             @if (selectedRun.ApprovedScanRunId.HasValue)
             {
                 <p class="text-muted">Approved scan: #@selectedRun.ApprovedScanRunId</p>
@@ -384,7 +384,7 @@ else
             .Where(row => row.LegacyImportRunId == selectedRunId)
             .Where(row => row.Classification == LegacyImportClassifications.New)
             .Where(row => row.ApplyStatus != LegacyImportApplyStatuses.Applied)
-            .Where(row => row.SourceTable != "tbl_fund" && row.SourceTable != "tbl_kyc")
+            .Where(row => row.SourceTable != "tbl_fund")
             .CountAsync();
 
         var query = Db.LegacyImportRowStates.AsNoTracking()

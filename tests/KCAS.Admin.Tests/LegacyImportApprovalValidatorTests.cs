@@ -16,9 +16,9 @@ public sealed class LegacyImportApprovalValidatorTests
 
         var approved = LegacyImportApprovalValidator.GetApprovedNewRows(run, "stage", new string('A', 64));
 
-        var item = Assert.Single(approved);
-        Assert.Equal(("tbl_client", 1L), item.Key);
-        Assert.Equal("one", item.Value);
+        Assert.Equal(2, approved.Count);
+        Assert.Equal("one", approved[("tbl_client", 1)]);
+        Assert.Equal("replacement-policy", approved[("tbl_kyc", 4)]);
     }
 
     [Fact]
@@ -82,13 +82,13 @@ public sealed class LegacyImportApprovalValidatorTests
     {
         var run = Scan("stage", new string('a', 64));
         run.Rows.Add(Row("tbl_client", 1, LegacyImportClassifications.Changed, "one"));
-        run.Rows.Add(Row("tbl_kyc", 2, LegacyImportClassifications.New, "two"));
+        run.Rows.Add(Row("tbl_fund", 2, LegacyImportClassifications.New, "two"));
 
         Assert.Throws<InvalidOperationException>(() => LegacyImportApprovalValidator.GetApprovedNewRows(
             run,
             "stage",
             new string('a', 64),
-            new HashSet<(string Table, long Id)> { ("tbl_client", 1), ("tbl_kyc", 2) }));
+            new HashSet<(string Table, long Id)> { ("tbl_client", 1), ("tbl_fund", 2) }));
     }
 
     private static LegacyImportRun Scan(string source, string hash) => new()

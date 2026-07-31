@@ -238,7 +238,7 @@ Transfer the fresh export to a secured server location. The operator command sta
 
 If no path is supplied, the command opens a file picker. It reads the same protected `ConnectionStrings:DefaultConnection` setting as KCAS and never displays or copies the password into its state file. The configured database account must have access to `kcas_blazor` and permission to create checksum-named `kcas_legacy_stage_*` databases. Non-secret settings and the latest snapshot are remembered under `shared\legacy-import-operator`.
 
-The command calculates SHA-256, restores the export into `kcas_legacy_stage_<hash-prefix>`, validates the required tables, scans it against KCAS, opens `/imports`, and displays the scan run number. It reuses only a staging database that has the matching manifest and does not delete staging data automatically.
+The command calculates SHA-256, restores the export into `kcas_legacy_stage_<hash-prefix>`, validates the required tables, scans it against KCAS, opens `/imports`, and displays the scan run number. It reuses only a staging database that has the matching manifest. The preceding staging database remains available until the replacement scan succeeds.
 
 If production uses an external URL, it can be saved with the first scan:
 
@@ -247,13 +247,13 @@ If production uses an external URL, it can be saved with the first scan:
     -ReviewUrl 'https://kcas.example/imports'
 ```
 
-Review the run at `/imports` as an Administrator. Changed, missing, invalid, and orphaned records are review-only until an authorised user records a reasoned retain, apply incoming, manual, defer, or reject decision. `tbl_fund` and `tbl_kyc` are also review-only because legacy replacement workflows can recreate their primary IDs. To add only the remaining exact new table/legacy-ID/fingerprint combinations from that scan:
+Review the run at `/imports` as an Administrator. A successful scan becomes the active snapshot: older applicable scans are marked superseded and their staging databases are removed. Changed, missing, invalid, and orphaned records are review-only until an authorised user records a reasoned retain, apply incoming, manual, defer, or reject decision. `tbl_fund` is also review-only because its monthly replacement workflow can recreate primary IDs; new `tbl_kyc` rows follow the normal incremental rules. To add only the remaining exact new table/legacy-ID/fingerprint combinations from that scan:
 
 ```powershell
 & 'D:\Deploy\KCAS\current\Import-KCAS-Legacy.cmd' -ApplyNew <reviewed-run-id>
 ```
 
-Apply mode uses the remembered immutable snapshot, creates another database backup under `shared\database-backups`, rejects mismatched provenance, applies only the scan's safe new records, and automatically performs a verification scan. Output plus `imports.jsonl` is written under `shared\legacy-import-logs`. The staging database is retained until an explicit, separately reviewed cleanup.
+Apply mode uses the remembered immutable snapshot, creates another database backup under `shared\database-backups`, rejects mismatched provenance, applies only the scan's safe new records, and automatically performs a verification scan. Output plus `imports.jsonl` is written under `shared\legacy-import-logs`. Only the active staging database is retained; audit runs, hashes, manifests and logs remain available without accumulating old staging databases.
 
 During the current pre-live acceptance period, baseline import reset can be enabled on the live server with:
 
@@ -338,6 +338,23 @@ Migrations should use an expand-and-contract approach where practical so that th
 - Never run `ApplyNew` without the reviewed scan ID and the same staged snapshot manifest.
 - Never put a legacy SQL export into Git, a release ZIP, or deployment logs.
 - Retain deployment logs with the corresponding backup, Git commit and migration.
+
+## Codex read-only database inventory
+
+Database inventory reporting is part of the repository's Codex working protocol; the operator does not need to remember or run it manually. Codex runs the report before handing off database-affecting work and before requested commit, push, pull-request or release workflows:
+
+```powershell
+& 'D:\Deploy\KCAS\current\Report-KCAS-DatabaseInventory.ps1'
+```
+
+The report lists every `kcas*` schema with its category, size, age and recommended disposition. It identifies the active checksum staging database from reconciliation history and flags inactive staging, deployment-test, import-rehearsal, old recovery and unclassified schemas for review. It never drops or changes a database. Repository-level instructions in `AGENTS.md` require Codex to report unexpected buildup and prohibit deletion without explicit user authorization.
+
+An optional JSON report can be retained for monitoring:
+
+```powershell
+& 'D:\Deploy\KCAS\current\Report-KCAS-DatabaseInventory.ps1' `
+    -OutputPath 'D:\Deploy\KCAS\shared\database-inventory\latest.json'
+```
 
 ## Later improvement: Windows Service
 

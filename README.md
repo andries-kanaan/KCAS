@@ -124,7 +124,7 @@ The `/compliance/client-evidence` scan links server-side client documents for re
 
 After login, approved users are sent to `/clients` when their role includes `Clients.View`; users without client access fall back to `/`. KCAS no longer reuses a stale post-login return URL from a previous user session.
 
-Legacy `tbl_fund` valuations and `tbl_kyc` policies are scan-only because their legacy replacement workflows can create new primary IDs for replacement records. They are excluded from `--apply-new` until KCAS has reviewed stable identities and merge rules.
+Legacy `tbl_fund` valuations are scan-only because monthly replacement workflows can create new primary IDs. They are excluded from `--apply-new`; new `tbl_kyc` policies follow the same incremental rules as other static legacy data.
 
 The immutable Windows package includes scripts that restore a SQL export into a checksum-bound staging database, run scans, back up KCAS before apply, and retain audit logs. See `docs/WINDOWS_DEPLOYMENT.md`.
 

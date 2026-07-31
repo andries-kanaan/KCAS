@@ -59,5 +59,6 @@ public static class LegacyImportRunStatuses
     public const string Scanning = "Scanning";
     public const string AwaitingReview = "AwaitingReview";
     public const string Completed = "Completed";
+    public const string Superseded = "Superseded";
     public const string Failed = "Failed";
 }
