@@ -36,6 +36,7 @@ $manifestPath = Join-Path $snapshotDirectory 'snapshot.json'
 New-Item -ItemType Directory -Path $snapshotDirectory -Force | Out-Null
 
 $previousPassword = $env:MYSQL_PWD
+$createdDatabase = $false
 try {
     if (-not [string]::IsNullOrWhiteSpace($MySqlPassword)) { $env:MYSQL_PWD = $MySqlPassword }
     $baseArguments = @('--batch', '--raw', '--skip-column-names', "--plugin-dir=$(Join-Path $MySqlBasePath 'lib\plugin')", '--protocol=tcp', "--host=$MySqlHost", "--port=$MySqlPort", "--user=$MySqlUser")
@@ -45,6 +46,7 @@ try {
     if ([int]$databaseExists -eq 0) {
         & $mysql @baseArguments --execute "CREATE DATABASE ``$database`` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
         if ($LASTEXITCODE -ne 0) { throw "Could not create staging database '$database'." }
+        $createdDatabase = $true
         $process = Start-Process -FilePath $mysql -ArgumentList (@($baseArguments) + @("--database=$database")) -RedirectStandardInput $exportPath -Wait -PassThru -NoNewWindow
         if ($process.ExitCode -ne 0) { throw "Restoring the legacy SQL export failed with exit code $($process.ExitCode)." }
     }
@@ -57,6 +59,12 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Could not validate staging database '$database'." }
     $missing = $expectedTables | Where-Object { $_ -notin $tableList }
     if ($missing) { throw "Staged export is missing required table(s): $($missing -join ', ')." }
+}
+catch {
+    if ($createdDatabase) {
+        & $mysql @baseArguments --execute "DROP DATABASE IF EXISTS ``$database``;" 2>$null
+    }
+    throw
 }
 finally {
     if ($null -eq $previousPassword) { Remove-Item Env:\MYSQL_PWD -ErrorAction SilentlyContinue } else { $env:MYSQL_PWD = $previousPassword }

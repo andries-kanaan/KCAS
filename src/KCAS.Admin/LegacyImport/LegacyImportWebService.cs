@@ -821,7 +821,6 @@ public sealed class LegacyImportWebService(
         {
             var failed = await importer.ExecuteAsync();
             await recorder.CompleteAsync(failed, cancellationToken: cancellationToken);
-            return recorder.Run;
         }
         catch (Exception ex)
         {
@@ -829,6 +828,19 @@ public sealed class LegacyImportWebService(
             await recorder.FailAsync(failureMessage, cancellationToken);
             throw new InvalidOperationException($"Legacy import run {recorder.Run.Id} failed: {failureMessage}", ex);
         }
+
+        if (LegacyImportStagingLifecycle.CanActivate(recorder.Run))
+        {
+            await legacyConnection.CloseAsync();
+            await LegacyImportStagingLifecycle.ActivateAsync(
+                db,
+                BuildServerConnectionString(),
+                recorder.Run.Id,
+                stagedDatabase,
+                cancellationToken);
+        }
+
+        return recorder.Run;
     }
 
     private async Task<string> StageSnapshotAsync(string sqlPath, string sha256, CancellationToken cancellationToken)
@@ -841,16 +853,37 @@ public sealed class LegacyImportWebService(
         existsCommand.CommandText = "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = @database;";
         existsCommand.Parameters.AddWithValue("@database", database);
         var exists = Convert.ToInt32(await existsCommand.ExecuteScalarAsync(cancellationToken));
-        if (exists == 0)
+        var createdDatabase = exists == 0;
+        try
         {
-            var createCommand = serverConnection.CreateCommand();
-            createCommand.CommandText = $"CREATE DATABASE `{database}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;";
-            await createCommand.ExecuteNonQueryAsync(cancellationToken);
-            await RestoreSqlAsync(sqlPath, database, cancellationToken);
-        }
+            if (createdDatabase)
+            {
+                var createCommand = serverConnection.CreateCommand();
+                createCommand.CommandText = $"CREATE DATABASE `{database}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;";
+                await createCommand.ExecuteNonQueryAsync(cancellationToken);
+                await RestoreSqlAsync(sqlPath, database, cancellationToken);
+            }
 
-        await ValidateStagedDatabaseAsync(database, cancellationToken);
-        return database;
+            await ValidateStagedDatabaseAsync(database, cancellationToken);
+            return database;
+        }
+        catch
+        {
+            if (createdDatabase)
+            {
+                try
+                {
+                    var cleanupCommand = serverConnection.CreateCommand();
+                    cleanupCommand.CommandText = $"DROP DATABASE IF EXISTS `{database}`;";
+                    await cleanupCommand.ExecuteNonQueryAsync(CancellationToken.None);
+                }
+                catch (Exception cleanupException)
+                {
+                    logger.LogError(cleanupException, "Could not remove incomplete legacy staging database {Database}.", database);
+                }
+            }
+            throw;
+        }
     }
 
     private async Task RestoreSqlAsync(string sqlPath, string database, CancellationToken cancellationToken)
@@ -1168,7 +1201,7 @@ public sealed class LegacyImportWebService(
     }
 
     private static bool IsStagedDatabaseName(string value)
-        => Regex.IsMatch(value, "^kcas_legacy_stage_[0-9a-f]{12}$", RegexOptions.IgnoreCase);
+        => LegacyImportStagingLifecycle.IsStagedDatabase(value);
 
     private static bool IsLocalHost(string host)
         => host is "localhost" or "127.0.0.1" or "::1";

@@ -6,8 +6,7 @@ public static class LegacyImportApprovalValidator
 {
     public static readonly IReadOnlySet<string> ReviewOnlySourceTables = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
-        "tbl_fund",
-        "tbl_kyc"
+        "tbl_fund"
     };
 
     public static Dictionary<(string Table, long Id), string> GetApprovedNewRows(

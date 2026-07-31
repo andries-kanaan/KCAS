@@ -12,7 +12,7 @@ if (!options.IsValid)
           KCAS.LegacyImport --legacy "<legacy connection>" --target "<target connection>" --source-snapshot-sha256 <sha256> --apply-new --approved-scan-run <id>
 
         Safe defaults:
-          --scan is the default and changes only reconciliation metadata.
+          --scan is the default; it changes reconciliation metadata and retires inactive staging snapshots.
           --apply-new adds legacy IDs that do not exist in KCAS; it never updates or deletes existing business rows.
 
         Environment variable fallbacks:
@@ -70,12 +70,11 @@ var recorder = await LegacyImportRunRecorder.StartAsync(
     options.ApprovedScanRunId);
 var importer = new IncrementalLegacyImporter(db, legacyConnection, recorder, approvedNewRows);
 
+int failed;
 try
 {
-    var failed = await importer.ExecuteAsync();
+    failed = await importer.ExecuteAsync();
     await recorder.CompleteAsync(failed);
-    PrintSummary(recorder.Run);
-    return failed == 0 ? 0 : 1;
 }
 catch (Exception ex)
 {
@@ -84,6 +83,28 @@ catch (Exception ex)
     Console.Error.WriteLine($"Incremental legacy import run {recorder.Run.Id} failed: {failureMessage}");
     return 1;
 }
+
+if (LegacyImportStagingLifecycle.CanActivate(recorder.Run))
+{
+    try
+    {
+        var activeStagedDatabase = legacyConnection.Database;
+        await legacyConnection.CloseAsync();
+        await LegacyImportStagingLifecycle.ActivateAsync(
+            db,
+            options.LegacyConnectionString,
+            recorder.Run.Id,
+            activeStagedDatabase);
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Scan completed, but activating its staging snapshot failed: {ex.GetBaseException().Message}");
+        return 1;
+    }
+}
+
+PrintSummary(recorder.Run);
+return failed == 0 ? 0 : 1;
 
 static string NormalizeLegacyConnectionString(string connectionString)
 {

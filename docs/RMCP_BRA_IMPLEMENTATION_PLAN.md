@@ -2,7 +2,7 @@
 
 Status: Active source of truth  
 Plan owner: Kanaan / KCAS  
-Last updated: 2026-07-29
+Last updated: 2026-07-30
 Implementation approach: gated, incremental releases
 
 ## 1. Purpose
@@ -83,7 +83,16 @@ Folder: `RMCP and Policy Approval\04 Working drafts`
 - `Kanaan RMCP 2026 - working draft.docx` is retained for comparison and change history.
 - `Kanaan Governance and Organisational Structure 2026.docx` informs roles, ownership, reporting lines and approval routing.
 
-These documents describe the intended target state but remain working drafts. They must not be represented in KCAS as approved or effective until the prescribed review and approval evidence exists.
+These documents are starting points only. They must not be represented in KCAS as approved or effective until the prescribed review and approval evidence exists. The 30 July 2026 management review supersedes their report-style presentation, draft callouts, provisional conclusions and unresolved wording as described in the dated finalisation decision below.
+
+### Client-file operational evidence
+
+Folder: `C:\Download\_kanaan\Clients`
+
+- Client folders, application forms, source-of-funds declarations and supporting records evidence how Kanaan performs client onboarding and records source-of-funds information in practice.
+- The client folder is read-only source evidence during the controlled review. A document filename, extracted value or Codex observation does not by itself verify a client fact in KCAS.
+- The 30 July 2026 review confirmed that Kanaan always establishes and records source of funds. The record may be an application-form entry, a client declaration or other client-file information. Independent documentary corroboration is obtained where reasonably available or proportionate to the identified risk; it is not a universal prerequisite for every ordinary client.
+- Historic inheritance, pension or similar sources may be supported by a sufficiently detailed declaration and plausibility assessment where original documents are no longer reasonably available. Inconsistency, implausibility, unusual activity or higher risk triggers further enquiry and enhanced measures.
 
 ### Approval and training evidence
 
@@ -124,6 +133,12 @@ Do not resolve a material conflict merely by choosing the newest filename. Recor
    - the BRA assesses Kanaan's exposure across clients, products, services, channels, geography and operating environment;
    - the RMCP records the approved controls, procedures, responsibilities and monitoring response.
 10. Development proceeds phase by phase. A phase starts only after the prior phase's acceptance gate passes.
+11. The final RMCP is Kanaan's own policy and operating programme. It uses present-tense Kanaan-owned wording, not external-review, audit-report or implementation-status language.
+12. Kanaan onboards most clients face to face and also uses direct telephone or Zoom engagement. Email alone is not the client engagement or identity-verification process. Remote engagement requires reliable independent verification and channel-appropriate controls but is not automatically High risk.
+13. Kanaan always establishes and records source of funds. A declaration or recorded client explanation is acceptable where credible and proportionate; documentary corroboration is risk-based rather than mandatory in every file.
+14. The entity-wide BRA must be concise, proportional and tailored to Kanaan. It must distinguish inherent risk from residual risk, consolidate overlapping scenarios and avoid treating offshore exposure, remote contact or a possible severe regulatory consequence as automatically High risk.
+15. The BRA and RMCP require formal Board adoption. Any KI review or KCAS workflow approval is a preparatory governance control and does not replace the Board resolution or signed final document.
+16. Final 2026 documents will be placed under `RMCP and Policy Approval\05 Board approval pack\RMCP and Business Risk Assessment` as `Kanaan RMCP 2026.docx` and `Kanaan Business Risk Assessment 2026.docx`, with matching stable PDFs and exact Board-resolution references when approved.
 
 ## 3. Scope boundary
 
@@ -390,9 +405,9 @@ Produce consistent, explainable and repeatable client risk assessments suited to
 - Ownership/control complexity and transparency.
 - Geographic and jurisdiction exposure.
 - Product and service exposure.
-- Delivery channel and non-face-to-face risk.
+- Delivery channel, including face-to-face, direct telephone and Zoom engagement. Email alone is not onboarding; remote engagement is assessed on the effectiveness of verification and authentication controls and is not automatically High risk.
 - Transaction/activity profile.
-- Source of funds and source of wealth.
+- Source of funds and source of wealth. Source of funds is always established and recorded, while documentary corroboration is proportionate to risk and availability. A credible client declaration or recorded explanation may satisfy the ordinary evidence requirement; higher-risk, inconsistent, unusual or implausible cases require further enquiry and stronger corroboration.
 - PEP/prominent-influential-person exposure.
 - Sanctions/TFS and adverse-information indicators.
 - Other Kanaan-approved risk indicators.
@@ -448,20 +463,22 @@ Create one concise annual Kanaan entity-wide BRA using traceable operational evi
 
 - One versioned annual record covering clients, products/services, channels, geography, activity and relevant external threats.
 - Simple portfolio counts and concentrations drawn from approved client assessments.
-- A compact 3-by-3 likelihood/impact risk table showing inherent risk, key controls, control effectiveness and residual risk.
-- Management judgement, limitations, risk tolerance and required actions with owners and due dates.
-- Both KI approvals and an immutable approved version.
+- A compact 3-by-3 likelihood/impact risk table using a small set of material, consolidated Kanaan-specific risk themes. It must define inherent risk as exposure arising from Kanaan's actual business profile before mitigating controls and residual risk as the exposure remaining after operating controls.
+- An overall risk conclusion in Kanaan's own voice. Do not use an audit-style management dashboard, confirmation-status columns or evidence-readiness ratings as substitutes for the business risk assessment.
+- Proportionate ratings that reflect Kanaan's predominantly natural-person, established client base, no-cash/no-custody model, known products and direct client contact. Offshore exposure, remote engagement and severe possible regulatory consequences do not automatically make inherent or residual risk High.
+- Management judgement, limitations and risk tolerance in the BRA. Operational actions, owners and due dates remain in the linked compliance work register rather than making the signed BRA read like a remediation report.
+- KI review followed by formal Board approval and an immutable approved version.
 - Reproducible export matching the approved Kanaan BRA format.
 
 The BRA must not be a simple average of client scores. Client results are evidence inputs; concentration, products, channels, external threats, controls and management judgement remain independently assessed.
 
 ### Implemented technical foundation
 
-- Separate Business Risk workspace, annual version list and six-category Kanaan starter draft.
+- Separate Business Risk workspace, annual version list and six-category Kanaan starter draft. The starter is a technical foundation, not a requirement to preserve the wording, dashboard or ratings of the July working draft.
 - Proportional 3-by-3 likelihood/impact matrix with visible inherent score and rating.
 - Separately recorded controls, control effectiveness, residual rating, rationale, treatment decision, owner and due date.
 - As-at portfolio evidence snapshot using approved client assessments plus investment-account administrator and product concentrations.
-- Draft, KI review, approved, effective and superseded states with two distinct KI approvals and reasoned audit events.
+- Draft, KI review, Board-approved, effective and superseded states with reasoned audit events. The existing two-KI technical review workflow is preparatory and cannot by itself mark the BRA formally approved without the Board resolution and final approved document.
 - Frozen approved JSON record and reproducible printable view.
 - No live BRA was created, submitted, approved or activated during technical delivery.
 
@@ -470,7 +487,9 @@ The BRA must not be a simple average of client scores. Client results are eviden
 - Portfolio totals reconcile to approved client assessments as at a stated date.
 - Every BRA conclusion links to evidence, methodology and recorded judgement.
 - Control effectiveness and residual risk are separately visible.
+- Ratings are recalculated from the approved methodology and actual Kanaan profile rather than inherited from the July working draft.
 - Treatment actions flow into the Phase 6 remediation workflow.
+- Board approval evidence, exact final document version and KI review history are separately traceable.
 - The approved export is reproducible from the frozen BRA version.
 
 ## 11. Phase 5 — RMCP control and approval management
@@ -484,8 +503,11 @@ Manage the RMCP as a controlled document and concise risk/control register linke
 - Versioned RMCP record with scope, effective date, owner, review cycle and signed Word/PDF source.
 - One concise register mapping BRA risks to RMCP controls, owners, frequency, evidence, monitoring and escalation.
 - Coverage for client risk, CDD, EDD, screening, records, reporting, training, governance and review procedures.
+- Kanaan-owned present-tense policy wording. Remove report-style history, management-confirmation prose, outstanding-question callouts, yellow/orange draft notes and language that instructs Kanaan from an external perspective.
+- Directly state Kanaan's actual onboarding channels and risk-based source-of-funds practice.
+- A short accurate section 42 applicability statement in the RMCP. A separate Annexure D is not required; the inspection-pack Appendix A/page-mapping remains a separate controlled evidence item.
 - Gap or treatment actions recorded in the common compliance work register.
-- Draft, approved, effective and superseded states, with change reason and both KI approvals.
+- Draft, KI review, Board-approved, effective and superseded states, with change reason and exact Board approval evidence.
 - The signed document remains authoritative; KCAS will not become a custom word processor or bank-scale clause-management system.
 
 ### Implemented technical foundation
@@ -496,14 +518,14 @@ Manage the RMCP as a controlled document and concise risk/control register linke
 - BRA-risk links plus owner, frequency, expected evidence, monitoring and escalation for every control.
 - Submission blocks incomplete domain coverage, incomplete controls and unmapped material BRA risks.
 - Identified control gaps create linked treatment items in the existing compliance work register.
-- Two distinct KI approvals, reasoned audit events, frozen approved JSON and printable control record.
+- KI review, Board approval evidence, reasoned audit events, frozen approved JSON and printable control record. Any existing two-KI review step is preparatory and does not replace formal Board adoption.
 - No live RMCP, BRA or client-assessment record was created, submitted, approved or activated during technical delivery.
 
 ### Operational acceptance gate 5 — deferred to Phase 8
 
 - Every material BRA risk maps to one or more controls or an approved treatment action.
 - Every control has an owner, evidence expectation and monitoring frequency.
-- Both KI approvals and the signed resolution/document are traceable.
+- KI review, Board approval, the signed resolution and the exact signed document are separately traceable.
 - The effective RMCP cannot be edited; revisions create a new version.
 - The controlled document reconciles with the approved KCAS record.
 
@@ -685,11 +707,36 @@ Current prepared position:
 
 The submission and onsite dates are controlled separately. Draft preparation is not approval, signature or operating evidence. The final submission must use the exact signed/approved files and retain the delivery receipt, while transparent dated implementation actions may continue toward the onsite inspection.
 
+### RMCP and BRA finalisation direction — 30 July 2026
+
+The 30 July management review and client-file check established the following controlling direction for finalisation:
+
+- The July RMCP and BRA working drafts remain source material but will not be issued as further management-review drafts. Clean final documents will be prepared directly for the Board approval pack.
+- The RMCP will read as Kanaan's own adopted programme. Present-tense wording such as "Kanaan maintains", "Kanaan does not establish", "Kanaan takes" and "Kanaan determines" replaces external instructions such as "Kanaan must".
+- Draft-only yellow/orange narrative callouts, historical implementation reports, management-confirmation language, outstanding questions and evidence-gap commentary will not appear in the final documents.
+- Client engagement is predominantly face to face but also occurs directly by telephone or Zoom. Email alone is not onboarding. Remote engagement uses reliable independent identity verification and appropriate authentication controls and is assessed on its actual risk.
+- Kanaan always establishes and records source of funds. The record may be in the application, a client declaration or other client-file information. Supporting documents are obtained where reasonably available or proportionate to risk; an old inheritance, pension or similar source does not fail solely because decades-old original proof is unavailable.
+- The client-folder sample under `C:\Download\_kanaan\Clients` supports this operating position: dedicated declarations exist, new/general application forms commonly contain source-of-funds or source-of-wealth fields, and switches or amendments do not necessarily repeat onboarding information.
+- The BRA will be Kanaan's self-assessment, not an external confirmation report. The confusing management dashboard will be removed, risk themes consolidated, inherent and residual risk defined plainly, and ratings recalculated proportionately. The outstanding client-by-client assessment programme is an implementation action and does not by itself make entity-wide residual risk High.
+- The RMCP's current Annexure D section 42 table will not be retained in its present form because a separate annex is unnecessary and its statutory mapping contains errors. The RMCP will include a concise applicability statement, while the separate FSCA Appendix A/page mapping will still be completed for the inspection pack.
+- Kanaan's financial-statement auditor is Stuart Edwards & Company, supported by the 2025 audited financial statements and management confirmation. The dashboard reference to "LGA auditors" is not used as the final fact. Kanaan refers to its external compliance support as The Corporate Counsel.
+- The retained training proof covers both the 2024 training cycle under `RMCP and Policy Approval\05 Board approval pack\2026 FIC Act Training\2024 Training` and the signed 2026 training and assessment under `RMCP and Policy Approval\05 Board approval pack\2026 FIC Act Training\Signed 2026 Training`. The RMCP states the continuing training control directly: training before unsupervised affected work, at least annual refresher training and additional training after material legal, risk or procedural change.
+- Short tables will be kept together where practicable; longer tables will use repeated headers and controlled row splitting. All final pages will be rendered and visually inspected.
+- Final Word documents and matching stable PDFs will be placed in `RMCP and Policy Approval\05 Board approval pack\RMCP and Business Risk Assessment`, and the Board resolution will identify the exact filenames, versions, dates, page counts and hashes.
+
+### Final document preparation status — 30 July 2026
+
+- `Kanaan Business Risk Assessment 2026.docx` and its matching PDF were prepared as version 1.0 in the Board approval pack. The stable PDF is 4 pages. The SHA-256 hashes are `025f1e5dfe370a6d202d73c182e322134253904ef4ac0771173624d1d3615b20` for the Word document and `55d13d7742e165049b533008fdcf366c5a885766ddf18f621cf7719f2f5de880` for the PDF.
+- `Kanaan RMCP 2026.docx` and its matching PDF were prepared as version 1.0 in the Board approval pack. The stable PDF is 13 pages. The SHA-256 hashes are `8181c26dc8ea1e275a3544283ced39fee6a609dc667ba2f10e97e711ea448ad3` for the Word document and `9d964a1909e4784d9980e4b4ab8e74ad3d4f2e9232edfff045f49739b00ba0b7` for the PDF.
+- Both final documents use Kanaan-owned present-tense wording, contain no yellow/orange draft callouts, comments or tracked changes, and passed structural and full-page visual QA. Short tables are kept together and longer tables do not split individual rows.
+- The BRA records a Low to Moderate ordinary business profile and Low entity-wide residual risk using seven consolidated Kanaan-specific themes. The RMCP records direct face-to-face, telephone and Zoom engagement, the agreed source-of-funds practice, one authorised KI approval for High-risk clients, the retained 2024 and 2026 training evidence, Stuart Edwards & Company and The Corporate Counsel.
+- These files are final for Board approval but are not yet Board-approved, signed or effective. The exact Board resolution, signature/quorum mechanics and signed copies remain approval gates. The separate FSCA Appendix A page mapping must use the final 13-page RMCP.
+
 ## 15. Cross-cutting requirements
 
 These apply to every phase:
 
-- Least-privilege permissions and proportionate approval: representatives, the Compliance Officer or KIs may complete routine work; one designated KI signs off the operational client-risk methodology; both KIs continue to approve High-risk clients and material exceptions under Kanaan's chosen control. Formal BRA and RMCP adoption remains with Kanaan's Board of Trustees as the documented highest authority and must follow the trust deed, quorum and resolution requirements.
+- Least-privilege permissions and proportionate approval: representatives, the Compliance Officer or KIs may complete routine work; one designated KI signs off the operational client-risk methodology; one authorised KI approves High-risk clients and material exceptions, with the other KI as backup or conflict alternative. Formal BRA and RMCP adoption remains with Kanaan's Board of Trustees as the documented highest authority and must follow the trust deed, quorum and resolution requirements.
 - Server-side authorisation, not menu hiding alone.
 - Immutable history for approved or effective records.
 - Effective dating and version pinning.
@@ -736,10 +783,9 @@ Do not infer completion from code alone. Recheck the acceptance evidence and dep
 
 Current open decisions and signing gates:
 
-- Management must validate the BRA v0.11 ratings, treatments, owners and dates before version-locking.
-- The revised RMCP v0.10 must be reconciled with the final BRA and corrected to reflect the actual training/signature state at the time it is approved.
+- The BRA and RMCP version 1.0 Word/PDF pairs have been prepared and QA-checked. They remain final for Board approval and must not be represented as approved, signed or effective before the approval gates are completed.
 - The Board resolution schedules must identify the exact final filenames, versions, dates, page counts and hashes, and the trust-deed decision/quorum/signature mechanics must be completed.
 - The resolution's client-register signing condition must be reconciled with the transparent post-submission implementation action plan; the record must not simultaneously require completed population coverage and describe that same work as outstanding.
-- Final stable PDFs and Appendix A section 42 page references remain to be produced.
+- The separate FSCA Appendix A section 42 page references remain to be completed against the final 13-page RMCP. The Appendix A inspection mapping must not be confused with, or require retention of, the RMCP draft's inaccurate Annexure D.
 - The numbered evidence pack, cover response, exact file index and submission receipt remain to be assembled and retained.
 - External screening integration, notification channels, long-term retention refinements and any inspector-access mechanism remain later operational choices; they do not replace the immediate KCAS and controlled-document evidence.
