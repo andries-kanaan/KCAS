@@ -13,8 +13,14 @@ These repository-specific checks are performed by Codex. The user should not nee
 ## Git and GitHub identity
 
 - Before any requested commit, push, pull request creation/update, release, or other GitHub mutation, inspect `git remote -v`, `git config user.name`, `git config user.email`, `gh auth status`, and `gh api user --jq .login`.
-- The active GitHub account must match the owner of the `origin` repository unless the user explicitly directs otherwise.
-- If the active account does not match, stop before committing or mutating GitHub and report the mismatch. Do not silently use or switch to another account.
+- Stop before pushing if the active GitHub user lacks access or is clearly the wrong account.
+- Check the configured accounts with `gh auth status`.
+- Before the first push in this repository, explicitly select the repository-owning account with `gh auth switch -u andries-kanaan`.
+- Confirm the selected account and repository with `gh auth status`, `gh api user --jq .login`, and `git remote -v`.
+- Push the branch only after `andries-kanaan` is confirmed as active.
+- Create or update the pull request using the same confirmed account.
+- Verify the pull request's repository, base branch, and head branch after creation or update.
+- If the account cannot be switched or authenticated, report the authentication blocker instead of repeatedly pushing with the wrong credentials.
 - Re-run the identity check immediately before the first GitHub mutation if substantial work or authentication changes occurred after the initial check.
 
 ## Sandbox and command-failure handling

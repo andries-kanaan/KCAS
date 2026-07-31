@@ -171,17 +171,17 @@ Do not resolve a material conflict merely by choosing the newest filename. Recor
 | 1 | Compliance foundation and controlled configuration | Complete for delivery; browser acceptance evidence remains operational follow-up | Configuration/versioning and permissions accepted |
 | 2 | Client profile and evidence readiness | Foundation delivered; operational population deferred to Phase 8 | Pilot clients pass completeness and evidence checks |
 | 3 | Proportional client risk assessment workflow | Technical delivery complete; operational acceptance deferred to Phase 8 | Pilot assessments reproduce approved methodology |
-| 4 | Business Risk Assessment | Technical foundation delivered and browser-checked by the user on 2026-07-26; action integration continues in Phase 6 and operational acceptance is deferred to Phase 8 | BRA approved from traceable evidence and methodology |
-| 5 | RMCP control and approval management | Technical foundation delivered and browser-checked by the user on 2026-07-26; operational acceptance is deferred to Phase 8 | Approved RMCP version links risks, controls and evidence |
+| 4 | Business Risk Assessment | Technical foundation delivered and browser-checked by the user on 2026-07-26; production BRA v1.0 signed and Board-approved on 2026-07-31; population reconciliation continues in Phase 8 | BRA approved from traceable evidence and methodology |
+| 5 | RMCP control and approval management | Technical foundation delivered and browser-checked by the user on 2026-07-26; production RMCP v1.0 signed, Board-approved and effective on 2026-07-31; KCAS control/evidence reconciliation continues in Phase 8 | Approved RMCP version links risks, controls and evidence |
 | 6 | Monitoring, reviews and remediation | Technical foundation delivered and browser-checked by the user on 2026-07-26; operational acceptance is deferred to Phase 8 | End-to-end review and escalation cases pass |
-| 7 | Inspection readiness, reporting and rollout | Technical foundation delivered and browser-checked by the user on 2026-07-26; operational acceptance is part of Phase 8 | Inspection pack, security, recovery and rollout accepted |
-| 8 | Controlled operational population and verification | In progress: lifecycle and per-fact human-verification control implementation started after Phase 7 browser acceptance | Every current client is reviewed, verified and assessed |
+| 7 | Inspection readiness, reporting and rollout | Technical foundation delivered and browser-checked by the user on 2026-07-26; the requested document pack was uploaded to the FSCA and confirmed by email on 2026-07-31; onsite operational acceptance continues in Phase 8 | Inspection pack, security, recovery and rollout accepted |
+| 8 | Controlled operational population and verification | In progress: control foundation delivered and first live Badenhorst pilot completed; resume the remaining population client by client | Every current client is reviewed, verified and assessed |
 
-Current resume point: **complete the time-critical 2026 FSCA document-readiness and approval work for the 3 August submission deadline, then resume Phase 8 client by client under explicit user approval using the completed Prof Philip Nel Badenhorst pilot as the operational pattern.**
+Current resume point: **resume Phase 8 client by client under explicit user approval using the completed Prof Philip Nel Badenhorst pilot as the operational pattern, while continuing the operating-effectiveness and retrieval evidence required for the 22 September 2026 onsite inspection.**
 
 The inspection-readiness work does not replace or cancel Phase 8. It creates two controlled horizons:
 
-1. By 3 August 2026, complete the training evidence, explanatory-letter signatures, management validation, exact BRA/RMCP version-locking, Board approval, Appendix A page mapping, numbered submission pack and delivery evidence.
+1. The 3 August 2026 document-response horizon was completed ahead of deadline on 31 July 2026: the numbered final pack, signed explanatory/factual records, signed and Board-approved BRA/RMCP and training/monitoring evidence were uploaded to the FSCA, and the upload was confirmed to the FSCA by email. The sent email and any portal receipt or screenshot should be retained with the submission evidence.
 2. Before the onsite inspection on 22 September 2026, continue the KCAS current-client population, TFS/screening coverage, representative control testing, goAML continuity evidence and mock inspection/retrieval exercise.
 
 Phase 0 remains available for operational import acceptance and final data switch-over evidence, but it is no longer the active development blocker.
@@ -730,7 +730,27 @@ The 30 July management review and client-file check established the following co
 - `Kanaan RMCP 2026.docx` and its matching PDF were prepared as version 1.0 in the Board approval pack. The stable PDF is 13 pages. The SHA-256 hashes are `8181c26dc8ea1e275a3544283ced39fee6a609dc667ba2f10e97e711ea448ad3` for the Word document and `9d964a1909e4784d9980e4b4ab8e74ad3d4f2e9232edfff045f49739b00ba0b7` for the PDF.
 - Both final documents use Kanaan-owned present-tense wording, contain no yellow/orange draft callouts, comments or tracked changes, and passed structural and full-page visual QA. Short tables are kept together and longer tables do not split individual rows.
 - The BRA records a Low to Moderate ordinary business profile and Low entity-wide residual risk using seven consolidated Kanaan-specific themes. The RMCP records direct face-to-face, telephone and Zoom engagement, the agreed source-of-funds practice, one authorised KI approval for High-risk clients, the retained 2024 and 2026 training evidence, Stuart Edwards & Company and The Corporate Counsel.
-- These files are final for Board approval but are not yet Board-approved, signed or effective. The exact Board resolution, signature/quorum mechanics and signed copies remain approval gates. The separate FSCA Appendix A page mapping must use the final 13-page RMCP.
+- At the close of document preparation on 30 July, these files were final for Board approval but were not yet signed or effective. That preparation-stage status was superseded by the signed approval and upload recorded below on 31 July 2026.
+
+### Signed approval and FSCA upload status — 31 July 2026
+
+- All five trustees signed the final four-page `Kanaan Business Risk Assessment 2026` and the final 13-page `Kanaan RMCP 2026` on 31 July 2026. The RMCP states that its effective date is the date of Board approval; it is therefore effective from 31 July 2026.
+- The final FSCA response set was assembled under `RMCP and Policy Approval\06 Signed final` as numbered items 5.1–5.8. It contains the signed factual/governance confirmation, revised governance and organisational structure, signed BRA, signed 2026 RMCP, retained approved 2025 RMCP, 2023/2024/2025–2026 training archives, signed internal- and external-audit-position letters, and the monitoring dashboard/supporting records.
+- The complete requested response set was uploaded to the FSCA on 31 July 2026. Kanaan sent the FSCA a follow-up email confirming that the upload had been completed.
+- This closes the time-critical 3 August document-submission workstream. The submission does not close the separate operating-effectiveness programme for the 22 September onsite inspection.
+- For durable delivery evidence, retain the sent confirmation email together with any portal receipt, upload acknowledgement or screenshot. Absence of a separate portal receipt does not change the recorded fact that Kanaan completed the upload and notified the FSCA.
+- The signed BRA and RMCP approval tables do not contain a Board resolution/minute reference and retain the preparation-stage footer `Final for Board approval`. The completed trustee signatures and dates evidence the Board approval used for the submission. If a separate minute or written-resolution reference exists, record it in the governance register; this is a recordkeeping follow-up, not an outstanding FSCA upload item.
+- The separate Appendix A section 42 page-mapping exercise is no longer treated as a blocker to the completed numbered upload. It remains available as internal inspection-readiness support or for a later FSCA request and must use the final 13-page RMCP if completed.
+
+### goAML daily-check evidence — Phase 1 technical delivery, 31 July 2026
+
+- KCAS now has a dedicated `Compliance > goAML daily checks` workflow at `/compliance/goaml`. It opens the official goAML portal in a separate tab and creates one controlled daily check record per date without storing goAML credentials.
+- A Compliance.Manage user records one of three outcomes: no new/actionable messages, a new message requiring action, or goAML unavailable. Successful access requires screenshot evidence. An unavailable result requires either screenshot evidence or an explanation, so notes are optional when the screenshot already shows the access problem. The evidenced unavailable result completes the daily requirement; Kanaan records the FIC-system failure and carries on with its business rather than requiring repeated access attempts that day.
+- Browser-selected PNG/JPEG screenshots are converted before upload to a readable JPEG no larger than 1600 × 1000. KCAS stores the filename, protected server path, byte count and SHA-256 hash and serves the image only through a Compliance.View-authorised endpoint.
+- The evidence base folder, official portal URL, tracking start date, local due hour and backup checker are editable in KCAS. The default base folder is `C:\Download\_kanaan\Compliance\dailygoAML`; KCAS creates year/month subfolders automatically.
+- A new/actionable goAML message automatically creates a High-priority item in the common compliance work register with the message reference, owner and due date. Missing required dates are shown as a red alert on both the goAML page and the main compliance dashboard.
+- Settings changes, check start/completion and generated work items create compliance audit events. Every completed daily outcome, including an evidenced FIC-system access failure, is immutable and closes the requirement for that date.
+- Migration `20260731203226_AddGoAmlDailyChecks`, its reviewed targeted SQL script and the regenerated fresh-database schema are included. A pre-migration backup was retained at `backups\database\kcas_blazor-pre-goaml-20260731-2245.sql`, the migration was applied to the live KCAS database, and KCAS restarted successfully through Kestrel and the HTTPS proxy. The release build, migration-model check and all 187 automated tests passed; authenticated interactive-browser acceptance remains an operational follow-up because the in-app browser connector was unavailable during delivery.
 
 ## 15. Cross-cutting requirements
 
@@ -781,11 +801,11 @@ Do not infer completion from code alone. Recheck the acceptance evidence and dep
 
 ## 18. Current open decisions
 
-Current open decisions and signing gates:
+Current open decisions and operational follow-up:
 
-- The BRA and RMCP version 1.0 Word/PDF pairs have been prepared and QA-checked. They remain final for Board approval and must not be represented as approved, signed or effective before the approval gates are completed.
-- The Board resolution schedules must identify the exact final filenames, versions, dates, page counts and hashes, and the trust-deed decision/quorum/signature mechanics must be completed.
-- The resolution's client-register signing condition must be reconciled with the transparent post-submission implementation action plan; the record must not simultaneously require completed population coverage and describe that same work as outstanding.
-- The separate FSCA Appendix A section 42 page references remain to be completed against the final 13-page RMCP. The Appendix A inspection mapping must not be confused with, or require retention of, the RMCP draft's inaccurate Annexure D.
-- The numbered evidence pack, cover response, exact file index and submission receipt remain to be assembled and retained.
+- Retain the FSCA confirmation email and any available portal receipt, upload acknowledgement or screenshot with the signed-final evidence set.
+- If a separate Board minute or written-resolution reference exists for the 31 July approval, record that reference in the governance register. The BRA and RMCP themselves were signed by all five trustees on 31 July 2026 and were uploaded as the approved response documents.
+- Continue Phase 8 lifecycle classification, human verification, evidence readiness, screening and client-risk assessment across the imported population. Do not infer full client-population or TFS coverage from completion of the document upload.
+- Complete representative control testing, goAML continuity evidence, a mock inspection/retrieval exercise and backup/restore evidence before the 22 September onsite inspection.
+- The separate Appendix A section 42 page mapping may be completed as supporting inspection evidence if operationally useful or requested by the FSCA; any mapping must use the final 13-page RMCP and must not reintroduce the superseded draft Annexure D analysis.
 - External screening integration, notification channels, long-term retention refinements and any inspector-access mechanism remain later operational choices; they do not replace the immediate KCAS and controlled-document evidence.

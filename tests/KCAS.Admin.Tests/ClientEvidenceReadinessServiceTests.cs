@@ -80,7 +80,17 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
 
         Assert.True(readiness.IsReadyForRiskAssessment);
         Assert.Equal(0, readiness.BlockedCount);
-        Assert.True(await db.ComplianceAuditEvents.AnyAsync(audit => audit.EntityType == "ClientEvidenceException"));
+        var exceptionIds = await db.ClientEvidenceExceptions
+            .Where(exception => exception.ClientId == clientId)
+            .Select(exception => exception.Id)
+            .ToListAsync();
+        var exceptionAuditIds = await db.ComplianceAuditEvents
+            .Where(audit => audit.EntityType == "ClientEvidenceException")
+            .Select(audit => audit.EntityId)
+            .ToListAsync();
+        Assert.NotEmpty(exceptionIds);
+        Assert.DoesNotContain(0, exceptionAuditIds);
+        Assert.All(exceptionIds, exceptionId => Assert.Contains(exceptionId, exceptionAuditIds));
     }
 
     [Fact]
