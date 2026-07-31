@@ -1129,6 +1129,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             ReviewDate = reviewDate
         };
         db.ClientEvidenceExceptions.Add(evidenceException);
+        await db.SaveChangesAsync();
         await AddAuditAsync("ClientEvidenceException", evidenceException.Id, "ApproveException", evidenceException, userName, reason);
         await db.SaveChangesAsync();
     }

@@ -1,6 +1,6 @@
 # KCAS Blazor Rewrite Plan
 
-Last updated: 2026-07-28
+Last updated: 2026-07-31
 
 The authoritative staged roadmap for client risk evaluation, the Business Risk Assessment, the RMCP and inspection readiness is [RMCP_BRA_IMPLEMENTATION_PLAN.md](RMCP_BRA_IMPLEMENTATION_PLAN.md).
 
@@ -318,7 +318,7 @@ Verified locally after the security, import, compliance foundation and client ev
 - `dotnet build` succeeds.
 - `dotnet test tests\KCAS.Admin.Tests\KCAS.Admin.Tests.csproj` passes.
 - `dotnet ef migrations has-pending-model-changes` reports no pending model changes.
-- `src\KCAS.Admin\Data\Migrations\kcas_blazor_schema.sql` includes the client operational-verification foundation and records latest migration `20260726175421_AddClientOperationalVerification`.
+- `src\KCAS.Admin\Data\Migrations\kcas_blazor_schema.sql` includes the goAML daily-check evidence workflow and records latest migration `20260731203226_AddGoAmlDailyChecks`.
 - Kestrel starts on `http://127.0.0.1:5143`.
 - WAMP HTTPS proxy reaches the app at `https://kcas.test:8443`.
 - `https://kcas.test:8443/clients` redirects unauthenticated users to login.
@@ -332,6 +332,7 @@ Verified locally after the security, import, compliance foundation and client ev
 - RMCP routes, nine-domain control coverage, BRA-risk mapping, gap-to-task creation, two-KI approval, immutable approved export and effective-version supersession are covered by automated tests.
 - Monitoring routes, due-review generation, trigger work creation, linked control work, escalation, evidence-gated closure and proportionate one/two-approver closure are covered by automated tests.
 - Inspection routes, dedicated permissions, request/evidence items, readiness checks, as-at evidence indexing, frozen print/JSON export and immutability are covered by automated tests.
+- The goAML daily-check route, configurable evidence folder, daily overdue detection, compressed screenshot evidence, optional unavailable notes when screenshot evidence exists, evidenced-unavailable completion without a false overdue warning or repeat-attempt requirement, SHA-256 provenance, immutable completion and automatic High-priority work-item escalation are covered by automated tests.
 - Client evidence readiness, server-folder scanner idempotence, unmatched-file handling, evidence verification and exception logic are covered by automated tests.
 - Shared client-folder aliases, conservative ownership assignment, multi-client evidence confirmation and category false-positive prevention are covered by automated tests.
 - Trust/legal-person entity profiles, multi-role related parties, party evidence links, screening subjects and ownership readiness blockers are covered by automated tests.
@@ -345,6 +346,7 @@ Still to verify manually in browser:
 - `/Account/WindowsLogin` works in the browser/WAMP and production reverse-proxy environments.
 - `/imports` supports scan review decisions and baseline reset only when `LegacyImport:AllowResetImportedData` is enabled.
 - `/compliance` and `/compliance/settings` support the full Phase 1 controlled configuration workflow in the deployed browser environment.
+- `/compliance/goaml` supports the daily start, screenshot upload, outcome, retry, settings and escalation workflow in the deployed browser environment.
 - `/compliance/client-evidence` can configure and scan the live server client document root.
 - `/clients/{id}/evidence` supports per-client evidence readiness review.
 - `/clients/{id}/ownership` supports audited trust/legal-person ownership, control, authority, evidence and screening traceability.
@@ -385,9 +387,9 @@ Still to verify manually in browser:
    - Design for Kanaan's small operating structure rather than bank-scale approval, case-management and analytics workflows.
    - After those tools are complete, return to the mandatory client-by-client operational population and human-verification gate; do not allow that deferred work to disappear from the programme.
    - Phase 7 inspection readiness was browser-checked by the user on 2026-07-26.
-   - Time-critical operational inspection readiness is now the immediate priority: complete the 3 August 2026 document response and approval evidence, then continue operating-effectiveness evidence and Phase 8 client population before the 22 September onsite inspection.
-   - The external readiness pack was reconciled on 2026-07-28 with BRA v0.11, revised RMCP v0.10, the revised governance organogram, the prepared Board resolution, four explanatory/factual letters, the scheduled 29 July training pack, goAML continuity and the Badenhorst KCAS pilot.
-   - Do not record the 29 July training, signatures, Board approval, full client population or TFS coverage as complete until the corresponding evidence exists.
+   - The 3 August 2026 document-response workstream was completed ahead of deadline on 2026-07-31: all trustees signed the final BRA and RMCP, the numbered response pack was uploaded to the FSCA, and Kanaan confirmed the upload to the FSCA by email.
+   - Phase 8 client population and operating-effectiveness evidence are now the immediate priority before the 22 September onsite inspection, including current-population screening coverage, goAML continuity, representative control testing and a mock evidence-retrieval exercise.
+   - The signed document upload does not establish full client-population or TFS coverage; record those controls as complete only when the corresponding operational evidence exists.
    - Phase 8 starts with lifecycle classification and a per-fact assisted/imported verification register. Its technical control must be deployed and browser-checked before any live client is classified or changed.
    - Once that control is accepted, proceed client by client in Codex: inspect the selected folder and documents, report differences and recommendations, and wait for explicit user approval before applying any client fact.
    - Add reference-data administration screens only if operational users need to maintain values inside KCAS.

@@ -1,0 +1,261 @@
+@page "/compliance/goaml"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
+@using KCAS.Admin.Data
+@inject GoAmlDailyCheckService GoAml
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>goAML daily checks</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Compliance</p>
+        <h1>goAML daily message-board checks</h1>
+        <p class="lede">Open goAML, record the daily outcome, retain readable screenshot evidence and escalate new messages into the compliance work register.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="/compliance">Compliance dashboard</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(message))
+{
+    <div class="alert @(isError ? "alert-danger" : "alert-info")">@message</div>
+}
+
+@if (dashboard is null)
+{
+    <p>Loading goAML checks...</p>
+}
+else
+{
+    @if (dashboard.IsOverdue)
+    {
+        <div class="alert alert-danger">
+            <strong>Daily evidence is overdue.</strong>
+            Missing: @string.Join(", ", dashboard.MissingDates.OrderBy(date => date).Select(date => date.ToString("yyyy-MM-dd"))).
+        </div>
+    }
+    else if (dashboard.IsTodayComplete)
+    {
+        <div class="alert alert-success">Today's goAML check is complete.</div>
+    }
+
+    <section class="work-area">
+        <div class="page-header compact-header">
+            <div>
+                <h2>Today's check</h2>
+                <p class="text-muted mb-0">Due daily by @dashboard.Settings.DueHourLocal.ToString("00"):00 local time.</p>
+            </div>
+            @if (!dashboard.IsTodayComplete)
+            {
+                <a class="btn btn-primary" href="@dashboard.Settings.PortalUrl" target="_blank" rel="noopener" @onclick="StartTodayAsync">
+                    Open goAML and start check
+                </a>
+            }
+        </div>
+
+        @if (dashboard.TodayCheck is not null)
+        {
+            <div class="investment-summary mt-3">
+                <div><span>Date</span><strong>@dashboard.TodayCheck.CheckDate.ToString("yyyy-MM-dd")</strong></div>
+                <div><span>Status</span><strong>@GoAmlCheckStatuses.Display(dashboard.TodayCheck.Status)</strong></div>
+                <div><span>Started by</span><strong>@dashboard.TodayCheck.StartedBy</strong></div>
+                <div><span>Evidence</span><strong>@(dashboard.TodayCheck.EvidenceFileName ?? "Pending")</strong></div>
+            </div>
+        }
+
+        @if (canManage && dashboard.TodayCheck?.Status == GoAmlCheckStatuses.Started)
+        {
+            <div class="workspace-grid mt-3">
+                <select class="form-select" @bind="completion.Status">
+                    <option value="@GoAmlCheckStatuses.NoNewMessages">No new or actionable messages</option>
+                    <option value="@GoAmlCheckStatuses.ActionRequired">New message - action required</option>
+                    <option value="@GoAmlCheckStatuses.Unavailable">goAML unavailable</option>
+                </select>
+                <InputFile class="form-control" OnChange="SelectEvidence" accept="image/png,image/jpeg" />
+            </div>
+            <p class="form-text">The selected image is converted to a readable JPEG with a maximum size of 1600 × 1000 before upload.</p>
+            @if (selectedEvidence is not null)
+            {
+                <p class="small text-success">Selected: @selectedEvidence.Name (@FormatBytes(selectedEvidence.Size))</p>
+            }
+            @if (completion.Status == GoAmlCheckStatuses.ActionRequired)
+            {
+                <div class="workspace-grid mt-2">
+                    <input class="form-control" @bind="completion.MessageReference" placeholder="Message subject or reference" />
+                    <input class="form-control" @bind="completion.ActionOwner" placeholder="Action owner" />
+                    <InputDate class="form-control" @bind-Value="completion.ActionDueDate" />
+                </div>
+                <p class="form-text">KCAS creates a High-priority compliance work item automatically.</p>
+            }
+            <textarea class="form-control mt-2" rows="3" @bind="completion.Notes" placeholder="Notes, action summary or access problem"></textarea>
+            <input class="form-control mt-2" @bind="completionReason" placeholder="Reason for recording this daily check" />
+            <button class="btn btn-success mt-2" @onclick="CompleteTodayAsync" disabled="@isBusy">Complete daily check</button>
+        }
+    </section>
+
+    <section class="work-area">
+        <h2>Recent checks</h2>
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead><tr><th>Date</th><th>Outcome</th><th>Completed by</th><th>Evidence</th><th>Message/action</th></tr></thead>
+                <tbody>
+                    @foreach (var check in dashboard.RecentChecks)
+                    {
+                        <tr class="@(check.Status == GoAmlCheckStatuses.ActionRequired ? "table-warning" : "")">
+                            <td>@check.CheckDate.ToString("yyyy-MM-dd")</td>
+                            <td>@GoAmlCheckStatuses.Display(check.Status)</td>
+                            <td>@(check.CompletedBy ?? check.StartedBy)</td>
+                            <td>
+                                @if (!string.IsNullOrWhiteSpace(check.EvidencePath))
+                                {
+                                    <a href="@($"/compliance/goaml/checks/{check.Id}/evidence")" target="_blank" rel="noopener">View screenshot</a>
+                                    <div class="small text-muted">@check.EvidenceSha256</div>
+                                }
+                                else { <span>-</span> }
+                            </td>
+                            <td>
+                                @(check.MessageReference ?? check.Notes ?? "-")
+                                @if (check.ComplianceTaskId is not null)
+                                {
+                                    <div><a href="@($"/compliance/work-register/{check.ComplianceTaskId}")">Open work item</a></div>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    @if (canManage)
+    {
+        <section class="work-area">
+            <h2>goAML settings</h2>
+            <p class="text-muted">The evidence folder is configurable. KCAS adds year and month subfolders automatically.</p>
+            <label class="form-label">Evidence base folder</label>
+            <input class="form-control" @bind="settings.EvidenceRootPath" />
+            <div class="workspace-grid mt-2">
+                <div>
+                    <label class="form-label">Official portal URL</label>
+                    <input class="form-control" @bind="settings.PortalUrl" />
+                </div>
+                <div>
+                    <label class="form-label">Evidence tracking starts</label>
+                    <InputDate class="form-control" @bind-Value="settings.TrackingStartDate" />
+                </div>
+                <div>
+                    <label class="form-label">Due hour (local, 0–23)</label>
+                    <InputNumber class="form-control" @bind-Value="settings.DueHourLocal" />
+                </div>
+                <div>
+                    <label class="form-label">Backup checker</label>
+                    <input class="form-control" @bind="settings.BackupChecker" />
+                </div>
+            </div>
+            <input class="form-control mt-2" @bind="settingsReason" placeholder="Reason for changing goAML settings" />
+            <button class="btn btn-outline-primary mt-2" @onclick="SaveSettingsAsync" disabled="@isBusy">Save settings</button>
+        </section>
+    }
+}
+
+@code {
+    private GoAmlDashboardModel? dashboard;
+    private GoAmlSettingsModel settings = new();
+    private GoAmlCompletionModel completion = new();
+    private IBrowserFile? selectedEvidence;
+    private string? currentUser;
+    private string completionReason = "Daily goAML message-board review.";
+    private string settingsReason = "Configure goAML daily-check evidence storage.";
+    private string? message;
+    private bool isError;
+    private bool isBusy;
+    private bool canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        currentUser = state.User.Identity?.Name;
+        canManage = state.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage);
+        completion.ActionOwner = currentUser;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        dashboard = await GoAml.LoadDashboardAsync();
+        settings = new GoAmlSettingsModel
+        {
+            EvidenceRootPath = dashboard.Settings.EvidenceRootPath,
+            PortalUrl = dashboard.Settings.PortalUrl,
+            TrackingStartDate = dashboard.Settings.TrackingStartDate,
+            DueHourLocal = dashboard.Settings.DueHourLocal,
+            BackupChecker = dashboard.Settings.BackupChecker
+        };
+    }
+
+    private async Task StartTodayAsync()
+    {
+        if (!canManage) return;
+        try
+        {
+            await GoAml.StartTodayAsync(currentUser);
+            await LoadAsync();
+        }
+        catch (Exception ex) { ShowError(ex); }
+    }
+
+    private void SelectEvidence(InputFileChangeEventArgs args)
+    {
+        selectedEvidence = args.File;
+        message = null;
+    }
+
+    private async Task CompleteTodayAsync()
+    {
+        try
+        {
+            isBusy = true;
+            Stream? stream = null;
+            if (selectedEvidence is not null)
+            {
+                var resized = await selectedEvidence.RequestImageFileAsync("image/jpeg", 1600, 1000);
+                stream = resized.OpenReadStream(5 * 1024 * 1024);
+            }
+            await using (stream)
+            {
+                await GoAml.CompleteTodayAsync(completion, stream, stream is null ? null : "image/jpeg",
+                    currentUser, completionReason);
+            }
+            selectedEvidence = null;
+            message = "Today's goAML check was recorded.";
+            isError = false;
+            await LoadAsync();
+        }
+        catch (Exception ex) { ShowError(ex); }
+        finally { isBusy = false; }
+    }
+
+    private async Task SaveSettingsAsync()
+    {
+        try
+        {
+            isBusy = true;
+            await GoAml.SaveSettingsAsync(settings, currentUser, settingsReason);
+            message = "goAML settings saved.";
+            isError = false;
+            await LoadAsync();
+        }
+        catch (Exception ex) { ShowError(ex); }
+        finally { isBusy = false; }
+    }
+
+    private void ShowError(Exception ex)
+    {
+        message = ex.Message;
+        isError = true;
+    }
+
+    private static string FormatBytes(long bytes) => bytes < 1024 * 1024
+        ? $"{bytes / 1024d:N0} KB"
+        : $"{bytes / 1024d / 1024d:N1} MB";
+}

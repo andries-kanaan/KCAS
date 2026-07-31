@@ -84,6 +84,7 @@ builder.Services.AddScoped<BusinessRiskAssessmentService>();
 builder.Services.AddScoped<RmcpService>();
 builder.Services.AddScoped<ComplianceWorkService>();
 builder.Services.AddScoped<InspectionService>();
+builder.Services.AddScoped<GoAmlDailyCheckService>();
 builder.Services.AddSingleton<ClientEvidenceScanCoordinator>();
 builder.Services.AddScoped<LegacyImportWebService>();
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
@@ -161,6 +162,17 @@ app.MapGet("/client-evidence/items/{id:int}/file", async Task<IResult> (int id, 
     }
 
     return Results.File(File.OpenRead(item.SourcePath), contentType, enableRangeProcessing: true);
+}).RequireAuthorization(KcasPermissions.ComplianceView);
+
+app.MapGet("/compliance/goaml/checks/{id:int}/evidence", async Task<IResult> (
+    int id,
+    GoAmlDailyCheckService goAml,
+    CancellationToken cancellationToken) =>
+{
+    var evidence = await goAml.OpenEvidenceAsync(id, cancellationToken);
+    return evidence is null
+        ? Results.NotFound()
+        : Results.File(evidence.Stream, evidence.ContentType, evidence.FileName, enableRangeProcessing: true);
 }).RequireAuthorization(KcasPermissions.ComplianceView);
 
 app.MapGet("/investments/summary.csv", async Task<IResult> (

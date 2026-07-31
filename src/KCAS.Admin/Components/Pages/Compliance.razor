@@ -2,6 +2,7 @@
 @attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
 @using KCAS.Admin.Data
 @inject ComplianceService ComplianceService
+@inject GoAmlDailyCheckService GoAml
 
 <PageTitle>Compliance</PageTitle>
 
@@ -23,6 +24,28 @@
 }
 else
 {
+    <section class="work-area">
+        @if (goAml is not null)
+        {
+            <div class="alert @(goAml.IsOverdue ? "alert-danger" : goAml.IsTodayComplete ? "alert-success" : "alert-warning") mb-0">
+                <strong>goAML daily check:</strong>
+                @if (goAml.IsOverdue)
+                {
+                    <span>@goAml.MissingDates.Count required check(s) are missing.</span>
+                }
+                else if (goAml.IsTodayComplete)
+                {
+                    <span>Today's check is complete.</span>
+                }
+                else
+                {
+                    <span>Today's check has not been completed.</span>
+                }
+                <a class="alert-link ms-2" href="/compliance/goaml">Open goAML register</a>
+            </div>
+        }
+    </section>
+
     <section class="work-area">
         <div class="investment-summary">
             <div>
@@ -106,10 +129,15 @@ else
 
 @code {
     private ComplianceDashboardModel? dashboard;
+    private GoAmlDashboardModel? goAml;
 
     protected override async Task OnInitializedAsync()
     {
-        dashboard = await ComplianceService.LoadDashboardAsync();
+        var dashboardTask = ComplianceService.LoadDashboardAsync();
+        var goAmlTask = GoAml.LoadDashboardAsync();
+        await Task.WhenAll(dashboardTask, goAmlTask);
+        dashboard = await dashboardTask;
+        goAml = await goAmlTask;
     }
 
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;

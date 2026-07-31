@@ -67,6 +67,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<InspectionCase> InspectionCases => Set<InspectionCase>();
     public DbSet<InspectionRequestItem> InspectionRequestItems => Set<InspectionRequestItem>();
     public DbSet<InspectionReadinessCheck> InspectionReadinessChecks => Set<InspectionReadinessCheck>();
+    public DbSet<GoAmlSettings> GoAmlSettings => Set<GoAmlSettings>();
+    public DbSet<GoAmlDailyCheck> GoAmlDailyChecks => Set<GoAmlDailyCheck>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -202,6 +204,36 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.Property(item => item.Status).HasMaxLength(32);
             entity.Property(item => item.TestedBy).HasMaxLength(191);
             entity.HasIndex(item => new { item.InspectionCaseId, item.CheckType }).IsUnique();
+        });
+
+        builder.Entity<GoAmlSettings>(entity =>
+        {
+            entity.Property(item => item.EvidenceRootPath).HasMaxLength(1024);
+            entity.Property(item => item.PortalUrl).HasMaxLength(1024);
+            entity.Property(item => item.BackupChecker).HasMaxLength(191);
+            entity.Property(item => item.UpdatedBy).HasMaxLength(191);
+            ConfigureDateOnly(entity.Property(item => item.TrackingStartDate));
+        });
+
+        builder.Entity<GoAmlDailyCheck>(entity =>
+        {
+            entity.Property(item => item.Status).HasMaxLength(32);
+            entity.Property(item => item.StartedBy).HasMaxLength(191);
+            entity.Property(item => item.CompletedBy).HasMaxLength(191);
+            entity.Property(item => item.MessageReference).HasMaxLength(512);
+            entity.Property(item => item.ActionOwner).HasMaxLength(191);
+            entity.Property(item => item.EvidenceFileName).HasMaxLength(255);
+            entity.Property(item => item.EvidencePath).HasMaxLength(1024);
+            entity.Property(item => item.EvidenceContentType).HasMaxLength(96);
+            entity.Property(item => item.EvidenceSha256).HasMaxLength(64);
+            ConfigureDateOnly(entity.Property(item => item.CheckDate));
+            ConfigureDateOnly(entity.Property(item => item.ActionDueDate));
+            entity.HasIndex(item => item.CheckDate).IsUnique();
+            entity.HasIndex(item => new { item.Status, item.CheckDate });
+            entity.HasOne(item => item.ComplianceTask)
+                .WithMany()
+                .HasForeignKey(item => item.ComplianceTaskId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         builder.Entity<IdentityRole>(entity =>
