@@ -17,6 +17,13 @@ These repository-specific checks are performed by Codex. The user should not nee
 - Check the configured accounts with `gh auth status`.
 - Before the first push in this repository, explicitly select the repository-owning account with `gh auth switch -u andries-kanaan`.
 - Confirm the selected account and repository with `gh auth status`, `gh api user --jq .login`, and `git remote -v`.
+- Prefer the explicit keyring verification sequence below before concluding that GitHub authentication is broken:
+  1. `gh auth status --hostname github.com`
+  2. `gh auth switch --hostname github.com --user andries-kanaan`
+  3. `gh auth status --hostname github.com`
+  4. `gh api user --jq .login`
+  5. `git remote -v`
+- If an earlier combined command reports HTTP 401 while `andries-kanaan` is shown as the active keyring account, do not immediately report an authentication blocker. Re-run the explicit sequence as separate checks and inspect whether `GH_TOKEN` or `GITHUB_TOKEN` is present without printing either token. Proceed when the status check is healthy and `gh api user --jq .login` returns `andries-kanaan`.
 - Push the branch only after `andries-kanaan` is confirmed as active.
 - Create or update the pull request using the same confirmed account.
 - Verify the pull request's repository, base branch, and head branch after creation or update.
