@@ -280,6 +280,11 @@ Build status:
   - A protected live preview resolves the client, methodology, factor and option codes before applying anything; mismatches and existing assessments block import, identical packages are idempotently rejected, and no live decision is silently overwritten.
   - Applying a package is a deliberate authenticated live action, uses one database transaction, retains the encrypted incoming package and records the importer, reason and compliance audit event.
   - Local packages are stored outside Git under `backups\client-review-packages`; deployed packages use `D:\Deploy\KCAS\shared\client-review-packages` by default so releases do not remove them. The package passphrase is never stored.
+- Added controlled goAML check transfer:
+  - Completed laptop checks can be exported by date range as an AES-256-GCM encrypted `.kcas-goaml` package containing the check metadata and actual JPEG evidence, with PBKDF2-SHA256 passphrase derivation and no stored passphrase.
+  - Export verifies each screenshot against its recorded SHA-256 hash. The live preview revalidates package structure, status-specific requirements, evidence size/type/hash and duplicate history before applying anything.
+  - Identical live dates are skipped, different live dates block the package, and existing checks are never overwritten. Action-required checks recreate their High-priority live work item.
+  - Outgoing and incoming encrypted packages are retained outside Git, with a dedicated transfer ledger and audit events for export, imported checks, recreated work items and package application.
 - Added the KCAS favicon update and merged it through PR #12:
   - Replaced the default Blazor favicon with the KCAS `K` icon.
   - Added a favicon cache-busting query string.
@@ -318,7 +323,7 @@ Verified locally after the security, import, compliance foundation and client ev
 - `dotnet build` succeeds.
 - `dotnet test tests\KCAS.Admin.Tests\KCAS.Admin.Tests.csproj` passes.
 - `dotnet ef migrations has-pending-model-changes` reports no pending model changes.
-- `src\KCAS.Admin\Data\Migrations\kcas_blazor_schema.sql` includes the goAML daily-check evidence workflow and records latest migration `20260731203226_AddGoAmlDailyChecks`.
+- `src\KCAS.Admin\Data\Migrations\kcas_blazor_schema.sql` includes the goAML daily-check and encrypted transfer workflows and records latest migration `20260801093743_AddGoAmlTransfers`.
 - Kestrel starts on `http://127.0.0.1:5143`.
 - WAMP HTTPS proxy reaches the app at `https://kcas.test:8443`.
 - `https://kcas.test:8443/clients` redirects unauthenticated users to login.
@@ -333,6 +338,7 @@ Verified locally after the security, import, compliance foundation and client ev
 - Monitoring routes, due-review generation, trigger work creation, linked control work, escalation, evidence-gated closure and proportionate one/two-approver closure are covered by automated tests.
 - Inspection routes, dedicated permissions, request/evidence items, readiness checks, as-at evidence indexing, frozen print/JSON export and immutability are covered by automated tests.
 - The goAML daily-check route, configurable evidence folder, daily overdue detection, compressed screenshot evidence, optional unavailable notes when screenshot evidence exists, evidenced-unavailable completion without a false overdue warning or repeat-attempt requirement, SHA-256 provenance, immutable completion and automatic High-priority work-item escalation are covered by automated tests.
+- The goAML package-transfer route, encrypted evidence-inclusive export, conflict preview, idempotent application, evidence integrity and action-item recreation are covered by automated tests.
 - Client evidence readiness, server-folder scanner idempotence, unmatched-file handling, evidence verification and exception logic are covered by automated tests.
 - Shared client-folder aliases, conservative ownership assignment, multi-client evidence confirmation and category false-positive prevention are covered by automated tests.
 - Trust/legal-person entity profiles, multi-role related parties, party evidence links, screening subjects and ownership readiness blockers are covered by automated tests.

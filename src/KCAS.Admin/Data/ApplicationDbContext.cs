@@ -69,6 +69,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<InspectionReadinessCheck> InspectionReadinessChecks => Set<InspectionReadinessCheck>();
     public DbSet<GoAmlSettings> GoAmlSettings => Set<GoAmlSettings>();
     public DbSet<GoAmlDailyCheck> GoAmlDailyChecks => Set<GoAmlDailyCheck>();
+    public DbSet<GoAmlTransferRecord> GoAmlTransferRecords => Set<GoAmlTransferRecord>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -234,6 +235,15 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
                 .WithMany()
                 .HasForeignKey(item => item.ComplianceTaskId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        builder.Entity<GoAmlTransferRecord>(entity =>
+        {
+            ConfigureDateOnly(entity.Property(item => item.FirstCheckDate));
+            ConfigureDateOnly(entity.Property(item => item.LastCheckDate));
+            entity.HasIndex(item => new { item.Direction, item.PackageId }).IsUnique();
+            entity.HasIndex(item => new { item.Direction, item.ContentSha256 });
+            entity.HasIndex(item => new { item.Direction, item.CreatedAtUtc });
         });
 
         builder.Entity<IdentityRole>(entity =>
