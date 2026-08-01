@@ -66,4 +66,6 @@ public class ClientInvestmentAccount
     public DateTime ImportedAtUtc { get; set; } = DateTime.UtcNow;
 
     public ICollection<ClientInvestmentTransaction> Transactions { get; } = [];
+
+    public ICollection<ClientInvestmentReconciliationReview> ReconciliationReviews { get; } = [];
 }

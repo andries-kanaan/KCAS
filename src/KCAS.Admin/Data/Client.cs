@@ -90,6 +90,8 @@ public class Client
 
     public ICollection<ClientInvestmentAccount> InvestmentAccounts { get; } = [];
 
+    public ICollection<ClientInvestmentReconciliationReview> InvestmentReconciliationReviews { get; } = [];
+
     public ICollection<ClientFundValuation> FundValuations { get; } = [];
 
     public ICollection<ClientEvidenceItem> EvidenceItems { get; } = [];

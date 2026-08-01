@@ -4,15 +4,22 @@
 @using KCAS.Admin.Data
 @inject ClientOperationalVerificationService VerificationService
 
-<PageTitle>Client operational review</PageTitle>
+<PageTitle>Client reviews</PageTitle>
 
 <div class="page-header">
     <div>
-        <p class="eyebrow">Phase 8</p>
-        <h1>Client operational review</h1>
-        <p class="text-muted mb-0">Classify the imported register, then verify assisted or imported facts client by client.</p>
+        <p class="eyebrow">Compliance readiness</p>
+        <h1>Client reviews</h1>
+        <p class="text-muted mb-0">Start or continue each client's unified folder, investment, evidence, screening and risk review.</p>
     </div>
-    <a class="btn btn-outline-secondary" href="/clients">Back to clients</a>
+    <div class="header-actions">
+        <AuthorizeView Policy="@KcasPermissions.ComplianceManage">
+            <Authorized>
+                <a class="btn btn-outline-primary" href="/compliance/review-transfers">Transfer completed reviews</a>
+            </Authorized>
+        </AuthorizeView>
+        <a class="btn btn-outline-secondary" href="/clients">Back to clients</a>
+    </div>
 </div>
 
 <section class="summary-grid">
@@ -52,7 +59,7 @@
                             <span class="badge text-bg-warning ms-1">@item.BlockingVerificationCount blocking</span>
                         }
                     </td>
-                    <td><a class="btn btn-sm btn-outline-primary" href="@($"/clients/{item.ClientId}/verification")">Review</a></td>
+                    <td><a class="btn btn-sm btn-primary" href="@($"/clients/{item.ClientId}/compliance-review")">Start / continue review</a></td>
                 </tr>
             }
         </tbody>

@@ -293,6 +293,44 @@ public sealed class ComplianceService(ApplicationDbContext db)
         await ChangeMethodologyStatusAsync(methodology, ComplianceStatuses.Review, "Submitted", userName, reason);
     }
 
+    public async Task RenameMethodologyVersionAsync(
+        int methodologyId,
+        string? versionLabel,
+        string? userName,
+        string reason)
+    {
+        RequireReason(reason);
+        var normalizedLabel = Normalize(versionLabel);
+        RequireValue(normalizedLabel, "Version label is required.");
+        if (normalizedLabel!.Length > 64)
+        {
+            throw new ValidationException("Version label cannot exceed 64 characters.");
+        }
+
+        var methodology = await LoadMethodologyForStatusChangeAsync(methodologyId);
+        if (methodology.Status is not (ComplianceStatuses.Draft or ComplianceStatuses.Review))
+        {
+            throw new InvalidOperationException("Only draft or review methodologies can be renamed. Approved and active versions are locked.");
+        }
+        if (string.Equals(methodology.VersionLabel, normalizedLabel, StringComparison.Ordinal))
+        {
+            throw new ValidationException("Enter a different version label.");
+        }
+
+        var oldJson = Snapshot(methodology);
+        methodology.VersionLabel = normalizedLabel;
+        methodology.UpdatedBy = Normalize(userName);
+        db.ComplianceAuditEvents.Add(CreateAudit(
+            nameof(RiskMethodologyVersion),
+            methodology.Id,
+            "VersionRenamed",
+            oldJson,
+            Snapshot(methodology),
+            userName,
+            reason));
+        await db.SaveChangesAsync();
+    }
+
     public async Task ApproveMethodologyAsync(int methodologyId, string? userName, string reason)
     {
         RequireReason(reason);
@@ -312,6 +350,22 @@ public sealed class ComplianceService(ApplicationDbContext db)
         if (alreadyApproved)
         {
             throw new InvalidOperationException("This KI has already approved the methodology.");
+        }
+
+        var finalVersionLabel = SuggestFinalVersionLabel(methodology.VersionLabel);
+        if (!string.Equals(methodology.VersionLabel, finalVersionLabel, StringComparison.Ordinal))
+        {
+            var oldLabelJson = Snapshot(methodology);
+            methodology.VersionLabel = finalVersionLabel;
+            methodology.UpdatedBy = approver;
+            db.ComplianceAuditEvents.Add(CreateAudit(
+                nameof(RiskMethodologyVersion),
+                methodology.Id,
+                "VersionFinalisedOnApproval",
+                oldLabelJson,
+                Snapshot(methodology),
+                userName,
+                "KI approval automatically removed working-draft wording from the version label."));
         }
 
         db.ComplianceApprovals.Add(new ComplianceApproval
@@ -543,6 +597,28 @@ public sealed class ComplianceService(ApplicationDbContext db)
 
     private static string Snapshot(object value) => JsonSerializer.Serialize(value, JsonOptions);
     private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string? SuggestFinalVersionLabel(string? currentLabel)
+    {
+        var current = Normalize(currentLabel);
+        if (current is null)
+        {
+            return "Version 1";
+        }
+
+        const string workingDraftPrefix = "Working draft";
+        if (!current.StartsWith(workingDraftPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return current;
+        }
+
+        var suffix = current[workingDraftPrefix.Length..].Trim();
+        if (suffix.StartsWith('v') && suffix.Length > 1)
+        {
+            suffix = suffix[1..].Trim();
+        }
+        return suffix.Length == 0 ? "Version 1" : $"Version {suffix}";
+    }
     private static void RequireReason(string? reason)
     {
         if (string.IsNullOrWhiteSpace(reason))

@@ -1,0 +1,45 @@
+@page "/compliance/programme"
+@attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
+
+<PageTitle>Programme and controls</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Compliance</p>
+        <h1>Programme and controls</h1>
+        <p class="lede">Business risk, the RMCP and ongoing monitoring in one working area.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="/compliance">Compliance overview</a>
+</div>
+
+<section class="summary-grid">
+    <article class="summary-card">
+        <span>Business risk</span>
+        <strong>Assess and approve</strong>
+        <a class="btn btn-sm btn-outline-primary mt-3" href="/compliance/business-risk">Open business risk</a>
+    </article>
+    <article class="summary-card">
+        <span>RMCP</span>
+        <strong>Programme and controls</strong>
+        <a class="btn btn-sm btn-outline-primary mt-3" href="/compliance/rmcp">Open RMCP</a>
+    </article>
+    <article class="summary-card">
+        <span>Monitoring</span>
+        <strong>Work register</strong>
+        <a class="btn btn-sm btn-outline-primary mt-3" href="/compliance/work-register">Open monitoring</a>
+    </article>
+    <AuthorizeView Policy="@KcasPermissions.ComplianceManage">
+        <Authorized>
+            <article class="summary-card">
+                <span>Configuration</span>
+                <strong>Controlled settings</strong>
+                <a class="btn btn-sm btn-outline-secondary mt-3" href="/compliance/methodologies">Open settings</a>
+            </article>
+        </Authorized>
+    </AuthorizeView>
+</section>
+
+<section class="work-area">
+    <h2>How these fit together</h2>
+    <p class="mb-0">Business risk identifies Kanaan's material risks. The RMCP records the controls used to manage them. Monitoring records the recurring work, findings and follow-up that demonstrate those controls are operating.</p>
+</section>

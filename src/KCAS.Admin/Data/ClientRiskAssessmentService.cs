@@ -7,7 +7,8 @@ namespace KCAS.Admin.Data;
 
 public sealed class ClientRiskAssessmentService(
     ApplicationDbContext db,
-    ClientEvidenceReadinessService evidenceReadinessService)
+    ClientEvidenceReadinessService evidenceReadinessService,
+    InvestmentReconciliationService investmentReconciliationService)
 {
     private static readonly JsonSerializerOptions SnapshotOptions = new(JsonSerializerDefaults.Web);
 
@@ -40,6 +41,7 @@ public sealed class ClientRiskAssessmentService(
             .ToListAsync();
 
         var readiness = await evidenceReadinessService.LoadClientReadinessAsync(clientId);
+        var investmentReadiness = await investmentReconciliationService.LoadClientReviewAsync(clientId);
         var blockingVerificationCount = await db.ClientVerificationItems.AsNoTracking().CountAsync(item =>
             item.ClientId == clientId &&
             item.Status == ClientVerificationStatuses.Pending &&
@@ -66,10 +68,15 @@ public sealed class ClientRiskAssessmentService(
             KanaanId = client.KanaanId,
             ClientCategory = client.ClientCategory,
             IsReadyForRiskAssessment = readiness.IsReadyForRiskAssessment &&
+                                       investmentReadiness.IsComplete &&
                                        client.LifecycleStatus == ClientLifecycleStatuses.Current &&
                                        blockingVerificationCount == 0,
             BlockingEvidenceCount = readiness.BlockedCount,
             BlockingVerificationCount = blockingVerificationCount,
+            InvestmentReconciliationComplete = investmentReadiness.IsComplete,
+            BlockingInvestmentCount = investmentReadiness.IsComplete
+                ? 0
+                : investmentReadiness.Accounts.Count(item => !item.IsVerified) + investmentReadiness.UnmatchedIssues.Count,
             LifecycleStatus = client.LifecycleStatus,
             HasActiveMethodology = activeMethodology?.Status == ComplianceStatuses.Active,
             HasUsableMethodology = activeMethodology is not null,
@@ -106,10 +113,9 @@ public sealed class ClientRiskAssessmentService(
     {
         RequireReason(reason);
         var preparedBy = RequireUser(userName);
-        if (!await db.Clients.AnyAsync(client => client.Id == clientId))
-        {
-            throw new KeyNotFoundException("Client not found.");
-        }
+        var client = await db.Clients.AsNoTracking()
+            .SingleOrDefaultAsync(item => item.Id == clientId)
+            ?? throw new KeyNotFoundException("Client not found.");
 
         var existingDraft = await db.ClientRiskAssessments.AnyAsync(item =>
             item.ClientId == clientId &&
@@ -122,26 +128,118 @@ public sealed class ClientRiskAssessmentService(
 
         var methodology = await LoadAvailableMethodologyAsync();
         ValidateMethodology(methodology);
+        var proposal = await TryBuildInitialProposalAsync(client, methodology);
         var assessment = new ClientRiskAssessment
         {
             ClientId = clientId,
             RiskMethodologyVersionId = methodology.Id,
+            MethodologyVersion = methodology,
             PreparedBy = preparedBy,
             Status = ClientRiskAssessmentStatuses.Draft,
             ReviewTriggerType = ClientRiskReviewTriggerTypes.Initial,
             ReviewTriggerReason = reason.Trim(),
             ReviewTriggeredAtUtc = DateTime.UtcNow,
             ReviewTriggeredBy = preparedBy,
-            Responses = methodology.Factors.Select(factor => new ClientRiskAssessmentResponse
+            HasPepExposure = proposal?.HasPepExposure ?? false,
+            HasSanctionsConcern = proposal?.HasSanctionsConcern ?? false,
+            HasAdverseInformation = proposal?.HasAdverseInformation ?? false,
+            StandardControlsApplied = proposal is not null,
+            Narrative = proposal?.Narrative,
+            Responses = methodology.Factors.Select(factor =>
             {
-                RiskFactorDefinitionId = factor.Id
+                var proposed = proposal?.Factors.GetValueOrDefault(factor.Code);
+                return new ClientRiskAssessmentResponse
+                {
+                    RiskFactorDefinitionId = factor.Id,
+                    FactorDefinition = factor,
+                    RiskFactorOptionId = proposed?.Option.Id,
+                    SelectedOption = proposed?.Option,
+                    ClientEvidenceItemId = proposed?.EvidenceItemId,
+                    Explanation = proposed?.Explanation
+                };
             }).ToList()
         };
+        if (proposal is not null)
+        {
+            Calculate(assessment);
+        }
         db.ClientRiskAssessments.Add(assessment);
         await db.SaveChangesAsync();
         db.ComplianceAuditEvents.Add(CreateAudit(assessment.Id, "DraftCreated", preparedBy, reason, AuditSummary(assessment)));
+        if (proposal is not null)
+        {
+            db.ComplianceAuditEvents.Add(CreateAudit(
+                assessment.Id,
+                "ProposalGenerated",
+                preparedBy,
+                "Generated proposed risk-factor answers from completed client verification, evidence readiness, screening and investment reconciliation. Human confirmation is still required.",
+                AuditSummary(assessment)));
+        }
         await db.SaveChangesAsync();
         return assessment.Id;
+    }
+
+    public async Task GenerateProposalAsync(int assessmentId, string? userName, string reason)
+    {
+        RequireReason(reason);
+        var user = RequireUser(userName);
+        var assessment = await LoadAssessmentForMutationAsync(assessmentId);
+        EnsureDraft(assessment);
+        if (assessment.Responses.Any(item =>
+                item.RiskFactorOptionId.HasValue ||
+                item.ClientEvidenceItemId.HasValue ||
+                !string.IsNullOrWhiteSpace(item.Explanation)))
+        {
+            throw new InvalidOperationException("This draft already contains risk-factor work and will not be overwritten by an automatic proposal.");
+        }
+
+        var proposal = await TryBuildInitialProposalAsync(assessment.Client!, assessment.MethodologyVersion!)
+            ?? throw new InvalidOperationException("A proposal cannot be generated until client verification, evidence, screening and investment reconciliation are ready.");
+
+        assessment.HasPepExposure = proposal.HasPepExposure;
+        assessment.HasSanctionsConcern = proposal.HasSanctionsConcern;
+        assessment.HasAdverseInformation = proposal.HasAdverseInformation;
+        assessment.StandardControlsApplied = true;
+        assessment.Narrative = proposal.Narrative;
+        assessment.UpdatedAtUtc = DateTime.UtcNow;
+        foreach (var response in assessment.Responses)
+        {
+            var proposed = proposal.Factors.GetValueOrDefault(response.FactorDefinition!.Code);
+            response.RiskFactorOptionId = proposed?.Option.Id;
+            response.SelectedOption = proposed?.Option;
+            response.ClientEvidenceItemId = proposed?.EvidenceItemId;
+            response.Explanation = proposed?.Explanation;
+            response.ConfirmedAtUtc = null;
+            response.ConfirmedBy = null;
+        }
+
+        Calculate(assessment);
+        db.ComplianceAuditEvents.Add(CreateAudit(
+            assessment.Id,
+            "ProposalGenerated",
+            user,
+            reason,
+            AuditSummary(assessment)));
+        await db.SaveChangesAsync();
+    }
+
+    public async Task DeleteDraftAsync(int assessmentId, string? userName, string reason)
+    {
+        RequireReason(reason);
+        var user = RequireUser(userName);
+        var assessment = await LoadAssessmentForMutationAsync(assessmentId);
+        EnsureDraft(assessment);
+        if (await db.ComplianceTasks.AnyAsync(item => item.ClientRiskAssessmentId == assessmentId))
+        {
+            throw new InvalidOperationException("This draft is linked to compliance work and cannot be deleted until that work is resolved.");
+        }
+
+        var audit = CreateAudit(assessment.Id, "DraftDeleted", user, reason, AuditSummary(assessment));
+        audit.OldValueJson = audit.NewValueJson;
+        audit.NewValueJson = null;
+        db.ComplianceAuditEvents.Add(audit);
+        db.ClientRiskAssessments.Remove(assessment);
+        await db.SaveChangesAsync();
     }
 
     public async Task<int> StartReassessmentAsync(
@@ -324,6 +422,14 @@ public sealed class ClientRiskAssessmentService(
         if (!readiness.IsReadyForRiskAssessment)
         {
             throw new InvalidOperationException($"The assessment cannot be finalised while {readiness.BlockedCount} blocking evidence item(s) remain.");
+        }
+        var investmentReadiness = await investmentReconciliationService.LoadClientReviewAsync(assessment.ClientId);
+        if (!investmentReadiness.IsComplete)
+        {
+            var blockerCount = investmentReadiness.Accounts.Count(item => !item.IsVerified) +
+                               investmentReadiness.UnmatchedIssues.Count;
+            throw new InvalidOperationException(
+                $"The assessment cannot be finalised while {blockerCount} investment reconciliation item(s) remain unverified.");
         }
         var lifecycleStatus = await db.Clients
             .Where(client => client.Id == assessment.ClientId)
@@ -791,6 +897,212 @@ public sealed class ClientRiskAssessmentService(
                .SingleOrDefaultAsync(item => item.Id == assessmentId)
            ?? throw new KeyNotFoundException("Risk assessment not found.");
 
+    private async Task<ClientRiskGeneratedProposal?> TryBuildInitialProposalAsync(
+        Client client,
+        RiskMethodologyVersion methodology)
+    {
+        var readiness = await evidenceReadinessService.LoadClientReadinessAsync(client.Id);
+        var investmentReadiness = await investmentReconciliationService.LoadClientReviewAsync(client.Id);
+        var blockingVerificationCount = await db.ClientVerificationItems.AsNoTracking().CountAsync(item =>
+            item.ClientId == client.Id &&
+            item.Status == ClientVerificationStatuses.Pending &&
+            item.IsBlocking);
+        var canGenerateProposal = readiness.IsReadyForRiskAssessment &&
+                                  investmentReadiness.IsComplete &&
+                                  client.LifecycleStatus == ClientLifecycleStatuses.Current &&
+                                  blockingVerificationCount == 0;
+        if (!canGenerateProposal)
+        {
+            return null;
+        }
+
+        var verifiedEvidence = await db.ClientEvidenceItems.AsNoTracking()
+            .Where(item => item.ClientId == client.Id &&
+                           item.VerifiedDate != null &&
+                           item.OwnershipStatus == ClientEvidenceOwnershipStatuses.Confirmed)
+            .ToListAsync();
+        var latestValuationDate = await db.ClientFundValuations.AsNoTracking()
+            .Where(item => item.ClientId == client.Id)
+            .MaxAsync(item => (DateOnly?)item.ValuationDate);
+        var latestValuations = latestValuationDate.HasValue
+            ? await db.ClientFundValuations.AsNoTracking()
+                .Where(item => item.ClientId == client.Id && item.ValuationDate == latestValuationDate)
+                .ToListAsync()
+            : [];
+
+        return BuildInitialProposal(
+            client,
+            methodology,
+            readiness,
+            investmentReadiness,
+            verifiedEvidence,
+            latestValuations);
+    }
+
+    private static ClientRiskGeneratedProposal BuildInitialProposal(
+        Client client,
+        RiskMethodologyVersion methodology,
+        ClientEvidenceReadinessModel readiness,
+        ClientInvestmentReconciliationPageModel investmentReadiness,
+        IReadOnlyCollection<ClientEvidenceItem> verifiedEvidence,
+        IReadOnlyCollection<ClientFundValuation> latestValuations)
+    {
+        var pepReview = ScreeningReview(verifiedEvidence, "PepPip");
+        var sanctionsReview = ScreeningReview(verifiedEvidence, "SanctionsTfs");
+        var adverseReview = ScreeningReview(verifiedEvidence, "AdverseInformation");
+        var hasPepExposure = IsScreeningConcern(pepReview, ClientEvidenceScreeningOutcomes.NoMatch);
+        var hasSanctionsConcern = IsScreeningConcern(sanctionsReview, ClientEvidenceScreeningOutcomes.NoMatch);
+        var hasAdverseInformation = IsScreeningConcern(adverseReview, ClientEvidenceScreeningOutcomes.NoneFound);
+        var currentAccounts = investmentReadiness.Accounts.Where(item => item.ReviewOutcome == ClientInvestmentReconciliationOutcomes.Current).ToList();
+        var historicalAccounts = investmentReadiness.Accounts.Count - currentAccounts.Count;
+        var hasOffshoreExposure = latestValuations.Any(item =>
+            item.AmountForeign.GetValueOrDefault() != 0 ||
+            InvestmentGeographies.Classify(item.FundName, item.AmountForeign.GetValueOrDefault() == 0 ? null : "Foreign") == InvestmentGeographies.Offshore);
+        var productText = string.Join(" ", currentAccounts.SelectMany(item => new[] { item.ProductName, item.FundName }).Where(item => !string.IsNullOrWhiteSpace(item)));
+        var hasComplexProduct = ContainsAny(productText, "hedge", "structured", "private equity", "crypto", "derivative", "opaque");
+        var deliveryEvidence = CurrentVerifiedEvidence(verifiedEvidence, "DeliveryChannel");
+        var deliveryText = EvidenceText(deliveryEvidence);
+        var isFaceToFace = ContainsAny(deliveryText, "face-to-face", "face to face", "in person", "in-person");
+        var sourceOfFunds = CurrentVerifiedEvidence(verifiedEvidence, "SourceOfFunds");
+        var sourceOfWealth = CurrentVerifiedEvidence(verifiedEvidence, "SourceOfWealth");
+        var geographyEvidence = CurrentVerifiedEvidence(verifiedEvidence, "Geography");
+        var productEvidence = CurrentVerifiedEvidence(verifiedEvidence, "ProductService");
+        var identityEvidence = CurrentVerifiedEvidence(verifiedEvidence, "Identity");
+        var sourceRequirementsComplete = RequirementSatisfiedByEvidence(readiness, "SourceOfFunds") &&
+                                         RequirementSatisfiedByEvidence(readiness, "SourceOfWealth");
+        var satisfiedCount = readiness.Requirements.Count(item => item.IsComplete || item.IsExceptioned);
+
+        var factors = new Dictionary<string, ClientRiskGeneratedFactor>(StringComparer.OrdinalIgnoreCase);
+        foreach (var factor in methodology.Factors)
+        {
+            var normalizedCode = factor.Code.ToUpperInvariant();
+            string desiredOption;
+            int? evidenceItemId;
+            string explanation;
+
+            if (normalizedCode.Contains("CLIENT") || normalizedCode.Contains("OWNERSHIP"))
+            {
+                desiredOption = client.ClientCategory == ClientCategories.NaturalPerson ? "LOW" : "STANDARD";
+                evidenceItemId = identityEvidence?.Id;
+                explanation = client.ClientCategory == ClientCategories.NaturalPerson
+                    ? $"The client is a verified natural person investing in her own name. Ownership and control checks have no blockers{(readiness.ExceptionCount > 0 ? ", with non-applicable requirements covered by an approved exception" : "")}."
+                    : $"The verified {client.ClientCategory} structure has a completed ownership and control review with no outstanding blockers.";
+            }
+            else if (normalizedCode.Contains("GEOGRAPH"))
+            {
+                desiredOption = hasSanctionsConcern ? "ELEVATED" : hasOffshoreExposure ? "STANDARD" : "LOW";
+                evidenceItemId = geographyEvidence?.Id;
+                explanation = hasSanctionsConcern
+                    ? "Screening records a sanctions or targeted-financial-sanctions concern requiring escalation."
+                    : hasOffshoreExposure
+                        ? "Verified records show ordinary cross-border or offshore exposure, with no high-risk or sanctioned-jurisdiction concern."
+                        : "Verified geography evidence and the latest investment values show domestic South African exposure, with no high-risk or sanctioned-jurisdiction concern.";
+            }
+            else if (normalizedCode.Contains("PRODUCT"))
+            {
+                desiredOption = hasComplexProduct ? "ELEVATED" : currentAccounts.Count == 0 ? "LOW" : "STANDARD";
+                evidenceItemId = productEvidence?.Id;
+                explanation = hasComplexProduct
+                    ? "The reconciled current portfolio includes a product requiring elevated complexity review."
+                    : currentAccounts.Count == 0
+                        ? "No current complex or opaque product exposure was identified in the completed investment reconciliation."
+                        : $"The completed reconciliation confirms {currentAccounts.Count} current account(s) in ordinary, identifiable Kanaan investment products; no unusually opaque product was identified.";
+            }
+            else if (normalizedCode.Contains("DELIVERY"))
+            {
+                desiredOption = isFaceToFace ? "LOW" : "STANDARD";
+                evidenceItemId = deliveryEvidence?.Id;
+                explanation = isFaceToFace
+                    ? "Verified delivery-channel evidence confirms an established face-to-face advised relationship."
+                    : "Verified mandate and advice records establish the direct advised relationship and authorised service channel, with no identified verification weakness.";
+            }
+            else if (normalizedCode.Contains("ACTIVITY") || normalizedCode.Contains("TRANSACTION"))
+            {
+                desiredOption = "LOW";
+                evidenceItemId = productEvidence?.Id ?? sourceOfFunds?.Id;
+                explanation = $"Investment reconciliation is complete for {investmentReadiness.Accounts.Count} account(s): {currentAccounts.Count} current and {historicalAccounts} historical or transferred. No unexplained or follow-up activity remains.";
+            }
+            else if (normalizedCode.Contains("SOURCE") || normalizedCode.Contains("FUNDS") || normalizedCode.Contains("WEALTH"))
+            {
+                desiredOption = sourceRequirementsComplete ? "LOW" : "STANDARD";
+                evidenceItemId = sourceOfFunds?.Id ?? sourceOfWealth?.Id;
+                explanation = sourceRequirementsComplete
+                    ? "Current verified source-of-funds and source-of-wealth records are consistent with the client's profile and reconciled investment activity."
+                    : "Source-of-funds and source-of-wealth requirements are satisfied, but at least one relies on an approved exception and should retain ordinary review treatment.";
+            }
+            else
+            {
+                desiredOption = "LOW";
+                evidenceItemId = null;
+                explanation = "The completed verification, evidence, screening and investment-reconciliation records show no elevated indicator for this factor.";
+            }
+
+            factors[factor.Code] = new ClientRiskGeneratedFactor(
+                SelectProposalOption(factor, desiredOption),
+                evidenceItemId,
+                explanation);
+        }
+
+        var narrative = $"System-generated proposal based on completed client verification, {satisfiedCount} of {readiness.RequiredCount} evidence requirements satisfied " +
+                        $"({readiness.VerifiedEvidenceCount} verified evidence item(s), {readiness.ExceptionCount} approved exception(s)), completed screening, and " +
+                        $"investment reconciliation of {investmentReadiness.Accounts.Count} account(s). PEP/PIP: {DisplayScreeningOutcome(pepReview)}; " +
+                        $"sanctions/TFS: {DisplayScreeningOutcome(sanctionsReview)}; adverse information: {DisplayScreeningOutcome(adverseReview)}. " +
+                        "Review and confirm every proposed factor before finalisation.";
+
+        return new ClientRiskGeneratedProposal(
+            factors,
+            hasPepExposure,
+            hasSanctionsConcern,
+            hasAdverseInformation,
+            narrative);
+    }
+
+    private static RiskFactorOption SelectProposalOption(RiskFactorDefinition factor, string desiredCode)
+    {
+        var exact = factor.Options.FirstOrDefault(item => string.Equals(item.Code, desiredCode, StringComparison.OrdinalIgnoreCase));
+        if (exact is not null)
+        {
+            return exact;
+        }
+
+        var ordered = factor.Options.OrderBy(item => item.Score).ThenBy(item => item.SortOrder).ToList();
+        return desiredCode == "ELEVATED"
+            ? ordered[^1]
+            : desiredCode == "STANDARD" && ordered.Count >= 3
+                ? ordered[ordered.Count / 2]
+                : ordered[0];
+    }
+
+    private static ClientEvidenceItem? CurrentVerifiedEvidence(IEnumerable<ClientEvidenceItem> items, string evidenceType)
+        => items
+            .Where(item => item.EvidenceType == evidenceType && item.SelectionStatus == ClientEvidenceSelectionStatuses.Current)
+            .OrderByDescending(item => item.VerifiedDate)
+            .ThenByDescending(item => item.ReceivedDate)
+            .FirstOrDefault();
+
+    private static ClientEvidenceItem? ScreeningReview(IEnumerable<ClientEvidenceItem> items, string evidenceType)
+        => items
+            .Where(item => item.EvidenceType == evidenceType && item.ScreeningReviewDate.HasValue)
+            .OrderByDescending(item => item.ScreeningReviewDate)
+            .ThenByDescending(item => item.Id)
+            .FirstOrDefault();
+
+    private static bool IsScreeningConcern(ClientEvidenceItem? item, string clearOutcome)
+        => item is not null &&
+           (item.EscalationRequired || !string.Equals(item.ScreeningOutcome, clearOutcome, StringComparison.OrdinalIgnoreCase));
+
+    private static bool RequirementSatisfiedByEvidence(ClientEvidenceReadinessModel readiness, string evidenceType)
+        => readiness.Requirements.Any(item => item.EvidenceType == evidenceType && item.IsComplete);
+
+    private static string EvidenceText(ClientEvidenceItem? item)
+        => item is null ? "" : string.Join(" ", item.Title, item.Notes, item.SelectionReason);
+
+    private static bool ContainsAny(string value, params string[] terms)
+        => terms.Any(term => value.Contains(term, StringComparison.OrdinalIgnoreCase));
+
+    private static string DisplayScreeningOutcome(ClientEvidenceItem? item)
+        => string.IsNullOrWhiteSpace(item?.ScreeningOutcome) ? "not recorded" : item.ScreeningOutcome;
+
     private static void ValidateMethodology(RiskMethodologyVersion methodology)
     {
         if (methodology.Factors.Count == 0 || methodology.Factors.Any(factor => factor.Options.Count == 0))
@@ -985,6 +1297,15 @@ public sealed class ClientRiskAssessmentService(
 
     private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static bool IsHigh(string? value) => string.Equals(value, "High", StringComparison.OrdinalIgnoreCase);
+
+    private sealed record ClientRiskGeneratedProposal(
+        IReadOnlyDictionary<string, ClientRiskGeneratedFactor> Factors,
+        bool HasPepExposure,
+        bool HasSanctionsConcern,
+        bool HasAdverseInformation,
+        string Narrative);
+
+    private sealed record ClientRiskGeneratedFactor(RiskFactorOption Option, int? EvidenceItemId, string Explanation);
 }
 
 public sealed class ClientRiskAssessmentPageModel
@@ -996,6 +1317,8 @@ public sealed class ClientRiskAssessmentPageModel
     public bool IsReadyForRiskAssessment { get; init; }
     public int BlockingEvidenceCount { get; init; }
     public int BlockingVerificationCount { get; init; }
+    public bool InvestmentReconciliationComplete { get; init; }
+    public int BlockingInvestmentCount { get; init; }
     public string LifecycleStatus { get; init; } = ClientLifecycleStatuses.Unreviewed;
     public bool HasActiveMethodology { get; init; }
     public bool HasUsableMethodology { get; init; }

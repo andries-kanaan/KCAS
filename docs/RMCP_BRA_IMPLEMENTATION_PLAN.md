@@ -2,8 +2,10 @@
 
 Status: Active source of truth  
 Plan owner: Kanaan / KCAS  
-Last updated: 2026-07-30
+Last updated: 2026-08-01
 Implementation approach: gated, incremental releases
+
+The website-equivalence design for low-intervention client-by-client reviews is maintained in `docs/CLIENT_COMPLIANCE_REVIEW_WORKFLOW_PLAN.md`. It is the detailed source for consolidating lifecycle, evidence, screening and client-risk work into one guided page and reducing the Compliance submenu.
 
 ## 1. Purpose
 

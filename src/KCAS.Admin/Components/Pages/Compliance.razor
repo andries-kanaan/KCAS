@@ -13,8 +13,17 @@
         <p class="lede">Controlled configuration, responsible roles, document reviews, methodology status and audit evidence.</p>
     </div>
     <div class="header-actions">
-        <a class="btn btn-outline-secondary" href="/compliance/client-evidence">Client evidence readiness</a>
-        <a class="btn btn-primary" href="/compliance/profile">Manage compliance</a>
+        <AuthorizeView Policy="@KcasPermissions.ClientsView">
+            <Authorized>
+                <a class="btn btn-primary" href="/clients/operational-review">Continue client reviews</a>
+            </Authorized>
+        </AuthorizeView>
+        <a class="btn btn-outline-primary" href="/compliance/goaml">Daily compliance</a>
+        <AuthorizeView Policy="@KcasPermissions.ComplianceManage">
+            <Authorized>
+                <a class="btn btn-outline-secondary" href="/compliance/profile">Settings</a>
+            </Authorized>
+        </AuthorizeView>
     </div>
 </div>
 
@@ -24,6 +33,37 @@
 }
 else
 {
+    <section class="summary-grid">
+        <AuthorizeView Policy="@KcasPermissions.ClientsView">
+            <Authorized>
+                <article class="summary-card">
+                    <span>Client reviews</span>
+                    <strong>Unified client workflow</strong>
+                    <a class="btn btn-sm btn-outline-primary mt-3" href="/clients/operational-review">Open reviews</a>
+                </article>
+            </Authorized>
+        </AuthorizeView>
+        <article class="summary-card">
+            <span>Daily compliance</span>
+            <strong>goAML and recurring checks</strong>
+            <a class="btn btn-sm btn-outline-primary mt-3" href="/compliance/goaml">Open daily work</a>
+        </article>
+        <article class="summary-card">
+            <span>Programme and controls</span>
+            <strong>BRA, RMCP and monitoring</strong>
+            <a class="btn btn-sm btn-outline-primary mt-3" href="/compliance/programme">Open programme</a>
+        </article>
+        <AuthorizeView Policy="@KcasPermissions.InspectionsView">
+            <Authorized>
+                <article class="summary-card">
+                    <span>Inspection readiness</span>
+                    <strong>Cases and evidence packs</strong>
+                    <a class="btn btn-sm btn-outline-primary mt-3" href="/compliance/inspections">Open inspections</a>
+                </article>
+            </Authorized>
+        </AuthorizeView>
+    </section>
+
     <section class="work-area">
         @if (goAml is not null)
         {
