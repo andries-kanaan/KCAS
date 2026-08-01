@@ -20,7 +20,7 @@ else
             <p class="text-muted mb-0">Kanaan ID: @(model.Client.KanaanId ?? "Not captured")</p>
         </div>
         <div class="header-actions">
-            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/evidence")">Evidence readiness</a>
+            <a class="btn btn-primary" href="@($"/clients/{ClientId}/compliance-review")">Back to compliance review</a>
             <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}")">Client detail</a>
             <a class="btn btn-outline-secondary" href="/clients/operational-review">Review list</a>
         </div>
@@ -40,7 +40,7 @@ else
 
     <section class="work-area">
         <h2>1. Lifecycle classification</h2>
-        <p>Classify this imported record before treating it as part of Kanaan's current client population.</p>
+        <p>Use this exception page only when the unified review cannot determine lifecycle reliably.</p>
         <div class="workspace-grid">
             <select class="form-select" @bind="lifecycleStatus" disabled="@(!canManage)">
                 <option value="@ClientLifecycleStatuses.Unreviewed">Select classification</option>
@@ -64,7 +64,7 @@ else
 
     <section class="work-area">
         <h2>2. Add a fact for human verification</h2>
-        <p>A Codex/import recommendation remains pending here until an authorised Kanaan user accepts or rejects it.</p>
+        <p>This manual proposal tool is for genuine imported or evidence conflicts, not a normal review step.</p>
         <div class="workspace-grid">
             <select class="form-select" @bind="fieldCode" disabled="@(!canManage)">
                 @foreach (var field in ClientVerificationFields.Labels)

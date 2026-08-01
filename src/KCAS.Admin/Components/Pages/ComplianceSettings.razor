@@ -174,6 +174,19 @@ else
             One active Key Individual recorded in the governance register must sign it off before activation.
         </p>
         @RenderMethodologies()
+        @if (renameMethodologyId.HasValue)
+        {
+            <div class="detail-panel mt-3">
+                <h3 class="h5">Rename methodology version</h3>
+                <p class="text-muted">Current label: @Display(renameCurrentVersionLabel). KCAS has proposed a final label; adjust it only if necessary.</p>
+                <div class="workspace-grid">
+                    <input class="form-control" @bind="renameVersionLabel" placeholder="New version label" disabled="@(!canManage)" />
+                    <input class="form-control" @bind="renameReason" placeholder="Reason for renaming" disabled="@(!canManage)" />
+                </div>
+                <button type="button" class="btn btn-primary mt-2" @onclick="RenameMethodologyVersionAsync" disabled="@(!canManage || string.IsNullOrWhiteSpace(renameVersionLabel) || string.IsNullOrWhiteSpace(renameReason))">Confirm rename</button>
+                <button type="button" class="btn btn-outline-secondary mt-2 ms-1" @onclick="CancelMethodologyRename">Cancel</button>
+            </div>
+        }
         </section>
     }
 
@@ -289,6 +302,10 @@ else
     private bool canManage;
     private bool canKiApprove;
     private bool hasApprovePermission;
+    private int? renameMethodologyId;
+    private string? renameCurrentVersionLabel;
+    private string? renameVersionLabel;
+    private string? renameReason;
 
     protected override async Task OnInitializedAsync()
     {
@@ -336,6 +353,33 @@ else
 
     private async Task CreateStarterMethodologyAsync()
         => await ExecuteAsync(async () => { await ComplianceService.CreateKanaanStarterMethodologyAsync(currentUser, reason ?? ""); });
+
+    private void OpenMethodologyRename(int methodologyId, string? currentLabel)
+    {
+        renameMethodologyId = methodologyId;
+        renameCurrentVersionLabel = currentLabel;
+        renameVersionLabel = SuggestFinalVersionLabel(currentLabel);
+        renameReason = "Remove working-draft wording before KI approval.";
+    }
+
+    private async Task RenameMethodologyVersionAsync()
+        => await ExecuteAsync(async () =>
+        {
+            await ComplianceService.RenameMethodologyVersionAsync(
+                renameMethodologyId!.Value,
+                renameVersionLabel,
+                currentUser,
+                renameReason ?? "");
+            CancelMethodologyRename();
+        });
+
+    private void CancelMethodologyRename()
+    {
+        renameMethodologyId = null;
+        renameCurrentVersionLabel = null;
+        renameVersionLabel = null;
+        renameReason = null;
+    }
 
     private async Task SubmitMethodologyAsync(int id) => await ExecuteAsync(async () => await ComplianceService.SubmitMethodologyAsync(id, currentUser, reason ?? ""));
     private async Task ApproveMethodologyAsync(int id) => await ExecuteAsync(async () => await ComplianceService.ApproveMethodologyAsync(id, currentUser, reason ?? ""));
@@ -408,6 +452,14 @@ else
             builder.AddAttribute(index++, "href", $"/compliance/methodologies/{item.Id}/review");
             builder.AddContent(index++, "Review details");
             builder.CloseElement();
+            if (canManage && item.Status is ComplianceStatuses.Draft or ComplianceStatuses.Review)
+            {
+                builder.OpenElement(index++, "button");
+                builder.AddAttribute(index++, "class", "btn btn-sm btn-outline-secondary ms-1");
+                builder.AddAttribute(index++, "onclick", EventCallback.Factory.Create(this, () => OpenMethodologyRename(item.Id, item.VersionLabel)));
+                builder.AddContent(index++, "Rename version");
+                builder.CloseElement();
+            }
             if (canManage && item.Status == ComplianceStatuses.Draft)
             {
                 builder.OpenElement(index++, "button");
@@ -447,4 +499,20 @@ else
 
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
     private static string Date(DateOnly? value) => value is null ? "-" : value.Value.ToString("yyyy-MM-dd");
+    private static string SuggestFinalVersionLabel(string? currentLabel)
+    {
+        var current = string.IsNullOrWhiteSpace(currentLabel) ? "" : currentLabel.Trim();
+        const string workingDraftPrefix = "Working draft";
+        if (!current.StartsWith(workingDraftPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return current.Length == 0 ? "Version 1" : current;
+        }
+
+        var suffix = current[workingDraftPrefix.Length..].Trim();
+        if (suffix.StartsWith('v') && suffix.Length > 1)
+        {
+            suffix = suffix[1..].Trim();
+        }
+        return suffix.Length == 0 ? "Version 1" : $"Version {suffix}";
+    }
 }

@@ -19,6 +19,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<ClientKycRecommendation> ClientKycRecommendations => Set<ClientKycRecommendation>();
     public DbSet<ClientInvestmentAccount> ClientInvestmentAccounts => Set<ClientInvestmentAccount>();
     public DbSet<ClientInvestmentTransaction> ClientInvestmentTransactions => Set<ClientInvestmentTransaction>();
+    public DbSet<ClientInvestmentReconciliationReview> ClientInvestmentReconciliationReviews => Set<ClientInvestmentReconciliationReview>();
     public DbSet<ClientFundValuation> ClientFundValuations => Set<ClientFundValuation>();
     public DbSet<InvestmentAdministratorReference> InvestmentAdministratorReferences => Set<InvestmentAdministratorReference>();
     public DbSet<InvestmentFundReference> InvestmentFundReferences => Set<InvestmentFundReference>();
@@ -494,6 +495,30 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.HasIndex(account => account.LegacyClientId);
             entity.HasIndex(account => account.LegacyLinkedAccountId);
             entity.HasIndex(account => account.AccountNumber);
+        });
+
+        builder.Entity<ClientInvestmentReconciliationReview>(entity =>
+        {
+            entity.Property(review => review.Outcome).HasMaxLength(32);
+            entity.Property(review => review.EvidenceReference).HasMaxLength(512);
+            entity.Property(review => review.Reason).HasMaxLength(1000);
+            entity.Property(review => review.SnapshotSha256).HasMaxLength(64);
+            entity.Property(review => review.ReviewedBy).HasMaxLength(191);
+            ConfigureDateOnly(entity.Property(review => review.AppliedSurrenderDate));
+            entity.HasOne(review => review.Client)
+                .WithMany(client => client.InvestmentReconciliationReviews)
+                .HasForeignKey(review => review.ClientId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(review => review.InvestmentAccount)
+                .WithMany(account => account.ReconciliationReviews)
+                .HasForeignKey(review => review.ClientInvestmentAccountId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(review => review.RelatedInvestmentAccount)
+                .WithMany()
+                .HasForeignKey(review => review.RelatedClientInvestmentAccountId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(review => new { review.ClientId, review.ClientInvestmentAccountId, review.ReviewedAtUtc });
+            entity.HasIndex(review => review.Outcome);
         });
 
         builder.Entity<ClientInvestmentTransaction>(entity =>

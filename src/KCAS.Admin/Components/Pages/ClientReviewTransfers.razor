@@ -17,7 +17,7 @@
 </div>
 
 <div class="alert alert-info">
-    Packages are AES-256 encrypted and contain evidence metadata and hashes, not document contents.
+    Packages are AES-256 encrypted and contain verified investment-reconciliation decisions, evidence metadata and hashes, not document contents.
     The passphrase is never stored. Current package storage: <code>@TransferService.StorageRoot</code>
 </div>
 
@@ -103,6 +103,7 @@
                     <dt>Assessment</dt><dd>@preview.Package.Assessment.FinalRating — @preview.Package.Assessment.Status</dd>
                     <dt>Methodology</dt><dd>@preview.Package.Assessment.MethodologyName @preview.Package.Assessment.MethodologyVersionLabel</dd>
                     <dt>Evidence</dt><dd>@preview.NewEvidenceCount new; @preview.ExistingEvidenceCount already present</dd>
+                    <dt>Investment verification</dt><dd>@preview.Package.InvestmentReconciliations.Count approved account decision(s)</dd>
                     <dt>Package</dt><dd><code>@preview.Package.PackageId</code></dd>
                 </dl>
                 @foreach (var warning in preview.Warnings)

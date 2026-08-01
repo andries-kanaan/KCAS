@@ -80,6 +80,7 @@ builder.Services.AddScoped<ClientEvidenceReadinessService>();
 builder.Services.AddScoped<ClientEntityOwnershipService>();
 builder.Services.AddScoped<ClientRiskAssessmentService>();
 builder.Services.AddScoped<ClientOperationalVerificationService>();
+builder.Services.AddScoped<ClientComplianceReviewService>();
 builder.Services.AddScoped<BusinessRiskAssessmentService>();
 builder.Services.AddScoped<RmcpService>();
 builder.Services.AddScoped<ComplianceWorkService>();

@@ -9,6 +9,39 @@ namespace KCAS.Admin.Tests;
 public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactory factory)
 {
     [Fact]
+    public async Task Saving_client_folder_persists_selection_without_starting_scan()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var clientId = await CreateClientAsync(db, "Folder Save Client", "FOLDER-SAVE-001", @"z:\Kanaan Trust\Clients\Old Folder");
+        var selectedFolder = CreateTempRoot();
+        var scanCountBefore = await db.ClientEvidenceScanRuns.CountAsync();
+
+        try
+        {
+            await service.SaveClientEvidenceFolderAsync(
+                clientId,
+                selectedFolder,
+                "reviewer@example.test",
+                "Select client evidence folder from server folder browser.");
+
+            db.ChangeTracker.Clear();
+            var client = await db.Clients.SingleAsync(candidate => candidate.Id == clientId);
+            Assert.Equal(selectedFolder, client.ClientFolder);
+            Assert.Equal(scanCountBefore, await db.ClientEvidenceScanRuns.CountAsync());
+            Assert.True(await db.ComplianceAuditEvents.AnyAsync(audit =>
+                audit.EntityType == "Client" &&
+                audit.EntityId == clientId &&
+                audit.Action == "SetEvidenceClientFolder"));
+        }
+        finally
+        {
+            Directory.Delete(selectedFolder, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Readiness_defaults_block_clients_until_required_evidence_is_verified()
     {
         using var scope = factory.Services.CreateScope();

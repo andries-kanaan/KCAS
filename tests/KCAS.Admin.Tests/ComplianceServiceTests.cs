@@ -96,6 +96,63 @@ public sealed class ComplianceServiceTests(KcasWebApplicationFactory factory)
     }
 
     [Fact]
+    public async Task Review_version_can_be_renamed_and_ki_approval_removes_working_draft_wording()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ComplianceService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        var manualRenameId = await service.SaveMethodologyAsync(new RiskMethodologyModel
+        {
+            Name = $"Rename methodology {Guid.NewGuid():N}",
+            VersionLabel = "Working draft v1",
+            Factors = [new() { Code = "CLIENT", Name = "Client", Weight = 1, Options = [new() { Code = "LOW", Label = "Low", Score = 1 }] }],
+            Bands = [new() { Name = "Low", MinimumScore = 0, MaximumScore = 2 }]
+        }, "preparer@example.test", "Create rename test methodology.");
+        await service.SubmitMethodologyAsync(manualRenameId, "preparer@example.test", "Submit rename test methodology.");
+        await service.RenameMethodologyVersionAsync(
+            manualRenameId,
+            "Version 1",
+            "preparer@example.test",
+            "Remove working-draft wording.");
+
+        var renamed = await db.RiskMethodologyVersions.AsNoTracking().SingleAsync(item => item.Id == manualRenameId);
+        Assert.Equal("Version 1", renamed.VersionLabel);
+        Assert.Equal(ComplianceStatuses.Review, renamed.Status);
+        Assert.True(await db.ComplianceAuditEvents.AsNoTracking().AnyAsync(item =>
+            item.EntityType == nameof(RiskMethodologyVersion) &&
+            item.EntityId == manualRenameId &&
+            item.Action == "VersionRenamed"));
+
+        var automaticRenameId = await service.SaveMethodologyAsync(new RiskMethodologyModel
+        {
+            Name = $"Automatic rename methodology {Guid.NewGuid():N}",
+            VersionLabel = "Working draft v1",
+            Factors = [new() { Code = "CLIENT", Name = "Client", Weight = 1, Options = [new() { Code = "LOW", Label = "Low", Score = 1 }] }],
+            Bands = [new() { Name = "Low", MinimumScore = 0, MaximumScore = 2 }]
+        }, "preparer@example.test", "Create automatic rename test methodology.");
+        await service.SubmitMethodologyAsync(automaticRenameId, "preparer@example.test", "Submit automatic rename test methodology.");
+        await EnsureKeyIndividualAsync(db, "ki-rename@example.test");
+        await service.ApproveMethodologyAsync(
+            automaticRenameId,
+            "ki-rename@example.test",
+            "KI approves the methodology.");
+
+        var approved = await db.RiskMethodologyVersions.AsNoTracking().SingleAsync(item => item.Id == automaticRenameId);
+        Assert.Equal("Version 1", approved.VersionLabel);
+        Assert.Equal(ComplianceStatuses.Approved, approved.Status);
+        Assert.True(await db.ComplianceAuditEvents.AsNoTracking().AnyAsync(item =>
+            item.EntityType == nameof(RiskMethodologyVersion) &&
+            item.EntityId == automaticRenameId &&
+            item.Action == "VersionFinalisedOnApproval"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.RenameMethodologyVersionAsync(
+            automaticRenameId,
+            "Version 2",
+            "preparer@example.test",
+            "Try renaming an approved methodology."));
+    }
+
+    [Fact]
     public async Task Tasks_and_evidence_write_audit_events()
     {
         using var scope = factory.Services.CreateScope();
@@ -168,6 +225,26 @@ public sealed class ComplianceServiceTests(KcasWebApplicationFactory factory)
         }
         await service.ApproveMethodologyAsync(methodologyId, "ki-one@example.test", "KI methodology sign-off.");
         return methodologyId;
+    }
+
+    private static async Task EnsureKeyIndividualAsync(ApplicationDbContext db, string email)
+    {
+        if (await db.GovernanceRoleAssignments.AnyAsync(item =>
+                item.Email == email &&
+                item.IsActive &&
+                item.RoleType == "Key Individual"))
+        {
+            return;
+        }
+
+        db.GovernanceRoleAssignments.Add(new GovernanceRoleAssignment
+        {
+            RoleType = "Key Individual",
+            PersonName = "Rename Test KI",
+            Email = email,
+            IsActive = true
+        });
+        await db.SaveChangesAsync();
     }
 
     [Fact]

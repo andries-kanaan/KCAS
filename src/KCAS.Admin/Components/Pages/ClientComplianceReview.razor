@@ -1,0 +1,385 @@
+@page "/clients/{ClientId:int}/compliance-review"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ClientsView)]
+@using KCAS.Admin.Data
+@inject ClientComplianceReviewService ReviewService
+@inject ClientOperationalVerificationService VerificationService
+@inject ClientEvidenceReadinessService EvidenceService
+@inject ClientEvidenceScanCoordinator ScanCoordinator
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Client compliance review</PageTitle>
+
+@if (model is null)
+{
+    <p>Loading client compliance review...</p>
+}
+else
+{
+    <div class="page-header">
+        <div>
+            <p class="eyebrow">Unified client compliance review</p>
+            <h1>@model.DisplayName</h1>
+            <p class="text-muted mb-0">Kanaan ID: @Display(model.KanaanId) · @model.ClientCategory</p>
+        </div>
+        <div class="header-actions">
+            @if (!model.IsComplete)
+            {
+                <a class="btn btn-primary" href="@model.NextAction.Url">@model.NextAction.Label</a>
+            }
+            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}")">Client detail</a>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(statusMessage))
+    {
+        <div class="alert @(hasError ? "alert-danger" : "alert-info")">@statusMessage</div>
+    }
+
+    <div class="alert @(model.IsComplete ? "alert-success" : "alert-info")">
+        @if (model.IsComplete)
+        {
+            <strong>This client review is complete.</strong>
+            <span> Investment, evidence, screening and risk records remain available below.</span>
+        }
+        else
+        {
+            <strong>Next: @model.NextAction.Label.</strong>
+            <span> KCAS shows completed work as summaries and interrupts the flow only for unresolved items.</span>
+        }
+    </div>
+
+    <section class="summary-grid">
+        @for (var index = 0; index < model.Sections.Count; index++)
+        {
+            var section = model.Sections[index];
+            <article class="summary-card">
+                <span>@(index + 1). @section.Title</span>
+                <strong>@(section.IsComplete ? "Complete" : "Action required")</strong>
+                <small class="text-muted">@section.Summary</small>
+            </article>
+        }
+    </section>
+
+    <section class="work-area" id="folder">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+            <div>
+                <p class="eyebrow mb-1">Step 1</p>
+                <h2>Client folder and evidence scan</h2>
+                <p class="text-muted">The selected folder is saved immediately. A new or changed folder is scanned automatically; an existing completed scan is reused.</p>
+            </div>
+            @if (canManageEvidence)
+            {
+                <div class="row-actions">
+                    <button class="btn btn-primary" type="button" @onclick="OpenFolderPicker" disabled="@isBusy">@(string.IsNullOrWhiteSpace(model.ClientFolder) ? "Select client folder" : "Change folder")</button>
+                    @if (!string.IsNullOrWhiteSpace(model.ClientFolder))
+                    {
+                        <button class="btn btn-outline-secondary" type="button" @onclick="RescanAsync" disabled="@(isBusy || ScanIsRunning)">Rescan folder</button>
+                    }
+                    <button class="btn btn-outline-secondary" type="button" @onclick="RefreshAsync" disabled="@isBusy">Refresh status</button>
+                </div>
+            }
+        </div>
+        <dl class="mb-0">
+            <dt>Selected folder</dt><dd>@Display(model.ClientFolder)</dd>
+            <dt>Latest scan</dt>
+            <dd>
+                @if (model.LatestFolderScan is null)
+                {
+                    <span>No scan recorded for this folder.</span>
+                }
+                else
+                {
+                    <span>@model.LatestFolderScan.Status · @model.LatestFolderScan.LinkedFiles linked / @model.LatestFolderScan.TotalFiles files · started @model.LatestFolderScan.StartedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</span>
+                    @if (!string.IsNullOrWhiteSpace(model.LatestFolderScan.ErrorMessage))
+                    {
+                        <div class="text-danger">@model.LatestFolderScan.ErrorMessage</div>
+                    }
+                }
+            </dd>
+        </dl>
+        <ServerFolderPicker IsOpen="@folderPickerOpen"
+                            InitialPath="@model.ClientFolder"
+                            Disabled="@(!canManageEvidence || isBusy)"
+                            Title="Choose client folder"
+                            Selected="SelectFolderAsync"
+                            Closed="CloseFolderPicker" />
+    </section>
+
+    <section class="work-area" id="context">
+        <p class="eyebrow mb-1">Step 2</p>
+        <h2>Client and relationship context</h2>
+        <div class="summary-grid">
+            <article class="summary-card"><span>Lifecycle</span><strong>@model.LifecycleStatus</strong></article>
+            <article class="summary-card"><span>Current investments</span><strong>@model.CurrentInvestmentCount · @Money(model.CurrentInvestmentValueZar)</strong></article>
+            <article class="summary-card"><span>Retirement age</span><strong>@(model.RetirementAge?.ToString() ?? "Not recorded")</strong></article>
+            <article class="summary-card"><span>Latest client note</span><strong>@Date(model.LatestNoteDate)</strong></article>
+        </div>
+        @if (model.LifecycleStatus == ClientLifecycleStatuses.Unreviewed)
+        {
+            <div class="alert @(model.LifecycleProposal.CanConfirm ? "alert-info" : "alert-warning") mt-3">
+                <strong>Proposed: @model.LifecycleProposal.Status</strong>
+                <div>@model.LifecycleProposal.Reason</div>
+                @if (model.LifecycleProposal.CanConfirm && canManageClient)
+                {
+                    <button class="btn btn-primary mt-2" type="button" @onclick="ConfirmLifecycleAsync" disabled="@isBusy">Confirm proposed lifecycle</button>
+                }
+                else if (!model.LifecycleProposal.CanConfirm)
+                {
+                    <a class="btn btn-outline-primary mt-2" href="@($"/clients/{ClientId}/verification")">Resolve lifecycle exception</a>
+                }
+            </div>
+        }
+        else
+        {
+            <p class="mb-0"><span class="badge text-bg-success">Classified</span> @Display(model.LifecycleReason)</p>
+        }
+        @if (model.LinkedClients.Count > 0)
+        {
+            <h3 class="h5 mt-3">Linked clients</h3>
+            <ul class="mb-0">
+                @foreach (var linked in model.LinkedClients)
+                {
+                    <li><a href="@($"/clients/{linked.ClientId}/compliance-review")">@linked.DisplayName</a> · @linked.LifecycleStatus · @(linked.SharesFolder ? "shared folder" : "shared Kanaan ID")</li>
+                }
+            </ul>
+        }
+    </section>
+
+    <section class="work-area" id="facts">
+        <p class="eyebrow mb-1">Step 3</p>
+        <h2>Facts and conflicts</h2>
+        @if (model.PendingFacts.Count == 0)
+        {
+            <div class="alert alert-success mb-0">KCAS has no client facts awaiting human verification. No manual fact entry is required.</div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead><tr><th>Fact</th><th>Current</th><th>Proposed</th><th>Source</th><th>Impact</th></tr></thead>
+                    <tbody>
+                        @foreach (var fact in model.PendingFacts)
+                        {
+                            <tr><td>@fact.FieldLabel</td><td>@Display(fact.ExistingValue)</td><td>@Display(fact.ProposedValue)</td><td>@fact.SourceReference</td><td>@(fact.IsBlocking ? "Blocking" : "Optional")</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <a class="btn btn-primary" href="@($"/clients/{ClientId}/verification")">Resolve genuine conflicts</a>
+        }
+    </section>
+
+    <section class="work-area" id="investments">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+            <div><p class="eyebrow mb-1">Step 4</p><h2>Investment reconciliation</h2></div>
+            <a class="btn @(model.Investments.IsComplete ? "btn-outline-secondary" : "btn-primary")" href="@($"/clients/{ClientId}/investments/reconciliation")">@(model.Investments.IsComplete ? "View verified investments" : "Verify investments")</a>
+        </div>
+        @if (!model.Investments.RequiresReview)
+        {
+            <div class="alert alert-success mb-0">No investment records require reconciliation.</div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead><tr><th>Account</th><th>Administrator</th><th>Recorded status</th><th>Current value</th><th>Verification</th></tr></thead>
+                    <tbody>
+                        @foreach (var account in model.Investments.Accounts)
+                        {
+                            <tr>
+                                <td>@Display(account.AccountNumber)</td><td>@Display(account.Administrator)</td>
+                                <td>@(account.IsCurrent ? "Current" : "Historical") · @Date(account.SurrenderDate)</td>
+                                <td>@Money(account.CurrentValueZar ?? 0)</td>
+                                <td>@(account.IsVerified ? ClientInvestmentReconciliationOutcomes.Label(account.ReviewOutcome ?? "") : $"Proposed: {ClientInvestmentReconciliationOutcomes.Label(account.ProposedOutcome)}")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    <section class="work-area" id="evidence">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+            <div><p class="eyebrow mb-1">Step 5</p><h2>Evidence readiness</h2></div>
+            <a class="btn @(EvidenceComplete ? "btn-outline-secondary" : "btn-primary")" href="@($"/clients/{ClientId}/evidence")">@(EvidenceComplete ? "View evidence pack" : "Resolve evidence")</a>
+        </div>
+        <p>@model.Evidence.Requirements.Count(item => item.IsComplete || item.IsExceptioned) of @model.Evidence.RequiredCount requirements satisfied · @model.Evidence.VerifiedEvidenceCount verified evidence item(s) · @model.Evidence.ExceptionCount approved exception(s).</p>
+        @if (BlockedEvidence.Count == 0 && model.Evidence.OwnershipBlockers.Count == 0)
+        {
+            <div class="alert alert-success mb-0">Required non-screening evidence is ready.</div>
+        }
+        else
+        {
+            <ul class="mb-0">
+                @foreach (var requirement in BlockedEvidence)
+                {
+                    <li>@requirement.Title — @requirement.LinkedItemCount linked, @requirement.VerifiedItemCount verified</li>
+                }
+                @foreach (var blocker in model.Evidence.OwnershipBlockers)
+                {
+                    <li>@blocker</li>
+                }
+            </ul>
+        }
+    </section>
+
+    <section class="work-area" id="screening">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+            <div><p class="eyebrow mb-1">Step 6</p><h2>Screening</h2></div>
+            @if (BlockedScreening.Count > 0)
+            {
+                <a class="btn btn-primary" href="@($"/clients/{ClientId}/evidence")">Complete screening</a>
+            }
+        </div>
+        @if (model.ScreeningRequirements.Count == 0)
+        {
+            <p class="text-muted mb-0">No screening requirements apply.</p>
+        }
+        else
+        {
+            <ul class="mb-0">
+                @foreach (var requirement in model.ScreeningRequirements)
+                {
+                    <li>@requirement.Title — @(requirement.IsComplete ? "Complete" : requirement.IsExceptioned ? "Exception approved" : "Action required")</li>
+                }
+            </ul>
+        }
+    </section>
+
+    <section class="work-area" id="risk">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+            <div><p class="eyebrow mb-1">Step 7</p><h2>Risk assessment and completion</h2></div>
+            <AuthorizeView Policy="@KcasPermissions.RiskAssessmentsView">
+                <Authorized><a class="btn btn-primary" href="@($"/clients/{ClientId}/risk")">@(model.Risk.Assessment is null ? "Start risk assessment" : "Open risk assessment")</a></Authorized>
+            </AuthorizeView>
+        </div>
+        <dl class="mb-0">
+            <dt>Readiness</dt><dd>@(model.Risk.IsReadyForRiskAssessment ? "Ready" : "Prerequisites remain")</dd>
+            <dt>Assessment status</dt><dd>@(model.Risk.Assessment?.Status ?? "Not started")</dd>
+            <dt>Risk rating</dt><dd>@Display(model.Risk.Assessment?.FinalRating ?? model.Risk.Assessment?.CalculatedRating)</dd>
+            <dt>Next review</dt><dd>@Date(model.Risk.Assessment?.NextReviewDate)</dd>
+        </dl>
+        @if (model.IsComplete)
+        {
+            <div class="alert alert-success mt-3 mb-0"><strong>Approve-and-complete outcome recorded.</strong> The finalised assessment and its audit trail form the completed client review.</div>
+        }
+    </section>
+}
+
+@code {
+    [Parameter] public int ClientId { get; set; }
+
+    private ClientComplianceReviewModel? model;
+    private string? currentUser;
+    private bool canManageClient;
+    private bool canManageEvidence;
+    private bool folderPickerOpen;
+    private bool isBusy;
+    private bool hasError;
+    private string? statusMessage;
+
+    private bool ScanIsRunning => model?.LatestFolderScan?.Status is ClientEvidenceScanStatuses.Running or ClientEvidenceScanStatuses.Cancelling;
+    private List<ClientEvidenceRequirementStatusModel> BlockedEvidence => model?.EvidenceRequirements.Where(item => item.IsBlocked).ToList() ?? [];
+    private List<ClientEvidenceRequirementStatusModel> BlockedScreening => model?.ScreeningRequirements.Where(item => item.IsBlocked).ToList() ?? [];
+    private bool EvidenceComplete => BlockedEvidence.Count == 0 && (model?.Evidence.OwnershipBlockers.Count ?? 0) == 0;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var auth = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        currentUser = auth.User.Identity?.Name;
+        canManageClient = auth.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ClientsManage);
+        canManageEvidence = auth.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage);
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync() => model = await ReviewService.LoadAsync(ClientId);
+
+    private void OpenFolderPicker() => folderPickerOpen = true;
+    private void CloseFolderPicker() => folderPickerOpen = false;
+
+    private async Task SelectFolderAsync(string path)
+    {
+        if (model is null) return;
+        var changed = !string.Equals(model.ClientFolder?.Trim(), path.Trim(), StringComparison.OrdinalIgnoreCase);
+        await ExecuteAsync(async () =>
+        {
+            if (changed || model.LatestFolderScan is null)
+            {
+                var runId = await ScanCoordinator.StartClientScanAsync(
+                    ClientId,
+                    path,
+                    currentUser,
+                    "Select client folder and prepare unified compliance review.");
+                statusMessage = $"Client folder saved and evidence scan {runId} started.";
+            }
+            else
+            {
+                await EvidenceService.SaveClientEvidenceFolderAsync(
+                    ClientId,
+                    path,
+                    currentUser,
+                    "Confirm existing client folder for unified compliance review.");
+                statusMessage = "Existing client folder confirmed; completed scan results retained.";
+            }
+        });
+    }
+
+    private async Task RescanAsync()
+    {
+        if (model is null || string.IsNullOrWhiteSpace(model.ClientFolder)) return;
+        await ExecuteAsync(async () =>
+        {
+            var runId = await ScanCoordinator.StartClientScanAsync(
+                ClientId,
+                model.ClientFolder,
+                currentUser,
+                "Refresh evidence for unified client compliance review.");
+            statusMessage = $"Evidence rescan {runId} started.";
+        });
+    }
+
+    private async Task ConfirmLifecycleAsync()
+    {
+        if (model is null || !model.LifecycleProposal.CanConfirm) return;
+        await ExecuteAsync(async () =>
+        {
+            await VerificationService.ClassifyLifecycleAsync(
+                ClientId,
+                new ClientLifecycleReviewRequest(
+                    model.LifecycleProposal.Status,
+                    null,
+                    model.LifecycleProposal.Reason),
+                currentUser);
+            statusMessage = $"Lifecycle classified as {model.LifecycleProposal.Status}.";
+        });
+    }
+
+    private async Task RefreshAsync() => await ExecuteAsync(() => Task.CompletedTask);
+
+    private async Task ExecuteAsync(Func<Task> action)
+    {
+        isBusy = true;
+        hasError = false;
+        statusMessage = null;
+        try
+        {
+            await action();
+            await LoadAsync();
+        }
+        catch (Exception exception)
+        {
+            hasError = true;
+            statusMessage = exception.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "Not captured" : value;
+    private static string Money(decimal value) => $"R {value:N2}";
+    private static string Date(DateOnly? value) => value?.ToString("yyyy-MM-dd") ?? "Not recorded";
+}

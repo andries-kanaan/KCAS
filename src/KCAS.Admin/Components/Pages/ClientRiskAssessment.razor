@@ -20,6 +20,8 @@ else
             <p class="text-muted mb-0">Kanaan ID: @(model.KanaanId ?? "Not captured") | Category: @model.ClientCategory</p>
         </div>
         <div class="header-actions">
+            <a class="btn btn-primary" href="@($"/clients/{ClientId}/compliance-review")">Back to compliance review</a>
+            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/investments/reconciliation")">Investment verification</a>
             <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/evidence")">Evidence readiness</a>
             <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}")">Client detail</a>
             <a class="btn btn-outline-secondary" href="/compliance/client-risk">Risk list</a>
@@ -50,6 +52,10 @@ else
         }
         <section class="summary-grid">
             <article class="summary-card">
+                <span>Investment reconciliation</span>
+                <strong>@(model.InvestmentReconciliationComplete ? "Verified" : $"{model.BlockingInvestmentCount} unverified")</strong>
+            </article>
+            <article class="summary-card">
                 <span>Evidence readiness</span>
                 <strong>@(model.IsReadyForRiskAssessment ? "Ready" : $"{model.BlockingEvidenceCount + model.BlockingVerificationCount} blocker(s)")</strong>
             </article>
@@ -75,12 +81,33 @@ else
         {
             <section class="work-area">
                 <h2>Start assessment</h2>
-                <p>A draft may be prepared while evidence remains outstanding, but it cannot be finalised until readiness is clear.</p>
-                <button type="button" class="btn btn-primary" @onclick="CreateDraftAsync" disabled="@(!canPrepare)">Create draft</button>
+                @if (model.IsReadyForRiskAssessment)
+                {
+                    <p>KCAS can generate a proposed assessment from the completed verification, evidence, screening and investment reconciliation records. You will review and confirm it before finalisation.</p>
+                }
+                else
+                {
+                    <p>A blank draft may be prepared while work remains outstanding, but it cannot be finalised until investment reconciliation, evidence and client verification are clear.</p>
+                }
+                <button type="button" class="btn btn-primary" @onclick="CreateDraftAsync" disabled="@(!canPrepare)">@(model.IsReadyForRiskAssessment ? "Generate proposed assessment" : "Create draft")</button>
             </section>
         }
         else if (model.Assessment.Status == ClientRiskAssessmentStatuses.Draft)
         {
+            @if (CanGenerateProposal)
+            {
+                <section class="work-area">
+                    <h2>Generate proposed assessment</h2>
+                    <p>This empty draft was created before the completed compliance records were used to generate proposals. KCAS can populate it now without deleting the draft or losing its audit history.</p>
+                    <button type="button" class="btn btn-primary" @onclick="GenerateProposalAsync" disabled="@(!canPrepare)">Generate proposal from completed records</button>
+                </section>
+            }
+            else if (HasCompleteProposal)
+            {
+                <div class="alert alert-info">
+                    KCAS has populated all risk factors from completed compliance records. Review the proposed answers, evidence links and explanations below, then confirm and finalise. Current calculated result: <strong>@Display(model.Assessment.CalculatedRating)</strong>.
+                </div>
+            }
             <section class="work-area">
                 <h2>Risk factors</h2>
                 @foreach (var factor in model.Factors)
@@ -136,7 +163,23 @@ else
                 }
                 <input class="form-control mt-3" @bind="reason" placeholder="Reason for this action" />
                 <button type="button" class="btn btn-outline-primary mt-2" @onclick="SaveDraftAsync" disabled="@(!canPrepare)">Save draft</button>
-                <button type="button" class="btn btn-primary mt-2 ms-1" @onclick="FinaliseAsync" disabled="@(!canFinalise)">Finalise assessment</button>
+                <button type="button" class="btn btn-primary mt-2 ms-1" @onclick="FinaliseAsync" disabled="@(!canFinalise)">@(HasCompleteProposal ? "Confirm and finalise assessment" : "Finalise assessment")</button>
+            </section>
+
+            <section class="work-area border-danger">
+                <h2>Delete draft</h2>
+                @if (!showDeleteConfirmation)
+                {
+                    <p class="text-muted">Delete this draft and its unfinalised factor responses. Completed evidence, verification, screening and investment reconciliation records are not affected.</p>
+                    <button type="button" class="btn btn-outline-danger" @onclick="() => showDeleteConfirmation = true" disabled="@(!canPrepare)">Delete draft</button>
+                }
+                else
+                {
+                    <div class="alert alert-warning">This removes draft #@model.Assessment.Id. Finalised assessments cannot be deleted.</div>
+                    <input class="form-control" @bind="deleteReason" placeholder="Mandatory reason for deleting this draft" />
+                    <button type="button" class="btn btn-danger mt-2" @onclick="DeleteDraftAsync" disabled="@(string.IsNullOrWhiteSpace(deleteReason) || !canPrepare)">Confirm delete draft</button>
+                    <button type="button" class="btn btn-outline-secondary mt-2 ms-1" @onclick="CancelDelete">Cancel</button>
+                }
             </section>
         }
         else
@@ -238,6 +281,18 @@ else
     private bool canPrepare;
     private bool canFinalise;
     private bool canApprove;
+    private bool showDeleteConfirmation;
+    private string? deleteReason;
+    private bool HasAnyFactorWork => model?.Factors.Any(item =>
+        item.SelectedOptionId.HasValue ||
+        item.EvidenceItemId.HasValue ||
+        !string.IsNullOrWhiteSpace(item.Explanation)) == true;
+    private bool CanGenerateProposal => model?.Assessment?.Status == ClientRiskAssessmentStatuses.Draft &&
+                                        model.IsReadyForRiskAssessment &&
+                                        !HasAnyFactorWork;
+    private bool HasCompleteProposal => model?.Assessment?.Status == ClientRiskAssessmentStatuses.Draft &&
+                                        model.Factors.Count > 0 &&
+                                        model.Factors.All(item => item.SelectedOptionId.HasValue && !string.IsNullOrWhiteSpace(item.Explanation));
     private string reassessmentTriggerType = ClientRiskReviewTriggerTypes.PeriodicReview;
     private string? reassessmentTriggerReason;
 
@@ -264,6 +319,10 @@ else
             edit.IsOverride = model.Assessment.IsOverride;
             edit.OverrideRating = model.Assessment.FinalRating;
             edit.OverrideReason = model.Assessment.OverrideReason;
+            if (HasCompleteProposal && string.IsNullOrWhiteSpace(reason))
+            {
+                reason = "Confirm proposed assessment based on verified compliance records.";
+            }
         }
     }
 
@@ -277,6 +336,26 @@ else
 
     private async Task CreateDraftAsync()
         => await ExecuteAsync(async () => await RiskService.CreateDraftAsync(ClientId, currentUser, reason ?? "Start client risk assessment."));
+
+    private async Task GenerateProposalAsync()
+        => await ExecuteAsync(async () => await RiskService.GenerateProposalAsync(
+            model!.Assessment!.Id,
+            currentUser,
+            reason ?? "Generate proposed assessment from completed compliance records."));
+
+    private async Task DeleteDraftAsync()
+        => await ExecuteAsync(async () =>
+        {
+            await RiskService.DeleteDraftAsync(model!.Assessment!.Id, currentUser, deleteReason ?? "");
+            showDeleteConfirmation = false;
+            deleteReason = null;
+        });
+
+    private void CancelDelete()
+    {
+        showDeleteConfirmation = false;
+        deleteReason = null;
+    }
 
     private async Task StartReassessmentAsync()
         => await ExecuteAsync(async () => await RiskService.StartReassessmentAsync(

@@ -1,0 +1,355 @@
+@page "/clients/{ClientId:int}/investments/reconciliation"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
+@using System.ComponentModel.DataAnnotations
+@using KCAS.Admin.Data
+@inject InvestmentReconciliationService ReconciliationService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Investment reconciliation</PageTitle>
+
+@if (model is null)
+{
+    <p>Loading investment reconciliation...</p>
+}
+else
+{
+    <div class="page-header">
+        <div>
+            <p class="eyebrow">Client compliance review · Investment verification</p>
+            <h1>@model.DisplayName</h1>
+            <p class="text-muted mb-0">Kanaan ID: @Display(model.KanaanId) · Folder: @Display(model.ClientFolder)</p>
+        </div>
+        <div class="header-actions">
+            <a class="btn btn-primary" href="@($"/clients/{ClientId}/compliance-review")">Back to compliance review</a>
+            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/evidence")">Evidence readiness</a>
+            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}")">Client detail</a>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(statusMessage))
+    {
+        <div class="alert @(hasError ? "alert-danger" : "alert-success")">@statusMessage</div>
+    }
+
+    <div class="alert alert-info">
+        KCAS has prepared proposals from valuations, transactions, account links and folder evidence.
+        Nothing changes until you explicitly verify a row. Every correction records its source, reason and audit history.
+    </div>
+
+    <section class="summary-grid">
+        <article class="summary-card"><span>Review status</span><strong>@(model.IsComplete ? "Verified" : "Verification required")</strong></article>
+        <article class="summary-card"><span>Accounts verified</span><strong>@model.VerifiedCount / @model.Accounts.Count</strong></article>
+        <article class="summary-card"><span>Needs follow-up</span><strong>@model.NeedsFollowUpCount</strong></article>
+        <article class="summary-card"><span>Unmatched valuations</span><strong>@model.UnmatchedIssues.Count</strong></article>
+    </section>
+
+    @if (model.LinkedClients.Count > 0)
+    {
+        <section class="detail-panel">
+            <h2>Linked household or shared-folder clients</h2>
+            <p class="text-muted">These investments form part of the compliance context but are not duplicated onto this client.</p>
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead><tr><th>Client</th><th>Lifecycle</th><th>Accounts</th><th>Current value</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var linked in model.LinkedClients)
+                        {
+                            <tr>
+                                <td>@linked.DisplayName <div class="text-muted small">@Display(linked.KanaanId)</div></td>
+                                <td>@linked.LifecycleStatus</td>
+                                <td>@linked.InvestmentAccountCount</td>
+                                <td>@Money(linked.CurrentValueZar)</td>
+                                <td><a class="btn btn-outline-secondary btn-sm" href="@($"/clients/{linked.ClientId}/investments/reconciliation")">Open reconciliation</a></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    }
+
+    @if (model.UnmatchedIssues.Count > 0)
+    {
+        <section class="detail-panel border-warning">
+            <h2>Valuations requiring account correction</h2>
+            @foreach (var issue in model.UnmatchedIssues)
+            {
+                <div class="alert alert-warning">
+                    <strong>@issue.IssueLabel: @Display(issue.AccountNumber)</strong>
+                    <div>@issue.Details</div>
+                    <div class="small">@issue.RecommendedAction</div>
+                </div>
+            }
+            <a class="btn btn-outline-primary" href="@($"/clients/{ClientId}/investments/new")">Add matching account</a>
+        </section>
+    }
+
+    <section class="work-area">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+            <div>
+                <h2>Account-by-account verification</h2>
+                <p class="text-muted">Review every current and historical investment, including clear rows.</p>
+            </div>
+            @if (canReview && model.Accounts.Any(account => !account.IsVerified && account.ProposedOutcome != ClientInvestmentReconciliationOutcomes.NeedsFollowUp))
+            {
+                <button type="button" class="btn btn-primary" @onclick="ApproveAllProposalsAsync" disabled="@isBusy">
+                    Verify all unambiguous proposals
+                </button>
+            }
+        </div>
+
+        @if (!model.RequiresReview)
+        {
+            <div class="alert alert-success mb-0">No investment accounts or valuations require reconciliation for this client.</div>
+        }
+        else
+        {
+            @foreach (var account in model.Accounts)
+            {
+                var form = forms[account.AccountId];
+                <details class="detail-panel mb-3" open="@(!account.IsVerified)">
+                    <summary class="d-flex flex-wrap justify-content-between gap-2">
+                        <span>
+                            <strong>@Display(account.AccountNumber)</strong> · @Display(account.Administrator)
+                            <span class="badge @(account.IsCurrent ? "text-bg-success" : "text-bg-secondary") ms-2">@(account.IsCurrent ? "Current" : "Historical")</span>
+                            @if (account.IsVerified)
+                            {
+                                <span class="badge text-bg-success ms-1">Verified</span>
+                            }
+                            else if (account.NeedsFollowUp)
+                            {
+                                <span class="badge text-bg-warning ms-1">Follow-up</span>
+                            }
+                            else
+                            {
+                                <span class="badge text-bg-warning ms-1">Awaiting verification</span>
+                            }
+                        </span>
+                        <span>@Money(account.CurrentValueZar)</span>
+                    </summary>
+
+                    <div class="row g-3 mt-1">
+                        <div class="col-lg-4">
+                            <h3 class="h6">Recorded investment</h3>
+                            <dl class="mb-0">
+                                <dt>Product / fund</dt><dd>@Display(account.ProductName) / @Display(account.FundName)</dd>
+                                <dt>Started</dt><dd>@Date(account.InvestmentDate)</dd>
+                                <dt>Surrender / transfer</dt><dd>@Date(account.SurrenderDate)</dd>
+                                <dt>Latest valuation</dt><dd>@Date(account.LatestValuationDate) · @Money(account.CurrentValueZar)</dd>
+                                <dt>Latest transaction</dt><dd>@Date(account.LatestTransactionDate) · @Display(account.LatestTransactionDescription)</dd>
+                            </dl>
+                            @foreach (var issue in account.IssueLabels)
+                            {
+                                <span class="badge text-bg-warning me-1">@issue</span>
+                            }
+                            @if (account.ReviewIsStale)
+                            {
+                                <div class="alert alert-warning mt-2 mb-0">The account changed after its last verification. Verify it again.</div>
+                            }
+                        </div>
+                        <div class="col-lg-4">
+                            <h3 class="h6">KCAS proposal</h3>
+                            <p><strong>@ClientInvestmentReconciliationOutcomes.Label(account.ProposedOutcome)</strong></p>
+                            <p>@account.ProposalReason</p>
+                            <p class="small text-muted mb-1">Suggested source: @account.ProposalEvidenceReference</p>
+                            @if (account.Evidence.Count > 0)
+                            {
+                                <div class="list-group">
+                                    @foreach (var evidence in account.Evidence)
+                                    {
+                                        <div class="list-group-item">
+                                            <div>@evidence.FileName</div>
+                                            <div class="row-actions mt-1">
+                                                <a class="btn btn-outline-secondary btn-sm" href="@evidence.FileUrl" target="_blank" rel="noopener">Open</a>
+                                                @if (canReview)
+                                                {
+                                                    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="() => UseEvidence(account.AccountId, evidence.FileName)">Use as source</button>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                        <div class="col-lg-4">
+                            <h3 class="h6">Verify decision</h3>
+                            @if (account.IsVerified)
+                            {
+                                <div class="alert alert-success">
+                                    <strong>@ClientInvestmentReconciliationOutcomes.Label(account.ReviewOutcome ?? "")</strong>
+                                    <div>@account.ReviewReason</div>
+                                    <div class="small">@account.ReviewEvidenceReference</div>
+                                    <div class="small">@account.ReviewedBy · @account.ReviewedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</div>
+                                </div>
+                            }
+                            @if (canReview)
+                            {
+                                <label class="form-label">Outcome</label>
+                                <select class="form-select" @bind="form.Outcome">
+                                    @foreach (var outcome in ClientInvestmentReconciliationOutcomes.All)
+                                    {
+                                        <option value="@outcome">@ClientInvestmentReconciliationOutcomes.Label(outcome)</option>
+                                    }
+                                </select>
+                                <label class="form-label mt-2">Effective surrender / transfer date</label>
+                                <input class="form-control" type="text" inputmode="numeric" placeholder="yyyy-mm-dd" @bind="form.SurrenderDateText" />
+                                <label class="form-label mt-2">Related account</label>
+                                <select class="form-select" @bind="form.RelatedAccountIdText">
+                                    <option value="">No related account selected</option>
+                                    @foreach (var related in model.Accounts.Where(item => item.AccountId != account.AccountId))
+                                    {
+                                        <option value="@related.AccountId">@Display(related.AccountNumber) · @Display(related.Administrator)</option>
+                                    }
+                                </select>
+                                <label class="form-label mt-2">Evidence or data source</label>
+                                <input class="form-control" @bind="form.EvidenceReference" />
+                                <label class="form-label mt-2">Verification reason</label>
+                                <textarea class="form-control" rows="3" @bind="form.Reason"></textarea>
+                                <button type="button" class="btn btn-primary mt-3" @onclick="() => VerifyAsync(account.AccountId)" disabled="@isBusy">Verify and apply</button>
+                            }
+                        </div>
+                    </div>
+                </details>
+            }
+        }
+    </section>
+
+    <div class="d-flex justify-content-end mt-3">
+        @if (model.IsComplete)
+        {
+            <a class="btn btn-primary" href="@($"/clients/{ClientId}/evidence")">Continue to evidence readiness</a>
+        }
+        else
+        {
+            <button class="btn btn-primary" type="button" disabled>Continue to evidence readiness</button>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public int ClientId { get; set; }
+
+    private ClientInvestmentReconciliationPageModel? model;
+    private readonly Dictionary<int, AccountReviewForm> forms = [];
+    private string currentUser = "";
+    private bool canReview;
+    private bool isBusy;
+    private bool hasError;
+    private string? statusMessage;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        currentUser = state.User.Identity?.Name ?? "";
+        canReview = state.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.InvestmentsManage) ||
+                    state.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage);
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        model = await ReconciliationService.LoadClientReviewAsync(ClientId);
+        forms.Clear();
+        foreach (var account in model.Accounts)
+        {
+            forms[account.AccountId] = AccountReviewForm.FromProposal(account);
+        }
+    }
+
+    private async Task VerifyAsync(int accountId)
+    {
+        if (!forms.TryGetValue(accountId, out var form)) return;
+        await ExecuteAsync(async () =>
+        {
+            await ReconciliationService.ReviewAccountAsync(ClientId, accountId, form.ToRequest(), currentUser);
+            statusMessage = "Investment reconciliation decision recorded.";
+        });
+    }
+
+    private async Task ApproveAllProposalsAsync()
+    {
+        if (model is null) return;
+        await ExecuteAsync(async () =>
+        {
+            var requests = model.Accounts
+                .Where(item => !item.IsVerified && item.ProposedOutcome != ClientInvestmentReconciliationOutcomes.NeedsFollowUp)
+                .Select(account => new ClientInvestmentReconciliationBatchRequest(
+                    account.AccountId,
+                    forms[account.AccountId].ToRequest()))
+                .ToList();
+            var count = await ReconciliationService.ReviewAccountsAsync(ClientId, requests, currentUser);
+            statusMessage = $"Verified {count} unambiguous investment proposal(s).";
+        });
+    }
+
+    private async Task ExecuteAsync(Func<Task> action)
+    {
+        isBusy = true;
+        hasError = false;
+        statusMessage = null;
+        try
+        {
+            await action();
+            await LoadAsync();
+        }
+        catch (Exception exception)
+        {
+            hasError = true;
+            statusMessage = exception.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private void UseEvidence(int accountId, string fileName)
+    {
+        if (forms.TryGetValue(accountId, out var form)) form.EvidenceReference = fileName;
+    }
+
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "Not captured" : value;
+    private static string Money(decimal? value) => value.HasValue ? $"R {value.Value:N2}" : "—";
+    private static string Date(DateOnly? value) => value?.ToString("yyyy-MM-dd") ?? "No date";
+
+    private sealed class AccountReviewForm
+    {
+        public string Outcome { get; set; } = ClientInvestmentReconciliationOutcomes.NeedsFollowUp;
+        public string SurrenderDateText { get; set; } = "";
+        public string RelatedAccountIdText { get; set; } = "";
+        public string EvidenceReference { get; set; } = "";
+        public string Reason { get; set; } = "";
+
+        public static AccountReviewForm FromProposal(ClientInvestmentReconciliationAccountModel account) => new()
+        {
+            Outcome = account.ProposedOutcome,
+            SurrenderDateText = account.ProposedSurrenderDate?.ToString("yyyy-MM-dd") ?? "",
+            RelatedAccountIdText = account.ProposedRelatedAccountId?.ToString() ?? "",
+            EvidenceReference = account.ProposalEvidenceReference,
+            Reason = account.ProposalReason
+        };
+
+        public ClientInvestmentReconciliationReviewRequest ToRequest()
+        {
+            DateOnly? surrenderDate = string.IsNullOrWhiteSpace(SurrenderDateText)
+                ? null
+                : DateOnly.TryParse(SurrenderDateText, out var parsedDate)
+                    ? parsedDate
+                    : throw new ValidationException("Enter a valid effective date.");
+            int? relatedId = string.IsNullOrWhiteSpace(RelatedAccountIdText)
+                ? null
+                : int.TryParse(RelatedAccountIdText, out var parsedId)
+                    ? parsedId
+                    : throw new ValidationException("Select a valid related account.");
+            return new ClientInvestmentReconciliationReviewRequest
+            {
+                Outcome = Outcome,
+                SurrenderDate = surrenderDate,
+                RelatedAccountId = relatedId,
+                EvidenceReference = EvidenceReference,
+                Reason = Reason
+            };
+        }
+    }
+}

@@ -178,7 +178,7 @@ else
                             </td>
                             <td>@client.LinkedEvidenceCount</td>
                             <td>@client.VerifiedEvidenceCount</td>
-                            <td>@client.CompleteCount / @client.RequiredCount</td>
+                            <td>@(client.CompleteCount + client.ExceptionCount) / @client.RequiredCount</td>
                             <td>@client.ExceptionCount</td>
                             <td>@client.BlockedCount</td>
                             <td>@(client.IsReadyForRiskAssessment ? "Ready" : "Blocked")</td>

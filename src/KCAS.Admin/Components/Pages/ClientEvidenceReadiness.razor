@@ -21,10 +21,12 @@ else
             <p class="text-muted mb-0">Kanaan ID: @(model.KanaanId ?? "Not captured") | Category: @model.ClientCategory</p>
         </div>
         <div class="header-actions">
+            <a class="btn btn-primary" href="@($"/clients/{ClientId}/compliance-review")">Back to compliance review</a>
             @if (model.ClientCategory is ClientCategories.Trust or ClientCategories.LegalPerson)
             {
                 <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/ownership")">Ownership register</a>
             }
+            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/investments/reconciliation")">Investment verification</a>
             <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}")">Client detail</a>
             <a class="btn btn-outline-secondary" href="/compliance/client-evidence">Evidence dashboard</a>
         </div>
@@ -41,8 +43,8 @@ else
             <strong>@model.RequiredCount</strong>
         </article>
         <article class="summary-card">
-            <span>Complete</span>
-            <strong>@model.CompleteCount</strong>
+            <span>Satisfied</span>
+            <strong>@model.Requirements.Count(item => item.IsComplete || item.IsExceptioned)</strong>
         </article>
         <article class="summary-card">
             <span>Linked evidence</span>
@@ -90,7 +92,7 @@ else
     {
         <section class="work-area">
             <h2>Client folder scan</h2>
-            <p class="text-muted">Select the server folder for this client and scan only that folder. Files are linked for review and do not complete requirements until verified.</p>
+            <p class="text-muted">Select the server folder for this client. The folder is saved immediately; scanning remains a separate action. Files are linked for review and do not complete requirements until verified.</p>
             <div class="workspace-grid">
                 <input class="form-control" @bind="selectedClientFolder" placeholder="Client folder path" />
                 <button type="button" class="btn btn-outline-secondary" @onclick="OpenClientFolderPicker">Browse folders</button>
@@ -516,7 +518,24 @@ else
 
     private void OpenClientFolderPicker() => isClientFolderPickerOpen = true;
 
-    private void SelectClientFolder(string path) => selectedClientFolder = path;
+    private async Task SelectClientFolder(string path)
+    {
+        selectedClientFolder = path;
+        try
+        {
+            await EvidenceService.SaveClientEvidenceFolderAsync(
+                ClientId,
+                path,
+                currentUser,
+                "Select client evidence folder from server folder browser.");
+            statusMessage = "Client folder updated. Scan the client when you are ready.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = ex.Message;
+        }
+    }
 
     private void CloseClientFolderPicker() => isClientFolderPickerOpen = false;
 
