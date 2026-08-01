@@ -338,48 +338,76 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         await db.SaveChangesAsync();
     }
 
-    public Task<ClientEvidenceFolderBrowserModel> BrowseServerFoldersAsync(string? requestedPath)
+    public async Task<ClientEvidenceFolderBrowserModel> BrowseServerFoldersAsync(string? requestedPath)
     {
         var roots = DriveInfo.GetDrives()
-            .Where(drive => drive.IsReady)
             .Select(drive => drive.RootDirectory.FullName)
             .OrderBy(path => path)
             .ToList();
 
         var requested = Normalize(requestedPath);
-        var currentPath = requested;
-        if (currentPath is null || !Directory.Exists(currentPath))
+        var fallbackPath = roots.FirstOrDefault()
+            ?? Path.GetPathRoot(Environment.CurrentDirectory)
+            ?? Environment.CurrentDirectory;
+        var currentPath = requested ?? fallbackPath;
+        var result = await EnumerateServerFoldersAsync(currentPath);
+        string? errorMessage = result.ErrorMessage;
+
+        if (result.ErrorMessage is not null &&
+            !string.Equals(currentPath, fallbackPath, StringComparison.OrdinalIgnoreCase))
         {
-            currentPath = roots.FirstOrDefault() ?? Path.GetPathRoot(Environment.CurrentDirectory) ?? Environment.CurrentDirectory;
+            var unavailablePath = currentPath;
+            currentPath = fallbackPath;
+            result = await EnumerateServerFoldersAsync(currentPath);
+            errorMessage = result.ErrorMessage is null
+                ? $"The requested folder '{unavailablePath}' is unavailable. Showing '{currentPath}' instead."
+                : $"The requested folder '{unavailablePath}' is unavailable. {result.ErrorMessage}";
         }
 
         var model = new ClientEvidenceFolderBrowserModel
         {
             CurrentPath = currentPath,
             ParentPath = Directory.GetParent(currentPath)?.FullName,
-            Roots = roots
+            Roots = roots,
+            Folders = result.Folders,
+            ErrorMessage = errorMessage
         };
 
-        try
-        {
-            model.Folders = Directory.EnumerateDirectories(currentPath)
-                .Select(path => new DirectoryInfo(path))
-                .OrderBy(directory => directory.Name)
-                .Select(directory => new ClientEvidenceFolderModel
-                {
-                    Name = directory.Name,
-                    FullPath = directory.FullName
-                })
-                .ToList();
-        }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or DirectoryNotFoundException or IOException)
-        {
-            model.ErrorMessage = ex.Message;
-            model.Folders = [];
-        }
-
-        return Task.FromResult(model);
+        return model;
     }
+
+    private static async Task<ServerFolderEnumerationResult> EnumerateServerFoldersAsync(string path)
+    {
+        var enumeration = Task.Run(() =>
+        {
+            try
+            {
+                var folders = Directory.EnumerateDirectories(path)
+                    .Select(folderPath => new DirectoryInfo(folderPath))
+                    .OrderBy(directory => directory.Name)
+                    .Select(directory => new ClientEvidenceFolderModel
+                    {
+                        Name = directory.Name,
+                        FullPath = directory.FullName
+                    })
+                    .ToList();
+                return new ServerFolderEnumerationResult(folders, null);
+            }
+            catch (Exception exception) when (exception is UnauthorizedAccessException or DirectoryNotFoundException or IOException)
+            {
+                return new ServerFolderEnumerationResult([], exception.Message);
+            }
+        });
+
+        var completed = await Task.WhenAny(enumeration, Task.Delay(TimeSpan.FromSeconds(2)));
+        return completed == enumeration
+            ? await enumeration
+            : new ServerFolderEnumerationResult([], $"The folder '{path}' did not respond within 2 seconds.");
+    }
+
+    private sealed record ServerFolderEnumerationResult(
+        List<ClientEvidenceFolderModel> Folders,
+        string? ErrorMessage);
 
     public async Task SaveClientEvidenceFolderAsync(int clientId, string? selectedClientFolder, string? userName, string reason)
     {
