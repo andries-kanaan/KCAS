@@ -85,6 +85,7 @@ builder.Services.AddScoped<RmcpService>();
 builder.Services.AddScoped<ComplianceWorkService>();
 builder.Services.AddScoped<InspectionService>();
 builder.Services.AddScoped<GoAmlDailyCheckService>();
+builder.Services.AddScoped<GoAmlTransferService>();
 builder.Services.AddSingleton<ClientEvidenceScanCoordinator>();
 builder.Services.AddScoped<LegacyImportWebService>();
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
@@ -174,6 +175,27 @@ app.MapGet("/compliance/goaml/checks/{id:int}/evidence", async Task<IResult> (
         ? Results.NotFound()
         : Results.File(evidence.Stream, evidence.ContentType, evidence.FileName, enableRangeProcessing: true);
 }).RequireAuthorization(KcasPermissions.ComplianceView);
+
+app.MapGet("/compliance/goaml/transfers/{packageId}/download", async Task<IResult> (
+    string packageId,
+    ApplicationDbContext db,
+    CancellationToken cancellationToken) =>
+{
+    var record = await db.GoAmlTransferRecords.AsNoTracking()
+        .SingleOrDefaultAsync(item =>
+            item.Direction == GoAmlTransferDirections.Outgoing &&
+            item.PackageId == packageId,
+            cancellationToken);
+    if (record is null || !File.Exists(record.StoragePath))
+    {
+        return Results.NotFound();
+    }
+
+    return Results.File(
+        record.StoragePath,
+        "application/vnd.kcas.goaml-transfer",
+        record.FileName);
+}).RequireAuthorization(KcasPermissions.ComplianceManage);
 
 app.MapGet("/investments/summary.csv", async Task<IResult> (
     HttpContext context,

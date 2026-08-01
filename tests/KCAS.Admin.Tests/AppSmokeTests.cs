@@ -45,6 +45,7 @@ public sealed class AppSmokeTests(KcasWebApplicationFactory factory)
     [InlineData("/compliance/work-register")]
     [InlineData("/compliance/work-register/1")]
     [InlineData("/compliance/goaml")]
+    [InlineData("/compliance/goaml/transfers")]
     [InlineData("/compliance/goaml/checks/1/evidence")]
     [InlineData("/compliance/inspections")]
     [InlineData("/compliance/inspections/1")]

@@ -1,0 +1,247 @@
+@page "/compliance/goaml/transfers"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ComplianceManage)]
+@using System.ComponentModel.DataAnnotations
+@using KCAS.Admin.Data
+@inject GoAmlTransferService TransferService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>goAML transfers</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Controlled operational transfer</p>
+        <h1>goAML check transfers</h1>
+        <p class="lede">Move completed checks and their screenshot evidence from laptop KCAS to live without replacing either database.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="/compliance/goaml">goAML daily checks</a>
+</div>
+
+<div class="alert alert-info">
+    Packages are AES-256 encrypted and include the selected check records and JPEG evidence.
+    The passphrase is never stored. Current package storage: <code>@TransferService.StorageRoot</code>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(statusMessage))
+{
+    <div class="alert @(isError ? "alert-danger" : "alert-success")">@statusMessage</div>
+}
+
+<section class="detail-grid">
+    <article class="detail-panel form-panel">
+        <h2>1. Export completed checks</h2>
+        <p class="text-muted">Started or unfinished checks are excluded. A package can span up to 366 days.</p>
+        <div class="workspace-grid">
+            <label>
+                First check date
+                <InputDate class="form-control" @bind-Value="firstCheckDate" />
+            </label>
+            <label>
+                Last check date
+                <InputDate class="form-control" @bind-Value="lastCheckDate" />
+            </label>
+        </div>
+        <label>Export reason <textarea class="form-control" @bind="exportReason"></textarea></label>
+        <label>
+            Package passphrase
+            <input class="form-control" type="password" autocomplete="new-password" @bind="exportPassphrase" />
+        </label>
+        <label>
+            Confirm passphrase
+            <input class="form-control" type="password" autocomplete="new-password" @bind="exportPassphraseConfirm" />
+        </label>
+        <button class="btn btn-primary" type="button" @onclick="ExportAsync" disabled="@isBusy">
+            Create encrypted package
+        </button>
+
+        @if (exportResult is not null)
+        {
+            <div class="alert alert-success mt-3">
+                <strong>@exportResult.FileName</strong>
+                <div>@exportResult.CheckCount check(s); @exportResult.EvidenceCount screenshot(s)</div>
+                <div>@exportResult.FirstCheckDate.ToString("yyyy-MM-dd") to @exportResult.LastCheckDate.ToString("yyyy-MM-dd")</div>
+                <div>@FormatBytes(exportResult.SizeBytes)</div>
+                <div class="small text-muted">@exportResult.StoragePath</div>
+                <a class="btn btn-outline-primary btn-sm mt-2"
+                   href="@($"/compliance/goaml/transfers/{exportResult.PackageId}/download")">
+                    Download package
+                </a>
+            </div>
+        }
+    </article>
+
+    <article class="detail-panel form-panel">
+        <h2>2. Preview and apply on live</h2>
+        <p class="text-muted">Preview never changes data. Existing live dates are skipped only when identical; different checks are blocked and never overwritten.</p>
+        <label>
+            Encrypted package
+            <InputFile class="form-control" OnChange="SelectImportFileAsync" accept=".kcas-goaml" />
+        </label>
+        @if (!string.IsNullOrWhiteSpace(importFileName))
+        {
+            <div class="text-muted small">Selected: @importFileName</div>
+        }
+        <label>
+            Package passphrase
+            <input class="form-control" type="password" autocomplete="current-password" @bind="importPassphrase" />
+        </label>
+        <button class="btn btn-outline-primary" type="button" @onclick="PreviewAsync"
+                disabled="@(isBusy || importBytes is null)">
+            Preview package
+        </button>
+
+        @if (preview is not null)
+        {
+            <div class="mt-3">
+                <h3>Preview</h3>
+                <dl class="detail-list">
+                    <dt>Date range</dt><dd>@preview.Package.Checks.Min(item => item.CheckDate).ToString("yyyy-MM-dd") to @preview.Package.Checks.Max(item => item.CheckDate).ToString("yyyy-MM-dd")</dd>
+                    <dt>Checks</dt><dd>@preview.NewCheckCount new; @preview.ExistingCheckCount identical and skipped</dd>
+                    <dt>Evidence</dt><dd>@preview.EvidenceCount screenshot(s)</dd>
+                    <dt>Action items</dt><dd>@preview.Package.Checks.Count(item => item.Status == GoAmlCheckStatuses.ActionRequired)</dd>
+                    <dt>Exported by</dt><dd>@preview.Package.ExportedBy</dd>
+                    <dt>Package</dt><dd><code>@preview.Package.PackageId</code></dd>
+                </dl>
+                @foreach (var warning in preview.Warnings)
+                {
+                    <div class="alert alert-warning">@warning</div>
+                }
+                @foreach (var conflict in preview.Conflicts)
+                {
+                    <div class="alert alert-danger">@conflict</div>
+                }
+
+                @if (preview.CanApply)
+                {
+                    <label>
+                        Live import approval reason
+                        <textarea class="form-control" @bind="importReason"></textarea>
+                    </label>
+                    <div class="form-check my-2">
+                        <input class="form-check-input" type="checkbox" id="confirm-goaml-transfer" @bind="confirmApply" />
+                        <label class="form-check-label" for="confirm-goaml-transfer">
+                            I confirm this package is from the approved laptop KCAS and the date range is correct.
+                        </label>
+                    </div>
+                    <button class="btn btn-primary" type="button" @onclick="ApplyAsync"
+                            disabled="@(isBusy || !confirmApply)">
+                        Apply goAML package
+                    </button>
+                }
+            </div>
+        }
+    </article>
+</section>
+
+@code {
+    private DateOnly firstCheckDate = DateOnly.FromDateTime(DateTime.Today);
+    private DateOnly lastCheckDate = DateOnly.FromDateTime(DateTime.Today);
+    private string exportReason = "Transfer completed goAML checks to live KCAS.";
+    private string? exportPassphrase;
+    private string? exportPassphraseConfirm;
+    private GoAmlExportResult? exportResult;
+    private byte[]? importBytes;
+    private string? importFileName;
+    private string? importPassphrase;
+    private string importReason = "Approved goAML check transfer from laptop KCAS.";
+    private GoAmlTransferPreview? preview;
+    private bool confirmApply;
+    private bool isBusy;
+    private bool isError;
+    private string? statusMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var range = await TransferService.LoadExportRangeAsync();
+        if (range is null) return;
+        firstCheckDate = range.FirstCheckDate;
+        lastCheckDate = range.LastCheckDate;
+    }
+
+    private async Task ExportAsync()
+    {
+        if (exportPassphrase != exportPassphraseConfirm)
+        {
+            ShowError("The export passphrases do not match.");
+            return;
+        }
+        await RunAsync(async user =>
+        {
+            exportResult = await TransferService.ExportAsync(firstCheckDate, lastCheckDate,
+                exportPassphrase ?? "", user, exportReason);
+            statusMessage = "Encrypted goAML package created.";
+        });
+    }
+
+    private async Task SelectImportFileAsync(InputFileChangeEventArgs args)
+    {
+        statusMessage = null;
+        preview = null;
+        confirmApply = false;
+        var file = args.File;
+        importFileName = file.Name;
+        if (file.Size > 50 * 1024 * 1024)
+        {
+            importBytes = null;
+            ShowError("The package exceeds the 50 MB safety limit.");
+            return;
+        }
+        await using var stream = file.OpenReadStream(50 * 1024 * 1024);
+        using var memory = new MemoryStream();
+        await stream.CopyToAsync(memory);
+        importBytes = memory.ToArray();
+    }
+
+    private async Task PreviewAsync()
+    {
+        await RunAsync(async _ =>
+        {
+            preview = await TransferService.PreviewAsync(importBytes!, importPassphrase ?? "");
+            confirmApply = false;
+            statusMessage = preview.CanApply
+                ? "Preview complete. Confirm the package and date range before applying."
+                : "Preview complete with conflicts.";
+            isError = !preview.CanApply;
+        });
+    }
+
+    private async Task ApplyAsync()
+    {
+        await RunAsync(async user =>
+        {
+            var result = await TransferService.ApplyAsync(importBytes!, importPassphrase ?? "",
+                user, importReason);
+            statusMessage = $"Package applied: {result.ChecksImported} check(s), " +
+                $"{result.EvidenceImported} screenshot(s), and {result.TasksCreated} work item(s) imported; " +
+                $"{result.ChecksSkipped} identical check(s) skipped.";
+            preview = null;
+            confirmApply = false;
+        });
+    }
+
+    private async Task RunAsync(Func<string?, Task> action)
+    {
+        isBusy = true;
+        isError = false;
+        statusMessage = null;
+        try
+        {
+            var auth = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            await action(auth.User.Identity?.Name);
+        }
+        catch (ValidationException ex) { ShowError(ex.Message); }
+        catch (InvalidOperationException ex) { ShowError(ex.Message); }
+        catch (IOException ex) { ShowError(ex.Message); }
+        finally { isBusy = false; }
+    }
+
+    private void ShowError(string message)
+    {
+        isError = true;
+        statusMessage = message;
+    }
+
+    private static string FormatBytes(long bytes) => bytes < 1024 * 1024
+        ? $"{bytes / 1024d:N0} KB"
+        : $"{bytes / 1024d / 1024d:N1} MB";
+}

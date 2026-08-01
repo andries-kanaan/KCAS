@@ -13,7 +13,13 @@
         <h1>goAML daily message-board checks</h1>
         <p class="lede">Open goAML, record the daily outcome, retain readable screenshot evidence and escalate new messages into the compliance work register.</p>
     </div>
-    <a class="btn btn-outline-secondary" href="/compliance">Compliance dashboard</a>
+    <div class="d-flex gap-2">
+        @if (canManage)
+        {
+            <a class="btn btn-outline-primary" href="/compliance/goaml/transfers">Transfer checks</a>
+        }
+        <a class="btn btn-outline-secondary" href="/compliance">Compliance dashboard</a>
+    </div>
 </div>
 
 @if (!string.IsNullOrWhiteSpace(message))

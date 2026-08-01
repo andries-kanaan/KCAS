@@ -752,6 +752,15 @@ The 30 July management review and client-file check established the following co
 - Settings changes, check start/completion and generated work items create compliance audit events. Every completed daily outcome, including an evidenced FIC-system access failure, is immutable and closes the requirement for that date.
 - Migration `20260731203226_AddGoAmlDailyChecks`, its reviewed targeted SQL script and the regenerated fresh-database schema are included. A pre-migration backup was retained at `backups\database\kcas_blazor-pre-goaml-20260731-2245.sql`, the migration was applied to the live KCAS database, and KCAS restarted successfully through Kestrel and the HTTPS proxy. The release build, migration-model check and all 187 automated tests passed; authenticated interactive-browser acceptance remains an operational follow-up because the in-app browser connector was unavailable during delivery.
 
+### goAML laptop-to-live package transfer — Phase 2 technical delivery, 1 August 2026
+
+- KCAS now provides `Compliance > goAML transfers` at `/compliance/goaml/transfers`. A Compliance.Manage user can export a selected range of completed laptop checks and later preview and apply that package on live KCAS without replacing either database.
+- The `.kcas-goaml` package is encrypted with AES-256-GCM using a separately communicated passphrase derived with PBKDF2-SHA256. KCAS never stores the passphrase. The encrypted payload carries check metadata and the actual JPEG evidence because laptop evidence paths are not accessible to the live server.
+- Export verifies every screenshot against its recorded SHA-256 hash. Import revalidates the payload, evidence type, size and hash before changing data, stores evidence beneath the live configured year/month folder, and retains the encrypted incoming package in protected shared storage.
+- Preview is read-only. An identical live check date is skipped, a different live check date is a blocking conflict, and no existing check is overwritten. Package ID and content-hash records prevent duplicate application.
+- Action-required checks recreate their High-priority compliance work item on live. Export, each imported check, recreated work items and package application create compliance audit events with the responsible user and mandatory reason.
+- Migration `20260801093743_AddGoAmlTransfers`, its targeted upgrade SQL and the regenerated fresh-database schema add the transfer ledger used for idempotency and audit evidence.
+
 ## 15. Cross-cutting requirements
 
 These apply to every phase:
