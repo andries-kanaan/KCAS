@@ -93,25 +93,52 @@
 
     private ClientEvidenceFolderBrowserModel? folderBrowser;
     private bool wasOpen;
+    private bool loadInitialFolders;
+    private long browseRequestId;
 
-    protected override async Task OnParametersSetAsync()
+    protected override void OnParametersSet()
     {
         if (IsOpen && !wasOpen)
         {
-            await BrowseAsync(InitialPath);
+            folderBrowser = null;
+            loadInitialFolders = true;
         }
 
         if (!IsOpen)
         {
             folderBrowser = null;
+            loadInitialFolders = false;
+            browseRequestId++;
         }
 
         wasOpen = IsOpen;
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!IsOpen || !loadInitialFolders)
+        {
+            return;
+        }
+
+        loadInitialFolders = false;
+        await BrowseAsync(InitialPath);
+    }
+
     private async Task BrowseAsync(string? path)
     {
-        folderBrowser = await EvidenceService.BrowseServerFoldersAsync(path);
+        var requestId = ++browseRequestId;
+        folderBrowser = null;
+        await InvokeAsync(StateHasChanged);
+
+        var result = await EvidenceService.BrowseServerFoldersAsync(path);
+        if (requestId != browseRequestId || !IsOpen)
+        {
+            return;
+        }
+
+        folderBrowser = result;
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task SelectAsync(string path)

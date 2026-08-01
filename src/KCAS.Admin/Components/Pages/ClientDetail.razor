@@ -7,7 +7,7 @@
 @inject ClientOperationsService ClientOperations
 @inject AuthenticationStateProvider AuthenticationStateProvider
 
-<PageTitle>@(client?.DisplayName ?? "Client")</PageTitle>
+<PageTitle>@(client is null ? "Client" : ClientNameFormatter.FullNameAndSurname(client))</PageTitle>
 
 @if (client is null)
 {
@@ -21,7 +21,7 @@ else
     <div class="page-header">
         <div>
             <p class="eyebrow">Client detail</p>
-            <h1>@client.DisplayName</h1>
+            <h1>@ClientNameFormatter.FullNameAndSurname(client)</h1>
             <p class="text-muted mb-0">Kanaan ID: @(client.KanaanId ?? "Not captured")</p>
         </div>
         <div class="header-actions">

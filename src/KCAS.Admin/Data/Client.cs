@@ -107,6 +107,27 @@ public class Client
     public ICollection<ClientVerificationItem> VerificationItems { get; } = [];
 }
 
+public static class ClientNameFormatter
+{
+    public static string FullNameAndSurname(Client client)
+    {
+        var fullName = client.FullName?.Trim();
+        if (string.IsNullOrWhiteSpace(fullName))
+        {
+            return client.DisplayName;
+        }
+
+        var surname = client.SurnameOrEntityName.Trim();
+        if (string.IsNullOrWhiteSpace(surname) ||
+            fullName.EndsWith(surname, StringComparison.OrdinalIgnoreCase))
+        {
+            return fullName;
+        }
+
+        return $"{fullName} {surname}";
+    }
+}
+
 public static class ClientLifecycleStatuses
 {
     public const string Unreviewed = "Unreviewed";

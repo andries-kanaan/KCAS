@@ -9,6 +9,35 @@ public sealed class ClientComplianceReviewService(
     ClientEvidenceReadinessService evidenceService,
     ClientRiskAssessmentService riskService)
 {
+    public async Task<ClientComplianceFolderScanModel?> LoadLatestFolderScanAsync(
+        int clientId,
+        CancellationToken cancellationToken = default)
+    {
+        var clientFolder = await db.Clients.AsNoTracking()
+            .Where(item => item.Id == clientId)
+            .Select(item => item.ClientFolder)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(clientFolder))
+        {
+            return null;
+        }
+
+        return await db.ClientEvidenceScanRuns.AsNoTracking()
+            .Where(item => item.RootPath == clientFolder)
+            .OrderByDescending(item => item.StartedAtUtc)
+            .Select(item => new ClientComplianceFolderScanModel(
+                item.Id,
+                item.Status,
+                item.StartedAtUtc,
+                item.FinishedAtUtc,
+                item.TotalFiles,
+                item.LinkedFiles,
+                item.UnmatchedFiles,
+                item.AmbiguousFiles,
+                item.ErrorMessage))
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public async Task<ClientComplianceReviewModel> LoadAsync(
         int clientId,
         CancellationToken cancellationToken = default)
@@ -100,7 +129,7 @@ public sealed class ClientComplianceReviewService(
         return new ClientComplianceReviewModel
         {
             ClientId = client.Id,
-            DisplayName = client.DisplayName,
+            DisplayName = ClientNameFormatter.FullNameAndSurname(client),
             KanaanId = client.KanaanId,
             ClientCategory = client.ClientCategory,
             ClientFolder = client.ClientFolder,
@@ -198,7 +227,7 @@ public sealed class ClientComplianceReviewModel
     public int CurrentInvestmentCount { get; init; }
     public decimal CurrentInvestmentValueZar { get; init; }
     public DateOnly? LatestNoteDate { get; init; }
-    public ClientComplianceFolderScanModel? LatestFolderScan { get; init; }
+    public ClientComplianceFolderScanModel? LatestFolderScan { get; set; }
     public List<ClientComplianceLinkedClientModel> LinkedClients { get; init; } = [];
     public List<ClientVerificationItem> PendingFacts { get; init; } = [];
     public required ClientInvestmentReconciliationPageModel Investments { get; init; }
