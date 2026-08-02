@@ -608,6 +608,145 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         return runId;
     }
 
+    public async Task<int> RunImportedFolderVerificationAsync(
+        int clientId,
+        string? userName,
+        string reason,
+        CancellationToken cancellationToken = default)
+    {
+        RequireReason(reason);
+        if (await db.ClientEvidenceScanRuns.AnyAsync(run =>
+            run.Status == ClientEvidenceScanStatuses.Running ||
+            run.Status == ClientEvidenceScanStatuses.Cancelling, cancellationToken))
+        {
+            throw new InvalidOperationException("An evidence scan is already running.");
+        }
+
+        var client = await db.Clients.AsNoTracking()
+            .SingleOrDefaultAsync(item => item.Id == clientId, cancellationToken)
+            ?? throw new InvalidOperationException("Client not found.");
+        var rootPath = Normalize(client.ClientFolder);
+        if (string.IsNullOrWhiteSpace(rootPath) || !Directory.Exists(rootPath))
+        {
+            throw new ValidationException("The mapped live client folder does not exist or cannot be read by KCAS.");
+        }
+
+        var folderClients = (await db.Clients.AsNoTracking()
+                .Where(item => item.ClientFolder != null)
+                .Select(item => new { item.Id, item.ClientFolder })
+                .ToListAsync(cancellationToken))
+            .Where(item => SameFolder(item.ClientFolder, rootPath))
+            .ToList();
+        var folderClientIds = folderClients.Select(item => item.Id).ToHashSet();
+        var evidence = await db.ClientEvidenceItems
+            .Where(item => folderClientIds.Contains(item.ClientId) && item.FileSha256 != null)
+            .ToListAsync(cancellationToken);
+        var evidenceByHash = evidence
+            .GroupBy(item => item.FileSha256!.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
+
+        var run = new ClientEvidenceScanRun
+        {
+            RootPath = rootPath,
+            StartedBy = userName,
+            Status = ClientEvidenceScanStatuses.Running
+        };
+        db.ClientEvidenceScanRuns.Add(run);
+        await db.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            foreach (var path in Directory.EnumerateFiles(rootPath, "*.*", SearchOption.AllDirectories))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var fileInfo = new FileInfo(path);
+                var relativePath = Path.GetRelativePath(rootPath, path);
+                var extension = fileInfo.Extension.ToLowerInvariant();
+                run.TotalFiles++;
+                var scanFile = new ClientEvidenceScanFile
+                {
+                    ScanRun = run,
+                    FullPath = path,
+                    RelativePath = relativePath,
+                    FileName = fileInfo.Name,
+                    FileSizeBytes = fileInfo.Length,
+                    FileLastWriteTimeUtc = fileInfo.LastWriteTimeUtc
+                };
+
+                if (!SupportedExtensions.Contains(extension))
+                {
+                    scanFile.MatchStatus = ClientEvidenceScanFileStatuses.Skipped;
+                    scanFile.MatchReason = "Unsupported file extension.";
+                    run.SkippedFiles++;
+                    db.ClientEvidenceScanFiles.Add(scanFile);
+                    continue;
+                }
+
+                scanFile.FileSha256 = await ComputeSha256Async(path, cancellationToken);
+                evidenceByHash.TryGetValue(scanFile.FileSha256, out var hashMatches);
+                var matches = (hashMatches ?? [])
+                    .Where(item => string.Equals(
+                        NormalizeRelativePath(item.RelativePath),
+                        NormalizeRelativePath(relativePath),
+                        StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                if (matches.Count == 0)
+                {
+                    scanFile.MatchStatus = ClientEvidenceScanFileStatuses.Unmatched;
+                    scanFile.MatchReason = "No imported evidence record has the same hash and relative path.";
+                    run.UnmatchedFiles++;
+                }
+                else
+                {
+                    var matchedClientIds = matches.Select(item => item.ClientId).Distinct().ToList();
+                    scanFile.ClientId = matchedClientIds.Count == 1 ? matchedClientIds[0] : null;
+                    scanFile.MatchStatus = ClientEvidenceScanFileStatuses.Linked;
+                    scanFile.CandidateCount = matchedClientIds.Count;
+                    scanFile.MatchReason = matchedClientIds.Count == 1
+                        ? "Matched imported evidence by hash and relative path."
+                        : $"Matched imported evidence for {matchedClientIds.Count} clients sharing this folder.";
+                    run.LinkedFiles++;
+                    foreach (var item in matches)
+                    {
+                        item.SourcePath = path;
+                        item.RelativePath = relativePath;
+                        item.FileName = fileInfo.Name;
+                        item.FileSizeBytes = fileInfo.Length;
+                        item.FileLastWriteTimeUtc = fileInfo.LastWriteTimeUtc;
+                        item.UpdatedAtUtc = DateTime.UtcNow;
+                        item.UpdatedBy = userName;
+                    }
+                }
+                db.ClientEvidenceScanFiles.Add(scanFile);
+                await SaveScanProgressIfNeededAsync(run, cancellationToken);
+            }
+
+            run.Status = ClientEvidenceScanStatuses.Completed;
+            run.FinishedAtUtc = DateTime.UtcNow;
+            await AddAuditAsync("ClientEvidenceScanRun", run.Id, "VerifyImportedEvidenceFolder", new
+            {
+                run.RootPath,
+                ImportedClientId = clientId,
+                SharedFolderClientIds = folderClientIds.OrderBy(id => id),
+                run.TotalFiles,
+                run.LinkedFiles,
+                run.UnmatchedFiles,
+                run.SkippedFiles,
+                PreservedImportedSelections = true
+            }, userName, reason);
+            await db.SaveChangesAsync(cancellationToken);
+            return run.Id;
+        }
+        catch (Exception ex)
+        {
+            run.Status = ClientEvidenceScanStatuses.Failed;
+            run.FinishedAtUtc = DateTime.UtcNow;
+            run.ErrorMessage = ex.Message;
+            await db.SaveChangesAsync(CancellationToken.None);
+            throw;
+        }
+    }
+
     public async Task<int> StartScanRunAsync(string? requestedRootPath, string? userName, string reason)
     {
         RequireReason(reason);
@@ -1591,6 +1730,9 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
 
     private static string NormalizeFolderKey(string value) =>
         Path.GetFullPath(value.Trim()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+    private static string NormalizeRelativePath(string? value) =>
+        (value ?? "").Trim().Replace('/', '\\').TrimStart('\\');
 
     private static bool IsJointClient(Client client)
     {

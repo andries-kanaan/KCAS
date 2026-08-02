@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Security.Cryptography;
 using KCAS.Admin.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -299,6 +300,72 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
         Assert.Equal(current.Id, historical.SupersededByClientEvidenceItemId);
         Assert.Null(current.VerifiedDate);
         Assert.Equal("ManualRequired", current.VerificationPolicy);
+    }
+
+    [Fact]
+    public async Task Imported_folder_verification_updates_live_paths_without_reselecting_reviewed_evidence()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var folder = CreateTempRoot();
+        var currentPath = Path.Combine(folder, "reviewed identity.pdf");
+        var historicalPath = Path.Combine(folder, "newer-looking identity.pdf");
+        await File.WriteAllTextAsync(currentPath, "reviewed identity");
+        await File.WriteAllTextAsync(historicalPath, "newer-looking identity with more bytes");
+        var requirementId = await EnsureRequirementIdAsync(service, db, "Identity");
+        var clientId = await CreateClientAsync(db, "Imported Scan Client", "IMPORTED-SCAN-001", folder);
+        var current = new ClientEvidenceItem
+        {
+            ClientId = clientId,
+            ClientEvidenceRequirementId = requirementId,
+            EvidenceType = "Identity",
+            Title = "Reviewer-selected identity",
+            SourcePath = @"C:\Download\_kanaan\ClientsKanaan\Imported Scan Client\reviewed identity.pdf",
+            RelativePath = "reviewed identity.pdf",
+            FileName = "reviewed identity.pdf",
+            FileSha256 = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(currentPath))).ToLowerInvariant(),
+            VerifiedDate = DateOnly.FromDateTime(DateTime.Today),
+            Status = ClientEvidenceStatuses.Verified,
+            OwnershipStatus = ClientEvidenceOwnershipStatuses.Confirmed,
+            SelectionStatus = ClientEvidenceSelectionStatuses.Current,
+            SelectionReason = "Selected after reviewing the actual document."
+        };
+        var historical = new ClientEvidenceItem
+        {
+            ClientId = clientId,
+            ClientEvidenceRequirementId = requirementId,
+            EvidenceType = "Identity",
+            Title = "Reviewer-retained historical identity",
+            SourcePath = @"C:\Download\_kanaan\ClientsKanaan\Imported Scan Client\newer-looking identity.pdf",
+            RelativePath = "newer-looking identity.pdf",
+            FileName = "newer-looking identity.pdf",
+            FileSha256 = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(historicalPath))).ToLowerInvariant(),
+            VerifiedDate = DateOnly.FromDateTime(DateTime.Today),
+            Status = ClientEvidenceStatuses.Verified,
+            OwnershipStatus = ClientEvidenceOwnershipStatuses.Confirmed,
+            SelectionStatus = ClientEvidenceSelectionStatuses.Historical,
+            SelectionReason = "Kept historical after reviewing the actual document."
+        };
+        db.ClientEvidenceItems.AddRange(current, historical);
+        await db.SaveChangesAsync();
+
+        var runId = await service.RunImportedFolderVerificationAsync(
+            clientId, "importer@example.test", "Verify imported live folder.");
+
+        db.ChangeTracker.Clear();
+        var verifiedCurrent = await db.ClientEvidenceItems.SingleAsync(item => item.Id == current.Id);
+        var verifiedHistorical = await db.ClientEvidenceItems.SingleAsync(item => item.Id == historical.Id);
+        Assert.Equal(ClientEvidenceSelectionStatuses.Current, verifiedCurrent.SelectionStatus);
+        Assert.Equal("Selected after reviewing the actual document.", verifiedCurrent.SelectionReason);
+        Assert.Equal("Reviewer-selected identity", verifiedCurrent.Title);
+        Assert.Equal(currentPath, verifiedCurrent.SourcePath);
+        Assert.Equal(ClientEvidenceSelectionStatuses.Historical, verifiedHistorical.SelectionStatus);
+        Assert.Equal("Kept historical after reviewing the actual document.", verifiedHistorical.SelectionReason);
+        Assert.Equal("Reviewer-retained historical identity", verifiedHistorical.Title);
+        Assert.Equal(historicalPath, verifiedHistorical.SourcePath);
+        Assert.Equal(ClientEvidenceScanStatuses.Completed,
+            (await db.ClientEvidenceScanRuns.SingleAsync(run => run.Id == runId)).Status);
     }
 
     [Fact]

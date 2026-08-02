@@ -439,8 +439,13 @@
                     selectedFamilyPackageIds);
                 var applied = result.Members.Count(member => member.Status == "Applied");
                 var notApplied = result.Members.Count - applied;
+                var verificationMessages = result.Members
+                    .Where(member => member.Status == "Applied" && !string.IsNullOrWhiteSpace(member.Message))
+                    .Select(member => $"{member.DisplayName}: {member.Message}")
+                    .ToList();
                 statusMessage = $"Family bundle applied: {applied} client(s) imported" +
-                    (notApplied > 0 ? $"; {notApplied} not applied." : ".");
+                    (notApplied > 0 ? $"; {notApplied} not applied." : ".") +
+                    (verificationMessages.Count == 0 ? "" : $" {string.Join(" ", verificationMessages)}");
             }
             else
             {
@@ -448,7 +453,13 @@
                     importBytes!, importPassphrase ?? "", user, importReason ?? "");
                 statusMessage =
                     $"Package applied to {result.ClientDisplayName}. Assessment #{result.AssessmentId} " +
-                    $"and {result.EvidenceImported} evidence item(s) imported.";
+                    $"and {result.EvidenceImported} evidence item(s) imported." +
+                    (result.EvidenceVerificationScanRunId.HasValue
+                        ? $" Live evidence folder verified by scan {result.EvidenceVerificationScanRunId.Value}."
+                        : "") +
+                    (string.IsNullOrWhiteSpace(result.EvidenceVerificationWarning)
+                        ? ""
+                        : $" {result.EvidenceVerificationWarning}");
             }
             preview = null;
             familyPreview = null;
