@@ -148,6 +148,7 @@
                 <dl class="detail-list">
                     <dt>Client</dt><dd>@preview.Package.Client.DisplayName (@Display(preview.Package.Client.KanaanId))</dd>
                     <dt>Live match</dt><dd>@Display(preview.TargetClientName)</dd>
+                    <dt>Live client folder</dt><dd>@Display(preview.TargetClientFolder)</dd>
                     <dt>Assessment</dt><dd>@preview.Package.Assessment.FinalRating — @preview.Package.Assessment.Status</dd>
                     <dt>Methodology</dt><dd>@preview.Package.Assessment.MethodologyName @preview.Package.Assessment.MethodologyVersionLabel</dd>
                     <dt>Evidence</dt><dd>@preview.NewEvidenceCount new; @preview.ExistingEvidenceCount already present</dd>
@@ -227,7 +228,8 @@
                             <div class="small text-muted">
                                 @memberPreview.Package.Assessment.FinalRating assessment;
                                 @memberPreview.NewEvidenceCount new evidence item(s);
-                                @memberPreview.Package.InvestmentReconciliations.Count investment decision(s)
+                                @memberPreview.Package.InvestmentReconciliations.Count investment decision(s);
+                                folder: @Display(memberPreview.TargetClientFolder)
                             </div>
                             @foreach (var warning in memberPreview.Warnings)
                             {

@@ -55,7 +55,7 @@ else
         <p class="text-muted">A scan links files for review. It does not mark evidence complete; verification or an approved exception changes readiness.</p>
         <div class="workspace-grid">
             <input class="form-control" @bind="scanRootPath" placeholder="Server client document root path" disabled="@(!canManage)" />
-            <input class="form-control" @bind="reason" placeholder="Required reason" disabled="@(!canManage)" />
+            <input class="form-control" @bind="reason" placeholder="Reason for other changes (automatic when saving root)" disabled="@(!canManage)" />
         </div>
         <div class="row-actions mt-2">
             <button type="button" class="btn btn-outline-secondary" @onclick="OpenFolderPicker" disabled="@(!canManage)">Browse folders</button>
@@ -330,6 +330,8 @@ else
 }
 
 @code {
+    private const string RootUpdateReason = "Configure live client evidence root.";
+
     private ClientEvidenceDashboardModel? model;
     private string? scanRootPath;
     private string? reason;
@@ -477,7 +479,10 @@ else
         await ExecuteAsync(async () => await EvidenceService.AssignEvidenceOwnershipAsync(sourceItemId, selected?.ToList() ?? [], currentUser, reason ?? ""));
     }
 
-    private async Task SaveRootAsync() => await ExecuteAsync(async () => await EvidenceService.SaveScanRootAsync(scanRootPath ?? "", currentUser, reason ?? ""));
+    private async Task SaveRootAsync() => await ExecuteAsync(async () => await EvidenceService.SaveScanRootAsync(
+        scanRootPath ?? "",
+        currentUser,
+        string.IsNullOrWhiteSpace(reason) ? RootUpdateReason : reason));
 
     private async Task RunScanAsync()
     {

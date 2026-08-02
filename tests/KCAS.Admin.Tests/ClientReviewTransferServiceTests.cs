@@ -48,6 +48,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
             KanaanId = "TRANSFER-99123",
             DisplayName = "Transfer Pilot",
             SurnameOrEntityName = "Transfer / Pilot: Unsafe?",
+            ClientFolder = @"C:\Download\_kanaan\ClientsKanaan\TRANSFER PILOT",
             ClientCategory = ClientCategories.NaturalPerson,
             LifecycleStatus = ClientLifecycleStatuses.Current,
             LifecycleReason = "Current relationship confirmed for transfer test.",
@@ -113,6 +114,12 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         };
         client.RiskAssessments.Add(assessment);
         db.Clients.Add(client);
+        db.ClientEvidenceScanRoots.Add(new ClientEvidenceScanRoot
+        {
+            RootPath = @"E:\Userdata\Kanaan Trust\Clients",
+            IsActive = true,
+            UpdatedBy = "reviewer@example.test"
+        });
         await db.SaveChangesAsync();
 
         const string passphrase = "transfer-test-passphrase";
@@ -130,6 +137,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         client.LifecycleReason = null;
         client.LifecycleReviewedAtUtc = null;
         client.LifecycleReviewedBy = null;
+        client.ClientFolder = @"Z:\Userdata\Kanaan Trust\Clients\OLD TRANSFER PILOT";
         await db.SaveChangesAsync();
         db.ChangeTracker.Clear();
 
@@ -137,6 +145,9 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         Assert.True(preview.CanApply);
         Assert.Equal(client.Id, preview.TargetClientId);
         Assert.Equal(1, preview.NewEvidenceCount);
+        Assert.Equal(@"E:\Userdata\Kanaan Trust\Clients\TRANSFER PILOT", preview.TargetClientFolder);
+        Assert.Contains(preview.Warnings, warning =>
+            warning.Contains("Client folder will map", StringComparison.OrdinalIgnoreCase));
 
         var imported = await service.ApplyAsync(
             encrypted,
@@ -147,6 +158,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
 
         var restoredClient = await db.Clients.AsNoTracking().SingleAsync(item => item.Id == client.Id);
         Assert.Equal(ClientLifecycleStatuses.Current, restoredClient.LifecycleStatus);
+        Assert.Equal(@"E:\Userdata\Kanaan Trust\Clients\TRANSFER PILOT", restoredClient.ClientFolder);
         Assert.Single(await db.ClientEvidenceItems.AsNoTracking()
             .Where(item => item.ClientId == client.Id).ToListAsync());
         Assert.Equal(applicableRequirements.Count - 1, await db.ClientEvidenceExceptions.AsNoTracking()
@@ -552,6 +564,29 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         var completedPreview = await familyTransfers.PreviewAsync(encrypted, passphrase);
         Assert.False(completedPreview.CanApply);
         Assert.All(completedPreview.Members, member => Assert.True(member.ClientPreview!.AlreadyApplied));
+    }
+
+    [Fact]
+    public void Client_folder_mapping_preserves_relative_path_and_uses_active_live_drive()
+    {
+        Assert.Equal(
+            @"E:\Userdata\Kanaan Trust\Clients\BADENHORST PN",
+            ClientReviewTransferService.MapClientFolderToLiveRoot(
+                @"C:\Download\_kanaan\ClientsKanaan\BADENHORST PN",
+                @"E:\Userdata\Kanaan Trust\Clients"));
+        Assert.Equal(
+            @"Z:\Userdata\Kanaan Trust\Clients\BADENHORST PN",
+            ClientReviewTransferService.MapClientFolderToLiveRoot(
+                @"C:\Download\_kanaan\ClientsKanaan\BADENHORST PN",
+                @"Z:\Userdata\Kanaan Trust\Clients"));
+        Assert.Equal(
+            @"Z:\Userdata\Kanaan Trust\Clients\Family\BADENHORST PN",
+            ClientReviewTransferService.MapClientFolderToLiveRoot(
+                @"E:\Userdata\Kanaan Trust\Clients\Family\BADENHORST PN",
+                @"Z:\Userdata\Kanaan Trust\Clients"));
+        Assert.Null(ClientReviewTransferService.MapClientFolderToLiveRoot(
+            @"C:\Download\_kanaan\ClientsKanaan-archive\BADENHORST PN",
+            @"E:\Userdata\Kanaan Trust\Clients"));
     }
 
     [Fact]
