@@ -181,6 +181,7 @@ public sealed class ClientReviewTransferService(
         }
 
         RiskMethodologyVersion? methodology = null;
+        string? targetClientFolder = null;
         if (client is not null)
         {
             methodology = await db.RiskMethodologyVersions.AsNoTracking()
@@ -207,6 +208,31 @@ public sealed class ClientReviewTransferService(
             {
                 warnings.Add(
                     $"Client category will change from {client.ClientCategory} to {package.Client.ClientCategory}.");
+            }
+
+            targetClientFolder = client.ClientFolder;
+            if (!string.IsNullOrWhiteSpace(package.Client.ClientFolder))
+            {
+                var liveRoot = await LoadActiveClientFolderRootAsync(cancellationToken);
+                if (string.IsNullOrWhiteSpace(liveRoot))
+                {
+                    conflicts.Add(
+                        "The package contains a client folder, but live KCAS has no active client evidence root.");
+                }
+                else
+                {
+                    targetClientFolder = MapClientFolderToLiveRoot(package.Client.ClientFolder, liveRoot);
+                    if (targetClientFolder is null)
+                    {
+                        conflicts.Add(
+                            $"Client folder '{package.Client.ClientFolder}' is outside the recognised local/live client roots and cannot be mapped safely.");
+                    }
+                    else if (!string.Equals(client.ClientFolder, targetClientFolder, StringComparison.OrdinalIgnoreCase))
+                    {
+                        warnings.Add(
+                            $"Client folder will map from '{package.Client.ClientFolder}' to '{targetClientFolder}'.");
+                    }
+                }
             }
 
             var hasAssessmentConflict = await db.ClientRiskAssessments.AsNoTracking().AnyAsync(item =>
@@ -311,6 +337,7 @@ public sealed class ClientReviewTransferService(
             ContentSha256 = contentSha256,
             TargetClientId = client?.Id,
             TargetClientName = client?.DisplayName,
+            TargetClientFolder = targetClientFolder,
             AlreadyApplied = alreadyApplied,
             ExistingEvidenceCount = existingEvidenceCount,
             NewEvidenceCount = package.Evidence.Count - existingEvidenceCount,
@@ -355,11 +382,21 @@ public sealed class ClientReviewTransferService(
                 item.VersionLabel == package.Assessment.MethodologyVersionLabel,
                 cancellationToken);
 
+        var mappedClientFolder = client.ClientFolder;
+        if (!string.IsNullOrWhiteSpace(package.Client.ClientFolder))
+        {
+            var liveRoot = await LoadActiveClientFolderRootAsync(cancellationToken)
+                ?? throw new InvalidOperationException("Live KCAS has no active client evidence root.");
+            mappedClientFolder = MapClientFolderToLiveRoot(package.Client.ClientFolder, liveRoot)
+                ?? throw new InvalidOperationException("The package client folder cannot be mapped safely to the live root.");
+        }
+
         var oldClientClassification = JsonSerializer.Serialize(new
         {
             client.ClientCategory,
             client.ClientCategorySource,
-            client.LifecycleStatus
+            client.LifecycleStatus,
+            client.ClientFolder
         });
         client.ClientCategory = package.Client.ClientCategory;
         client.ClientCategorySource = package.Client.ClientCategorySource;
@@ -370,6 +407,7 @@ public sealed class ClientReviewTransferService(
         client.LifecycleReason = package.Client.LifecycleReason;
         client.LifecycleReviewedAtUtc = package.Client.LifecycleReviewedAtUtc;
         client.LifecycleReviewedBy = package.Client.LifecycleReviewedBy;
+        client.ClientFolder = mappedClientFolder;
         client.IsActive = package.Client.LifecycleStatus == ClientLifecycleStatuses.Current;
         client.UpdatedAtUtc = DateTime.UtcNow;
         db.ComplianceAuditEvents.Add(new ComplianceAuditEvent
@@ -383,6 +421,7 @@ public sealed class ClientReviewTransferService(
                 client.ClientCategory,
                 client.ClientCategorySource,
                 client.LifecycleStatus,
+                client.ClientFolder,
                 SourcePackageId = package.PackageId
             }),
             UserName = user,
@@ -895,6 +934,7 @@ public sealed class ClientReviewTransferService(
                 LegacyClientId = client.LegacyClientId,
                 KanaanId = client.KanaanId,
                 DisplayName = client.DisplayName,
+                ClientFolder = client.ClientFolder,
                 ClientCategory = client.ClientCategory,
                 ClientCategorySource = client.ClientCategorySource,
                 ClientCategoryReason = client.ClientCategoryReason,
@@ -1110,6 +1150,54 @@ public sealed class ClientReviewTransferService(
         }
         return match;
     }
+
+    private async Task<string?> LoadActiveClientFolderRootAsync(CancellationToken cancellationToken) =>
+        await db.ClientEvidenceScanRoots.AsNoTracking()
+            .Where(root => root.IsActive)
+            .OrderByDescending(root => root.Id)
+            .Select(root => root.RootPath)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    internal static string? MapClientFolderToLiveRoot(string? sourceFolder, string? liveRoot)
+    {
+        if (string.IsNullOrWhiteSpace(sourceFolder) || string.IsNullOrWhiteSpace(liveRoot))
+        {
+            return null;
+        }
+        var source = NormalizeWindowsPath(sourceFolder);
+        var destinationRoot = NormalizeWindowsPath(liveRoot).TrimEnd('\\');
+        var recognisedRoots = new[]
+        {
+            @"C:\Download\_kanaan\ClientsKanaan",
+            @"E:\Userdata\Kanaan Trust\Clients",
+            @"Z:\Userdata\Kanaan Trust\Clients",
+            destinationRoot
+        };
+        foreach (var root in recognisedRoots
+            .Select(NormalizeWindowsPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(root => root.Length))
+        {
+            if (!source.Equals(root, StringComparison.OrdinalIgnoreCase) &&
+                !source.StartsWith(root + "\\", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            var relative = source[root.Length..].TrimStart('\\');
+            var segments = relative.Split('\\', StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Any(segment => segment is "." or ".."))
+            {
+                return null;
+            }
+            return segments.Length == 0
+                ? destinationRoot
+                : destinationRoot + "\\" + string.Join("\\", segments);
+        }
+        return null;
+    }
+
+    private static string NormalizeWindowsPath(string path) =>
+        path.Trim().Replace('/', '\\').TrimEnd('\\');
 
     private ClientReviewPackage DecryptPackage(
         byte[] encrypted,
@@ -1442,6 +1530,7 @@ public sealed class ClientReviewTransferService(
         package.Client.LegacyClientId,
         package.Client.KanaanId,
         package.Client.DisplayName,
+        package.Client.ClientFolder,
         EvidenceCount = package.Evidence.Count,
         ExceptionCount = package.Exceptions.Count,
         RelatedPartyCount = package.RelatedParties.Count,
@@ -1584,6 +1673,7 @@ public sealed class ClientReviewClientPackage
     public int? LegacyClientId { get; set; }
     public string? KanaanId { get; set; }
     public string DisplayName { get; set; } = "";
+    public string? ClientFolder { get; set; }
     public string ClientCategory { get; set; } = "";
     public string ClientCategorySource { get; set; } = ClientCategorySources.Unknown;
     public string? ClientCategoryReason { get; set; }
@@ -1788,6 +1878,7 @@ public sealed class ClientReviewTransferPreview
     public string ContentSha256 { get; init; } = "";
     public int? TargetClientId { get; init; }
     public string? TargetClientName { get; init; }
+    public string? TargetClientFolder { get; init; }
     public bool AlreadyApplied { get; init; }
     public int ExistingEvidenceCount { get; init; }
     public int NewEvidenceCount { get; init; }
