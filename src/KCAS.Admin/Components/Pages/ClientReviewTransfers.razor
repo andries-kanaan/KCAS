@@ -286,7 +286,7 @@
     private byte[]? importBytes;
     private string? importFileName;
     private string? importPassphrase;
-    private string? importReason;
+    private string? importReason = "Approve import of completed client review into live KCAS.";
     private ClientReviewTransferPreview? preview;
     private ClientReviewFamilyPreview? familyPreview;
     private HashSet<string> selectedFamilyPackageIds = new(StringComparer.OrdinalIgnoreCase);
