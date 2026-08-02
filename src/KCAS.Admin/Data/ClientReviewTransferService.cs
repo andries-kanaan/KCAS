@@ -9,7 +9,8 @@ namespace KCAS.Admin.Data;
 public sealed class ClientReviewTransferService(
     ApplicationDbContext db,
     IConfiguration configuration,
-    IHostEnvironment environment)
+    IHostEnvironment environment,
+    ClientEvidenceReadinessService evidenceReadiness)
 {
     private const string PackageMagic = "KCAS-CLIENT-REVIEW-1";
     private const int PackageVersion = 2;
@@ -182,6 +183,8 @@ public sealed class ClientReviewTransferService(
 
         RiskMethodologyVersion? methodology = null;
         string? targetClientFolder = null;
+        int? supersededAssessmentId = null;
+        string? supersededPackageId = null;
         if (client is not null)
         {
             methodology = await db.RiskMethodologyVersions.AsNoTracking()
@@ -235,15 +238,28 @@ public sealed class ClientReviewTransferService(
                 }
             }
 
-            var hasAssessmentConflict = await db.ClientRiskAssessments.AsNoTracking().AnyAsync(item =>
-                item.ClientId == client.Id &&
-                item.Status != ClientRiskAssessmentStatuses.Superseded,
-                cancellationToken);
-            if (hasAssessmentConflict)
+            var activeAssessments = await db.ClientRiskAssessments.AsNoTracking()
+                .Include(item => item.MethodologyVersion)
+                .Include(item => item.Responses).ThenInclude(item => item.FactorDefinition)
+                .Include(item => item.Responses).ThenInclude(item => item.SelectedOption)
+                .Include(item => item.Approvals)
+                .Where(item => item.ClientId == client.Id &&
+                    item.Status != ClientRiskAssessmentStatuses.Superseded)
+                .ToListAsync(cancellationToken);
+            if (!alreadyApplied && activeAssessments.Count > 0)
             {
-                conflicts.Add(
-                    "The live client already has an assessment in progress or a current assessment. " +
-                    "The transfer will not overwrite it.");
+                var reconciliation = await EvaluateAssessmentReconciliationAsync(
+                    client.Id, activeAssessments, package, cancellationToken);
+                if (!reconciliation.CanReconcile)
+                {
+                    conflicts.Add(reconciliation.Message);
+                }
+                else
+                {
+                    supersededAssessmentId = reconciliation.AssessmentId;
+                    supersededPackageId = reconciliation.PreviousPackageId;
+                    warnings.Add(reconciliation.Message);
+                }
             }
 
             var liveAccounts = await db.ClientInvestmentAccounts.AsNoTracking()
@@ -338,6 +354,8 @@ public sealed class ClientReviewTransferService(
             TargetClientId = client?.Id,
             TargetClientName = client?.DisplayName,
             TargetClientFolder = targetClientFolder,
+            SupersededAssessmentId = supersededAssessmentId,
+            SupersededPackageId = supersededPackageId,
             AlreadyApplied = alreadyApplied,
             ExistingEvidenceCount = existingEvidenceCount,
             NewEvidenceCount = package.Evidence.Count - existingEvidenceCount,
@@ -751,10 +769,26 @@ public sealed class ClientReviewTransferService(
                 $"The imported client review has {blockingVerificationCount} blocking verification item(s) on live.");
         }
 
+        ClientRiskAssessment? supersededAssessment = null;
+        string? supersededAssessmentOldStatus = null;
+        if (preview.SupersededAssessmentId.HasValue)
+        {
+            supersededAssessment = await db.ClientRiskAssessments.SingleOrDefaultAsync(item =>
+                item.Id == preview.SupersededAssessmentId.Value &&
+                item.ClientId == client.Id &&
+                item.Status != ClientRiskAssessmentStatuses.Superseded,
+                cancellationToken) ?? throw new InvalidOperationException(
+                    "The assessment selected for package reconciliation changed before the import could be applied.");
+            supersededAssessmentOldStatus = supersededAssessment.Status;
+            supersededAssessment.Status = ClientRiskAssessmentStatuses.Superseded;
+            supersededAssessment.UpdatedAtUtc = DateTime.UtcNow;
+        }
+
         var assessment = new ClientRiskAssessment
         {
             ClientId = client.Id,
             RiskMethodologyVersionId = methodology.Id,
+            PreviousAssessmentId = supersededAssessment?.Id,
             Status = package.Assessment.Status,
             CalculatedScore = package.Assessment.CalculatedScore,
             CalculatedRating = package.Assessment.CalculatedRating,
@@ -812,6 +846,28 @@ public sealed class ClientReviewTransferService(
         }
         db.ClientRiskAssessments.Add(assessment);
         await db.SaveChangesAsync(cancellationToken);
+        if (supersededAssessment is not null)
+        {
+            db.ComplianceAuditEvents.Add(new ComplianceAuditEvent
+            {
+                EntityType = nameof(ClientRiskAssessment),
+                EntityId = supersededAssessment.Id,
+                Action = "ClientRiskAssessmentSupersededByReviewImport",
+                OldValueJson = JsonSerializer.Serialize(new
+                {
+                    Status = supersededAssessmentOldStatus,
+                    PreviousPackageId = preview.SupersededPackageId
+                }),
+                NewValueJson = JsonSerializer.Serialize(new
+                {
+                    supersededAssessment.Status,
+                    ReplacementAssessmentId = assessment.Id,
+                    SourcePackageId = package.PackageId
+                }),
+                UserName = user,
+                Reason = reason
+            });
+        }
 
         var incomingDirectory = Path.Combine(StorageRoot, "incoming");
         Directory.CreateDirectory(incomingDirectory);
@@ -831,7 +887,8 @@ public sealed class ClientReviewTransferService(
             Status = ClientReviewTransferStatuses.Applied,
             FileName = fileName,
             StoragePath = storagePath,
-            SummaryJson = JsonSerializer.Serialize(PackageSummary(package), JsonOptions),
+            SummaryJson = JsonSerializer.Serialize(
+                PackageSummary(package, assessment.Id, supersededAssessment?.Id), JsonOptions),
             AppliedAtUtc = DateTime.UtcNow,
             AppliedBy = user
         };
@@ -849,9 +906,29 @@ public sealed class ClientReviewTransferService(
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
+        int? verificationScanRunId = null;
+        string? verificationScanWarning = null;
+        if (!string.IsNullOrWhiteSpace(client.ClientFolder))
+        {
+            try
+            {
+                verificationScanRunId = await evidenceReadiness.RunImportedFolderVerificationAsync(
+                    client.Id,
+                    user,
+                    "Verify live client folder after review package import.",
+                    cancellationToken);
+            }
+            catch (Exception exception)
+            {
+                verificationScanWarning =
+                    $"The package was applied, but live folder verification could not complete: {exception.Message}";
+            }
+        }
+
         return new ClientReviewImportResult(
             package.PackageId, client.Id, client.DisplayName, assessment.Id,
-            preview.NewEvidenceCount, fileName, storagePath);
+            preview.NewEvidenceCount, fileName, storagePath,
+            verificationScanRunId, verificationScanWarning);
     }
 
     private static ClientReviewPackage BuildPackage(
@@ -1151,6 +1228,192 @@ public sealed class ClientReviewTransferService(
         }
         return match;
     }
+
+    private async Task<AssessmentReconciliationDecision> EvaluateAssessmentReconciliationAsync(
+        int clientId,
+        IReadOnlyList<ClientRiskAssessment> activeAssessments,
+        ClientReviewPackage incomingPackage,
+        CancellationToken cancellationToken)
+    {
+        const string defaultConflict =
+            "The live client already has an assessment in progress or a current assessment. " +
+            "The transfer will not overwrite live work that cannot be linked to an earlier imported package.";
+        if (activeAssessments.Count != 1 ||
+            activeAssessments[0].Status is not (ClientRiskAssessmentStatuses.Finalised or ClientRiskAssessmentStatuses.Approved))
+        {
+            return new(false, null, null, defaultConflict);
+        }
+
+        var assessment = activeAssessments[0];
+        var currentFingerprint = AssessmentFingerprint(assessment);
+        var records = await db.ClientReviewTransferRecords.AsNoTracking()
+            .Where(record => record.ClientId == clientId &&
+                record.Direction == ClientReviewTransferDirections.Incoming &&
+                record.Status == ClientReviewTransferStatuses.Applied)
+            .OrderByDescending(record => record.AppliedAtUtc)
+            .ThenByDescending(record => record.Id)
+            .ToListAsync(cancellationToken);
+
+        foreach (var record in records)
+        {
+            ClientReviewTransferPackageSummary? summary;
+            try
+            {
+                summary = JsonSerializer.Deserialize<ClientReviewTransferPackageSummary>(record.SummaryJson, JsonOptions);
+            }
+            catch (JsonException)
+            {
+                continue;
+            }
+            if (summary is null)
+            {
+                continue;
+            }
+
+            var isLinked = summary.ImportedAssessmentId == assessment.Id;
+            if (!isLinked && summary.ImportedAssessmentId is null)
+            {
+                isLinked = LegacyImportedAssessmentMatches(assessment, record, summary);
+            }
+            if (!isLinked)
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(summary.AssessmentFingerprint) &&
+                !string.Equals(summary.AssessmentFingerprint, currentFingerprint, StringComparison.OrdinalIgnoreCase))
+            {
+                return new(false, null, null,
+                    "The live assessment was imported previously but has since changed on live. Reconcile those changes manually before importing a replacement package.");
+            }
+            if (incomingPackage.CreatedAtUtc <= summary.CreatedAtUtc)
+            {
+                return new(false, null, null,
+                    "The package is not newer than the assessment package already applied on live.");
+            }
+
+            return new(true, assessment.Id, record.PackageId,
+                $"The current live assessment came from package {record.PackageId}. It will be superseded by this newer package after the reviewed data is reconciled.");
+        }
+
+        return new(false, null, null, defaultConflict);
+    }
+
+    private static bool LegacyImportedAssessmentMatches(
+        ClientRiskAssessment assessment,
+        ClientReviewTransferRecord record,
+        ClientReviewTransferPackageSummary summary)
+    {
+        if (!record.AppliedAtUtc.HasValue ||
+            Math.Abs((record.AppliedAtUtc.Value - assessment.UpdatedAtUtc).TotalMinutes) > 10)
+        {
+            return false;
+        }
+        return string.Equals(summary.MethodologyName, assessment.MethodologyVersion?.Name, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(summary.MethodologyVersionLabel, assessment.MethodologyVersion?.VersionLabel, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(summary.Status, assessment.Status, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(summary.FinalRating, assessment.FinalRating, StringComparison.OrdinalIgnoreCase) &&
+            summary.EffectiveDate == assessment.EffectiveDate;
+    }
+
+    private static string AssessmentFingerprint(ClientReviewAssessmentPackage assessment) =>
+        HashJson(new
+        {
+            assessment.MethodologyName,
+            assessment.MethodologyVersionLabel,
+            assessment.Status,
+            assessment.CalculatedScore,
+            assessment.CalculatedRating,
+            assessment.FinalRating,
+            assessment.IsOverride,
+            assessment.OverrideReason,
+            assessment.HasPepExposure,
+            assessment.HasSanctionsConcern,
+            assessment.HasAdverseInformation,
+            assessment.RequiresEdd,
+            assessment.StandardControlsApplied,
+            assessment.Narrative,
+            assessment.EffectiveDate,
+            assessment.NextReviewDate,
+            assessment.CreatedAtUtc,
+            assessment.FinalisedAtUtc,
+            assessment.ApprovedAtUtc,
+            assessment.ReviewTriggerType,
+            assessment.ReviewTriggerReason,
+            assessment.ReviewTriggeredAtUtc,
+            assessment.PreparedBy,
+            assessment.FinalisedBy,
+            assessment.ReviewTriggeredBy,
+            assessment.SnapshotJson,
+            Responses = assessment.Responses.OrderBy(item => item.FactorCode).Select(item => new
+            {
+                item.FactorCode,
+                item.OptionCode,
+                item.Score,
+                item.WeightedScore,
+                item.Explanation,
+                item.ConfirmedAtUtc,
+                item.ConfirmedBy
+            }),
+            Approvals = assessment.Approvals.OrderBy(item => item.Approver).ThenBy(item => item.DecidedAtUtc).Select(item => new
+            {
+                item.Approver,
+                item.Decision,
+                item.Reason,
+                item.DecidedAtUtc
+            })
+        });
+
+    private static string AssessmentFingerprint(ClientRiskAssessment assessment) =>
+        HashJson(new
+        {
+            MethodologyName = assessment.MethodologyVersion?.Name,
+            MethodologyVersionLabel = assessment.MethodologyVersion?.VersionLabel,
+            assessment.Status,
+            assessment.CalculatedScore,
+            assessment.CalculatedRating,
+            assessment.FinalRating,
+            assessment.IsOverride,
+            assessment.OverrideReason,
+            assessment.HasPepExposure,
+            assessment.HasSanctionsConcern,
+            assessment.HasAdverseInformation,
+            assessment.RequiresEdd,
+            assessment.StandardControlsApplied,
+            assessment.Narrative,
+            assessment.EffectiveDate,
+            assessment.NextReviewDate,
+            assessment.CreatedAtUtc,
+            assessment.FinalisedAtUtc,
+            assessment.ApprovedAtUtc,
+            assessment.ReviewTriggerType,
+            assessment.ReviewTriggerReason,
+            assessment.ReviewTriggeredAtUtc,
+            assessment.PreparedBy,
+            assessment.FinalisedBy,
+            assessment.ReviewTriggeredBy,
+            assessment.SnapshotJson,
+            Responses = assessment.Responses.OrderBy(item => item.FactorDefinition!.Code).Select(item => new
+            {
+                FactorCode = item.FactorDefinition!.Code,
+                OptionCode = item.SelectedOption!.Code,
+                item.Score,
+                item.WeightedScore,
+                item.Explanation,
+                item.ConfirmedAtUtc,
+                item.ConfirmedBy
+            }),
+            Approvals = assessment.Approvals.OrderBy(item => item.Approver).ThenBy(item => item.DecidedAtUtc).Select(item => new
+            {
+                item.Approver,
+                item.Decision,
+                item.Reason,
+                item.DecidedAtUtc
+            })
+        });
+
+    private static string HashJson(object value) =>
+        Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(value, JsonOptions))).ToLowerInvariant();
 
     private async Task<string?> LoadActiveClientFolderRootAsync(CancellationToken cancellationToken) =>
         await db.ClientEvidenceScanRoots.AsNoTracking()
@@ -1522,25 +1785,31 @@ public sealed class ClientReviewTransferService(
                 !string.IsNullOrWhiteSpace(evidenceType) &&
                 item.EvidenceType.Equals(evidenceType, StringComparison.OrdinalIgnoreCase));
 
-    private static object PackageSummary(ClientReviewPackage package) => new
+    private static ClientReviewTransferPackageSummary PackageSummary(
+        ClientReviewPackage package,
+        int? importedAssessmentId = null,
+        int? supersededAssessmentId = null) => new()
     {
-        package.PackageId,
-        package.CreatedAtUtc,
-        package.ExportedBy,
-        package.SourceEnvironment,
-        package.Client.LegacyClientId,
-        package.Client.KanaanId,
-        package.Client.DisplayName,
-        package.Client.ClientFolder,
+        PackageId = package.PackageId,
+        CreatedAtUtc = package.CreatedAtUtc,
+        ExportedBy = package.ExportedBy,
+        SourceEnvironment = package.SourceEnvironment,
+        LegacyClientId = package.Client.LegacyClientId,
+        KanaanId = package.Client.KanaanId,
+        DisplayName = package.Client.DisplayName,
+        ClientFolder = package.Client.ClientFolder,
         EvidenceCount = package.Evidence.Count,
         ExceptionCount = package.Exceptions.Count,
         RelatedPartyCount = package.RelatedParties.Count,
         InvestmentReconciliationCount = package.InvestmentReconciliations.Count,
-        package.Assessment.MethodologyName,
-        package.Assessment.MethodologyVersionLabel,
-        package.Assessment.Status,
-        package.Assessment.FinalRating,
-        package.Assessment.EffectiveDate
+        MethodologyName = package.Assessment.MethodologyName,
+        MethodologyVersionLabel = package.Assessment.MethodologyVersionLabel,
+        Status = package.Assessment.Status,
+        FinalRating = package.Assessment.FinalRating,
+        EffectiveDate = package.Assessment.EffectiveDate,
+        ImportedAssessmentId = importedAssessmentId,
+        SupersededAssessmentId = supersededAssessmentId,
+        AssessmentFingerprint = AssessmentFingerprint(package.Assessment)
     };
 
     private static string EvidenceKey(ClientEvidenceItem item) =>
@@ -1884,6 +2153,8 @@ public sealed class ClientReviewTransferPreview
     public int? TargetClientId { get; init; }
     public string? TargetClientName { get; init; }
     public string? TargetClientFolder { get; init; }
+    public int? SupersededAssessmentId { get; init; }
+    public string? SupersededPackageId { get; init; }
     public bool AlreadyApplied { get; init; }
     public int ExistingEvidenceCount { get; init; }
     public int NewEvidenceCount { get; init; }
@@ -1913,6 +2184,36 @@ internal sealed record ClientReviewEmbeddedExport(
     byte[] EncryptedPackage,
     string ContentSha256);
 
+internal sealed record AssessmentReconciliationDecision(
+    bool CanReconcile,
+    int? AssessmentId,
+    string? PreviousPackageId,
+    string Message);
+
+internal sealed class ClientReviewTransferPackageSummary
+{
+    public string PackageId { get; set; } = "";
+    public DateTime CreatedAtUtc { get; set; }
+    public string ExportedBy { get; set; } = "";
+    public string SourceEnvironment { get; set; } = "";
+    public int? LegacyClientId { get; set; }
+    public string? KanaanId { get; set; }
+    public string DisplayName { get; set; } = "";
+    public string? ClientFolder { get; set; }
+    public int EvidenceCount { get; set; }
+    public int ExceptionCount { get; set; }
+    public int RelatedPartyCount { get; set; }
+    public int InvestmentReconciliationCount { get; set; }
+    public string MethodologyName { get; set; } = "";
+    public string? MethodologyVersionLabel { get; set; }
+    public string Status { get; set; } = "";
+    public string? FinalRating { get; set; }
+    public DateOnly? EffectiveDate { get; set; }
+    public int? ImportedAssessmentId { get; set; }
+    public int? SupersededAssessmentId { get; set; }
+    public string? AssessmentFingerprint { get; set; }
+}
+
 public sealed record ClientReviewImportResult(
     string PackageId,
     int ClientId,
@@ -1920,4 +2221,6 @@ public sealed record ClientReviewImportResult(
     int AssessmentId,
     int EvidenceImported,
     string FileName,
-    string StoragePath);
+    string StoragePath,
+    int? EvidenceVerificationScanRunId,
+    string? EvidenceVerificationWarning);

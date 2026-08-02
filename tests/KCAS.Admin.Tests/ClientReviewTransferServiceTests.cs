@@ -186,6 +186,56 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
             item.Action == "ClientReviewPackageApplied" &&
             item.UserName == "live-importer@example.test");
 
+        var priorIncomingRecord = await db.ClientReviewTransferRecords.SingleAsync(item =>
+            item.Direction == ClientReviewTransferDirections.Incoming &&
+            item.PackageId == imported.PackageId);
+        var legacySummary = System.Text.Json.JsonSerializer.Deserialize<ClientReviewTransferPackageSummary>(
+            priorIncomingRecord.SummaryJson,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+        legacySummary.ImportedAssessmentId = null;
+        legacySummary.SupersededAssessmentId = null;
+        legacySummary.AssessmentFingerprint = null;
+        priorIncomingRecord.SummaryJson = System.Text.Json.JsonSerializer.Serialize(
+            legacySummary,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        await db.SaveChangesAsync();
+
+        var newerExport = await service.ExportAsync(
+            client.Id, passphrase, "reviewer@example.test", "Export a more complete reviewed package.");
+        var newerEncrypted = await File.ReadAllBytesAsync(newerExport.StoragePath);
+        var reconciliationPreview = await service.PreviewAsync(newerEncrypted, passphrase);
+        Assert.True(reconciliationPreview.CanApply);
+        Assert.Equal(imported.AssessmentId, reconciliationPreview.SupersededAssessmentId);
+        Assert.Contains(reconciliationPreview.Warnings, warning =>
+            warning.Contains("superseded", StringComparison.OrdinalIgnoreCase));
+
+        var reconciled = await service.ApplyAsync(
+            newerEncrypted,
+            passphrase,
+            "live-importer@example.test",
+            "Reconcile a newer completed review package.");
+        var assessments = await db.ClientRiskAssessments.AsNoTracking()
+            .Where(item => item.ClientId == client.Id)
+            .OrderBy(item => item.Id)
+            .ToListAsync();
+        Assert.Equal(2, assessments.Count);
+        Assert.Equal(ClientRiskAssessmentStatuses.Superseded, assessments[0].Status);
+        Assert.Equal(assessments[0].Id, assessments[1].PreviousAssessmentId);
+        Assert.Equal(reconciled.AssessmentId, assessments[1].Id);
+
+        var liveEditedAssessment = await db.ClientRiskAssessments.SingleAsync(item =>
+            item.Id == reconciled.AssessmentId);
+        liveEditedAssessment.Narrative = "Edited independently on live after the import.";
+        liveEditedAssessment.UpdatedAtUtc = DateTime.UtcNow.AddMinutes(1);
+        await db.SaveChangesAsync();
+        var postEditExport = await service.ExportAsync(
+            client.Id, passphrase, "reviewer@example.test", "Attempt transfer after a live edit.");
+        var postEditPreview = await service.PreviewAsync(
+            await File.ReadAllBytesAsync(postEditExport.StoragePath), passphrase);
+        Assert.False(postEditPreview.CanApply);
+        Assert.Contains(postEditPreview.Conflicts, conflict =>
+            conflict.Contains("changed on live", StringComparison.OrdinalIgnoreCase));
+
         var duplicatePreview = await service.PreviewAsync(encrypted, passphrase);
         Assert.True(duplicatePreview.AlreadyApplied);
         Assert.False(duplicatePreview.CanApply);
