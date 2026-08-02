@@ -12,7 +12,7 @@ public sealed class ClientReviewTransferService(
     IHostEnvironment environment)
 {
     private const string PackageMagic = "KCAS-CLIENT-REVIEW-1";
-    private const int PackageVersion = 1;
+    private const int PackageVersion = 2;
     private const int Pbkdf2Iterations = 300_000;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -44,6 +44,9 @@ public sealed class ClientReviewTransferService(
         reason = Require(reason, "An export reason is required.");
 
         var client = await db.Clients.AsNoTracking()
+            .Include(item => item.EntityProfile)
+            .Include(item => item.RelatedParties).ThenInclude(item => item.Roles)
+            .Include(item => item.RelatedParties).ThenInclude(item => item.EvidenceLinks).ThenInclude(item => item.EvidenceItem)
             .Include(item => item.InvestmentAccounts).ThenInclude(item => item.Transactions)
             .Include(item => item.InvestmentReconciliationReviews)
             .Include(item => item.FundValuations)
@@ -133,6 +136,7 @@ public sealed class ClientReviewTransferService(
             conflicts.Add(
                 $"Package format {package.FormatVersion} is not supported by this KCAS version.");
         }
+        ValidatePackageStructure(package, conflicts);
 
         var client = await ResolveClientAsync(package.Client, cancellationToken);
         if (client is null)
@@ -173,6 +177,11 @@ public sealed class ClientReviewTransferService(
                     $"Live lifecycle is {client.LifecycleStatus}, but the package records " +
                     $"{package.Client.LifecycleStatus}.");
             }
+            if (!string.Equals(client.ClientCategory, package.Client.ClientCategory, StringComparison.OrdinalIgnoreCase))
+            {
+                warnings.Add(
+                    $"Client category will change from {client.ClientCategory} to {package.Client.ClientCategory}.");
+            }
 
             var hasAssessmentConflict = await db.ClientRiskAssessments.AsNoTracking().AnyAsync(item =>
                 item.ClientId == client.Id &&
@@ -186,6 +195,10 @@ public sealed class ClientReviewTransferService(
             }
 
             var liveAccounts = await db.ClientInvestmentAccounts.AsNoTracking()
+                .Include(item => item.Transactions)
+                .Where(item => item.ClientId == client.Id)
+                .ToListAsync(cancellationToken);
+            var liveValuations = await db.ClientFundValuations.AsNoTracking()
                 .Where(item => item.ClientId == client.Id)
                 .ToListAsync(cancellationToken);
             foreach (var source in package.InvestmentReconciliations)
@@ -207,6 +220,27 @@ public sealed class ClientReviewTransferService(
                     {
                         conflicts.Add($"Related investment for '{source.AccountNumber}' could not be matched uniquely on live.");
                     }
+                }
+                var matchedValuations = ClientInvestmentStatusClassifier.MatchingValuations(match, liveValuations);
+                var outcomeError = InvestmentReconciliationService.ValidateOutcome(
+                    source.Outcome,
+                    source.SurrenderDate,
+                    source.RelatedLegacyInvestmentAccountId.HasValue || !string.IsNullOrWhiteSpace(source.RelatedAccountNumber),
+                    matchedValuations);
+                if (outcomeError is not null)
+                {
+                    conflicts.Add($"Investment {match.AccountNumber}: {outcomeError}");
+                }
+                var oldSurrenderDate = match.SurrenderDate;
+                match.SurrenderDate = source.Outcome == ClientInvestmentReconciliationOutcomes.Current
+                    ? null
+                    : source.SurrenderDate;
+                var portableSnapshot = CalculatePortableInvestmentSnapshot(match, matchedValuations);
+                match.SurrenderDate = oldSurrenderDate;
+                if (!string.Equals(source.PortableSnapshotSha256, portableSnapshot, StringComparison.OrdinalIgnoreCase))
+                {
+                    conflicts.Add(
+                        $"Investment {match.AccountNumber}: the live account, transactions or valuations differ from the reviewed package snapshot.");
                 }
             }
         }
@@ -282,6 +316,9 @@ public sealed class ClientReviewTransferService(
         var package = preview.Package;
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var client = await db.Clients
+            .Include(item => item.EntityProfile)
+            .Include(item => item.RelatedParties).ThenInclude(item => item.Roles)
+            .Include(item => item.RelatedParties).ThenInclude(item => item.EvidenceLinks)
             .Include(item => item.InvestmentAccounts).ThenInclude(item => item.Transactions)
             .Include(item => item.FundValuations)
             .SingleAsync(item => item.Id == preview.TargetClientId.Value, cancellationToken);
@@ -292,12 +329,95 @@ public sealed class ClientReviewTransferService(
                 item.VersionLabel == package.Assessment.MethodologyVersionLabel,
                 cancellationToken);
 
+        var oldClientClassification = JsonSerializer.Serialize(new
+        {
+            client.ClientCategory,
+            client.ClientCategorySource,
+            client.LifecycleStatus
+        });
+        client.ClientCategory = package.Client.ClientCategory;
+        client.ClientCategorySource = package.Client.ClientCategorySource;
+        client.ClientCategoryReason = package.Client.ClientCategoryReason;
+        client.ClientCategoryUpdatedAtUtc = package.Client.ClientCategoryUpdatedAtUtc;
+        client.ClientCategoryUpdatedBy = package.Client.ClientCategoryUpdatedBy;
         client.LifecycleStatus = package.Client.LifecycleStatus;
         client.LifecycleReason = package.Client.LifecycleReason;
         client.LifecycleReviewedAtUtc = package.Client.LifecycleReviewedAtUtc;
         client.LifecycleReviewedBy = package.Client.LifecycleReviewedBy;
         client.IsActive = package.Client.LifecycleStatus == ClientLifecycleStatuses.Current;
         client.UpdatedAtUtc = DateTime.UtcNow;
+        db.ComplianceAuditEvents.Add(new ComplianceAuditEvent
+        {
+            EntityType = nameof(Client),
+            EntityId = client.Id,
+            Action = "ClientClassificationImported",
+            OldValueJson = oldClientClassification,
+            NewValueJson = JsonSerializer.Serialize(new
+            {
+                client.ClientCategory,
+                client.ClientCategorySource,
+                client.LifecycleStatus,
+                SourcePackageId = package.PackageId
+            }),
+            UserName = user,
+            Reason = reason
+        });
+
+        if (package.EntityProfile is not null)
+        {
+            client.EntityProfile ??= new ClientEntityProfile { ClientId = client.Id };
+            var profile = client.EntityProfile;
+            profile.LegalForm = package.EntityProfile.LegalForm;
+            profile.RegistrationNumber = package.EntityProfile.RegistrationNumber;
+            profile.RegistrationCountry = package.EntityProfile.RegistrationCountry;
+            profile.EstablishmentDate = package.EntityProfile.EstablishmentDate;
+            profile.NatureOfBusinessOrPurpose = package.EntityProfile.NatureOfBusinessOrPurpose;
+            profile.OwnershipReviewStatus = package.EntityProfile.OwnershipReviewStatus;
+            profile.ControlConclusion = package.EntityProfile.ControlConclusion;
+            profile.ControlConclusionReason = package.EntityProfile.ControlConclusionReason;
+            profile.OwnershipReviewedAtUtc = package.EntityProfile.OwnershipReviewedAtUtc;
+            profile.OwnershipReviewedBy = package.EntityProfile.OwnershipReviewedBy;
+            profile.NextOwnershipReviewDate = package.EntityProfile.NextOwnershipReviewDate;
+            profile.UpdatedAtUtc = DateTime.UtcNow;
+            profile.UpdatedBy = user;
+        }
+
+        var partyByKey = new Dictionary<string, ClientRelatedParty>(StringComparer.OrdinalIgnoreCase);
+        foreach (var source in package.RelatedParties)
+        {
+            var party = MatchRelatedParty(client.RelatedParties, source)
+                ?? new ClientRelatedParty { ClientId = client.Id };
+            if (party.Id == 0 && !client.RelatedParties.Contains(party))
+            {
+                client.RelatedParties.Add(party);
+            }
+            party.PartyType = source.PartyType;
+            party.DisplayName = source.DisplayName;
+            party.SouthAfricanIdNumber = source.SouthAfricanIdNumber;
+            party.PassportNumber = source.PassportNumber;
+            party.PassportCountry = source.PassportCountry;
+            party.RegistrationNumber = source.RegistrationNumber;
+            party.BirthDate = source.BirthDate;
+            party.Nationality = source.Nationality;
+            party.CountryOfResidence = source.CountryOfResidence;
+            party.OwnershipPercent = source.OwnershipPercent;
+            party.ControlBasis = source.ControlBasis;
+            party.AuthorityBasis = source.AuthorityBasis;
+            party.EffectiveFrom = source.EffectiveFrom;
+            party.EffectiveTo = source.EffectiveTo;
+            party.IsActive = source.IsActive;
+            party.Notes = source.Notes;
+            party.UpdatedAtUtc = DateTime.UtcNow;
+            party.UpdatedBy = user;
+            db.ClientRelatedPartyRoles.RemoveRange(party.Roles);
+            party.Roles.Clear();
+            foreach (var role in source.Roles.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                party.Roles.Add(new ClientRelatedPartyRole { RoleCode = role });
+            }
+            partyByKey[source.PartyKey] = party;
+        }
+        await db.SaveChangesAsync(cancellationToken);
 
         foreach (var source in package.InvestmentReconciliations)
         {
@@ -310,9 +430,26 @@ public sealed class ClientReviewTransferService(
                     ?? throw new InvalidOperationException($"Related investment for '{source.AccountNumber}' could not be matched uniquely on live.");
             }
             var oldSurrenderDate = account.SurrenderDate;
-            account.SurrenderDate = source.SurrenderDate;
-            account.UpdatedBy = user;
             var matchedValuations = ClientInvestmentStatusClassifier.MatchingValuations(account, client.FundValuations);
+            var outcomeError = InvestmentReconciliationService.ValidateOutcome(
+                source.Outcome,
+                source.SurrenderDate,
+                related is not null,
+                matchedValuations);
+            if (outcomeError is not null)
+            {
+                throw new InvalidOperationException($"Investment {account.AccountNumber}: {outcomeError}");
+            }
+            account.SurrenderDate = source.Outcome == ClientInvestmentReconciliationOutcomes.Current
+                ? null
+                : source.SurrenderDate;
+            var portableSnapshot = CalculatePortableInvestmentSnapshot(account, matchedValuations);
+            if (!string.Equals(source.PortableSnapshotSha256, portableSnapshot, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"Investment {account.AccountNumber}: the live account, transactions or valuations differ from the reviewed package snapshot.");
+            }
+            account.UpdatedBy = user;
             db.ClientInvestmentReconciliationReviews.Add(new ClientInvestmentReconciliationReview
             {
                 ClientId = client.Id,
@@ -355,14 +492,21 @@ public sealed class ClientReviewTransferService(
             .ToListAsync(cancellationToken);
         foreach (var item in existingEvidence)
         {
-            evidenceByKey[EvidenceKey(item.FileSha256, item.EvidenceType, item.FileName)] = item;
+            evidenceByKey[EvidenceKey(item)] = item;
         }
 
         foreach (var source in package.Evidence)
         {
-            var key = EvidenceKey(source.FileSha256, source.EvidenceType, source.FileName);
-            if (evidenceByKey.ContainsKey(key))
+            var key = source.EvidenceKey;
+            partyByKey.TryGetValue(source.RelatedPartyKey ?? "", out var screeningParty);
+            if (evidenceByKey.TryGetValue(key, out var existingItem))
             {
+                if (screeningParty is not null && existingItem.ClientRelatedPartyId != screeningParty.Id)
+                {
+                    existingItem.ClientRelatedPartyId = screeningParty.Id;
+                    existingItem.UpdatedAtUtc = DateTime.UtcNow;
+                    existingItem.UpdatedBy = user;
+                }
                 continue;
             }
 
@@ -389,6 +533,7 @@ public sealed class ClientReviewTransferService(
                 ScreeningSubjectName = source.ScreeningSubjectName,
                 ScreeningOutcome = source.ScreeningOutcome,
                 ScreeningRiskSignal = source.ScreeningRiskSignal,
+                ClientRelatedPartyId = screeningParty?.Id,
                 EscalationRequired = source.EscalationRequired,
                 Status = source.Status,
                 OwnershipStatus = source.OwnershipStatus,
@@ -411,6 +556,48 @@ public sealed class ClientReviewTransferService(
             evidenceByKey[key] = item;
         }
         await db.SaveChangesAsync(cancellationToken);
+
+        foreach (var sourceParty in package.RelatedParties)
+        {
+            var party = partyByKey[sourceParty.PartyKey];
+            foreach (var sourceLink in sourceParty.EvidenceLinks)
+            {
+                if (!evidenceByKey.TryGetValue(sourceLink.EvidenceKey, out var linkedEvidence))
+                {
+                    throw new InvalidOperationException(
+                        $"Related-party evidence '{sourceLink.EvidenceKey}' is missing from the package import.");
+                }
+                var exists = await db.ClientRelatedPartyEvidenceLinks.AnyAsync(link =>
+                    link.ClientRelatedPartyId == party.Id &&
+                    link.ClientEvidenceItemId == linkedEvidence.Id &&
+                    link.Purpose == sourceLink.Purpose, cancellationToken);
+                if (!exists)
+                {
+                    db.ClientRelatedPartyEvidenceLinks.Add(new ClientRelatedPartyEvidenceLink
+                    {
+                        ClientRelatedPartyId = party.Id,
+                        ClientEvidenceItemId = linkedEvidence.Id,
+                        Purpose = sourceLink.Purpose,
+                        LinkedAtUtc = sourceLink.LinkedAtUtc,
+                        LinkedBy = sourceLink.LinkedBy
+                    });
+                }
+            }
+        }
+        db.ComplianceAuditEvents.Add(new ComplianceAuditEvent
+        {
+            EntityType = nameof(ClientEntityProfile),
+            EntityId = client.EntityProfile?.Id ?? client.Id,
+            Action = "EntityOwnershipImported",
+            NewValueJson = JsonSerializer.Serialize(new
+            {
+                RelatedPartyCount = package.RelatedParties.Count,
+                EvidenceLinkCount = package.RelatedParties.Sum(party => party.EvidenceLinks.Count),
+                SourcePackageId = package.PackageId
+            }),
+            UserName = user,
+            Reason = reason
+        });
 
         foreach (var source in package.Exceptions)
         {
@@ -470,6 +657,32 @@ public sealed class ClientReviewTransferService(
                     AppliedBy = source.AppliedBy
                 });
             }
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        var readiness = await new ClientEvidenceReadinessService(db).LoadClientReadinessAsync(client.Id);
+        if (!readiness.IsReadyForRiskAssessment)
+        {
+            throw new InvalidOperationException(
+                $"The imported client review is not evidence-ready on live; {readiness.BlockedCount} blocking item(s) remain.");
+        }
+        var investmentReadiness = await new InvestmentReconciliationService(db)
+            .LoadClientReviewAsync(client.Id, cancellationToken);
+        if (!investmentReadiness.IsComplete)
+        {
+            var blockerCount = investmentReadiness.Accounts.Count(item => !item.IsVerified) +
+                               investmentReadiness.UnmatchedIssues.Count;
+            throw new InvalidOperationException(
+                $"The imported investment reconciliation is incomplete on live; {blockerCount} item(s) remain.");
+        }
+        var blockingVerificationCount = await db.ClientVerificationItems.CountAsync(item =>
+            item.ClientId == client.Id &&
+            item.Status == ClientVerificationStatuses.Pending &&
+            item.IsBlocking, cancellationToken);
+        if (blockingVerificationCount > 0)
+        {
+            throw new InvalidOperationException(
+                $"The imported client review has {blockingVerificationCount} blocking verification item(s) on live.");
         }
 
         var assessment = new ClientRiskAssessment
@@ -581,17 +794,31 @@ public sealed class ClientReviewTransferService(
         string exportedBy,
         string reason)
     {
+        var partyKeys = client.RelatedParties.ToDictionary(
+            party => party.Id,
+            party => $"party:{party.Id}");
+        var relatedPartyEvidenceIds = client.RelatedParties
+            .SelectMany(party => party.EvidenceLinks)
+            .Select(link => link.ClientEvidenceItemId)
+            .ToHashSet();
         var evidence = client.EvidenceItems
             .Where(item =>
                 item.VerifiedDate.HasValue &&
                 item.Status == ClientEvidenceStatuses.Verified &&
                 item.OwnershipStatus == ClientEvidenceOwnershipStatuses.Confirmed &&
-                item.SelectionStatus == ClientEvidenceSelectionStatuses.Current)
+                (item.SelectionStatus == ClientEvidenceSelectionStatuses.Current ||
+                 item.ClientRelatedPartyId.HasValue ||
+                 relatedPartyEvidenceIds.Contains(item.Id) ||
+                 item.EvidenceType is "PepPip" or "SanctionsTfs" or "AdverseInformation"))
             .OrderBy(item => item.EvidenceType)
             .ThenBy(item => item.FileName)
             .Select(item => new ClientReviewEvidencePackage
             {
-                EvidenceKey = EvidenceKey(item.FileSha256, item.EvidenceType, item.FileName),
+                EvidenceKey = EvidenceKey(item),
+                RelatedPartyKey = item.ClientRelatedPartyId.HasValue &&
+                    partyKeys.TryGetValue(item.ClientRelatedPartyId.Value, out var partyKey)
+                        ? partyKey
+                        : null,
                 RequirementEvidenceType = item.Requirement?.EvidenceType,
                 RequirementTitle = item.Requirement?.Title,
                 EvidenceType = item.EvidenceType,
@@ -643,11 +870,59 @@ public sealed class ClientReviewTransferService(
                 KanaanId = client.KanaanId,
                 DisplayName = client.DisplayName,
                 ClientCategory = client.ClientCategory,
+                ClientCategorySource = client.ClientCategorySource,
+                ClientCategoryReason = client.ClientCategoryReason,
+                ClientCategoryUpdatedAtUtc = client.ClientCategoryUpdatedAtUtc,
+                ClientCategoryUpdatedBy = client.ClientCategoryUpdatedBy,
                 LifecycleStatus = client.LifecycleStatus,
                 LifecycleReason = client.LifecycleReason,
                 LifecycleReviewedAtUtc = client.LifecycleReviewedAtUtc,
                 LifecycleReviewedBy = client.LifecycleReviewedBy
             },
+            EntityProfile = client.EntityProfile is null ? null : new ClientReviewEntityProfilePackage
+            {
+                LegalForm = client.EntityProfile.LegalForm,
+                RegistrationNumber = client.EntityProfile.RegistrationNumber,
+                RegistrationCountry = client.EntityProfile.RegistrationCountry,
+                EstablishmentDate = client.EntityProfile.EstablishmentDate,
+                NatureOfBusinessOrPurpose = client.EntityProfile.NatureOfBusinessOrPurpose,
+                OwnershipReviewStatus = client.EntityProfile.OwnershipReviewStatus,
+                ControlConclusion = client.EntityProfile.ControlConclusion,
+                ControlConclusionReason = client.EntityProfile.ControlConclusionReason,
+                OwnershipReviewedAtUtc = client.EntityProfile.OwnershipReviewedAtUtc,
+                OwnershipReviewedBy = client.EntityProfile.OwnershipReviewedBy,
+                NextOwnershipReviewDate = client.EntityProfile.NextOwnershipReviewDate
+            },
+            RelatedParties = client.RelatedParties
+                .OrderBy(party => party.Id)
+                .Select(party => new ClientReviewRelatedPartyPackage
+                {
+                    PartyKey = partyKeys[party.Id],
+                    PartyType = party.PartyType,
+                    DisplayName = party.DisplayName,
+                    SouthAfricanIdNumber = party.SouthAfricanIdNumber,
+                    PassportNumber = party.PassportNumber,
+                    PassportCountry = party.PassportCountry,
+                    RegistrationNumber = party.RegistrationNumber,
+                    BirthDate = party.BirthDate,
+                    Nationality = party.Nationality,
+                    CountryOfResidence = party.CountryOfResidence,
+                    OwnershipPercent = party.OwnershipPercent,
+                    ControlBasis = party.ControlBasis,
+                    AuthorityBasis = party.AuthorityBasis,
+                    EffectiveFrom = party.EffectiveFrom,
+                    EffectiveTo = party.EffectiveTo,
+                    IsActive = party.IsActive,
+                    Notes = party.Notes,
+                    Roles = party.Roles.Select(role => role.RoleCode).OrderBy(role => role).ToList(),
+                    EvidenceLinks = party.EvidenceLinks.Select(link => new ClientReviewRelatedPartyEvidenceLinkPackage
+                    {
+                        EvidenceKey = EvidenceKey(link.EvidenceItem),
+                        Purpose = link.Purpose,
+                        LinkedAtUtc = link.LinkedAtUtc,
+                        LinkedBy = link.LinkedBy
+                    }).ToList()
+                }).ToList(),
             Evidence = evidence,
             Exceptions = client.EvidenceExceptions
                 .Where(item => item.IsActive)
@@ -710,6 +985,9 @@ public sealed class ClientReviewTransferService(
                         Administrator = entry.Account.Administrator,
                         Outcome = entry.Review.Outcome,
                         SurrenderDate = entry.Account.SurrenderDate,
+                        PortableSnapshotSha256 = CalculatePortableInvestmentSnapshot(
+                            entry.Account,
+                            ClientInvestmentStatusClassifier.MatchingValuations(entry.Account, client.FundValuations)),
                         RelatedLegacyInvestmentAccountId = related?.LegacyInvestmentAccountId,
                         RelatedAccountNumber = related?.AccountNumber,
                         RelatedAdministrator = related?.Administrator,
@@ -756,10 +1034,7 @@ public sealed class ClientReviewTransferService(
                         OptionCode = item.SelectedOption!.Code,
                         EvidenceKey = item.EvidenceItem is null
                             ? null
-                            : EvidenceKey(
-                                item.EvidenceItem.FileSha256,
-                                item.EvidenceItem.EvidenceType,
-                                item.EvidenceItem.FileName),
+                            : EvidenceKey(item.EvidenceItem),
                         Score = item.Score,
                         WeightedScore = item.WeightedScore,
                         Explanation = item.Explanation,
@@ -781,16 +1056,26 @@ public sealed class ClientReviewTransferService(
         ClientReviewClientPackage source,
         CancellationToken cancellationToken)
     {
-        var matches = await db.Clients.AsNoTracking()
-            .Where(item =>
-                (source.LegacyClientId.HasValue && item.LegacyClientId == source.LegacyClientId) ||
-                (!string.IsNullOrWhiteSpace(source.KanaanId) && item.KanaanId == source.KanaanId))
-            .ToListAsync(cancellationToken);
-        if (matches.Count != 1)
+        Client? match;
+        if (source.LegacyClientId.HasValue)
         {
-            return null;
+            match = await db.Clients.AsNoTracking().SingleOrDefaultAsync(
+                item => item.LegacyClientId == source.LegacyClientId.Value,
+                cancellationToken);
         }
-        var match = matches[0];
+        else if (!string.IsNullOrWhiteSpace(source.KanaanId))
+        {
+            var matches = await db.Clients.AsNoTracking()
+                .Where(item => item.KanaanId == source.KanaanId)
+                .Take(2)
+                .ToListAsync(cancellationToken);
+            match = matches.Count == 1 ? matches[0] : null;
+        }
+        else
+        {
+            match = null;
+        }
+        if (match is null) return null;
         if (source.LegacyClientId.HasValue && match.LegacyClientId != source.LegacyClientId ||
             !string.IsNullOrWhiteSpace(source.KanaanId) &&
             !string.Equals(match.KanaanId, source.KanaanId, StringComparison.OrdinalIgnoreCase))
@@ -816,6 +1101,18 @@ public sealed class ClientReviewTransferService(
                 package.Assessment is null)
             {
                 throw new ValidationException("The package payload is incomplete.");
+            }
+            package.RelatedParties ??= [];
+            package.Evidence ??= [];
+            package.Exceptions ??= [];
+            package.VerificationItems ??= [];
+            package.InvestmentReconciliations ??= [];
+            package.Assessment.Responses ??= [];
+            package.Assessment.Approvals ??= [];
+            foreach (var party in package.RelatedParties)
+            {
+                party.Roles ??= [];
+                party.EvidenceLinks ??= [];
             }
             return package;
         }
@@ -931,6 +1228,165 @@ public sealed class ClientReviewTransferService(
             environment.ContentRootPath, "..", "..", "backups", "client-review-packages"));
     }
 
+    private static void ValidatePackageStructure(ClientReviewPackage package, ICollection<string> conflicts)
+    {
+        if (package.Client.ClientCategory is not (ClientCategories.NaturalPerson or
+            ClientCategories.LegalPerson or ClientCategories.Trust or ClientCategories.Other))
+        {
+            conflicts.Add($"Client category '{package.Client.ClientCategory}' is not supported.");
+        }
+
+        var partyKeys = package.RelatedParties.Select(party => party.PartyKey).ToList();
+        if (partyKeys.Any(string.IsNullOrWhiteSpace) ||
+            partyKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count() != partyKeys.Count)
+        {
+            conflicts.Add("Related-party keys are missing or duplicated in the package.");
+        }
+        var partyKeySet = partyKeys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var evidenceKeys = package.Evidence.Select(item => item.EvidenceKey).ToList();
+        if (evidenceKeys.Any(string.IsNullOrWhiteSpace) ||
+            evidenceKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count() != evidenceKeys.Count)
+        {
+            conflicts.Add("Evidence keys are missing or duplicated in the package.");
+        }
+        var evidenceKeySet = evidenceKeys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (package.Client.ClientCategory is ClientCategories.Trust or ClientCategories.LegalPerson &&
+            package.EntityProfile is null)
+        {
+            conflicts.Add("The entity ownership profile is missing from the package.");
+        }
+        foreach (var party in package.RelatedParties)
+        {
+            if (!ClientRelatedPartyTypes.All.Contains(party.PartyType))
+            {
+                conflicts.Add($"Related party '{party.DisplayName}' has an invalid type.");
+            }
+            if (party.Roles.Any(role => !ClientRelatedPartyRoles.All.Contains(role)))
+            {
+                conflicts.Add($"Related party '{party.DisplayName}' has an invalid role.");
+            }
+            foreach (var link in party.EvidenceLinks)
+            {
+                if (!evidenceKeySet.Contains(link.EvidenceKey))
+                {
+                    conflicts.Add($"Related-party evidence for '{party.DisplayName}' is missing from the package.");
+                }
+                if (!ClientRelatedPartyEvidencePurposes.All.Contains(link.Purpose))
+                {
+                    conflicts.Add($"Related-party evidence for '{party.DisplayName}' has an invalid purpose.");
+                }
+            }
+        }
+        foreach (var item in package.Evidence.Where(item => !string.IsNullOrWhiteSpace(item.RelatedPartyKey)))
+        {
+            if (!partyKeySet.Contains(item.RelatedPartyKey!))
+            {
+                conflicts.Add($"Evidence '{item.Title}' refers to a related party that is missing from the package.");
+            }
+        }
+        foreach (var response in package.Assessment.Responses.Where(response => !string.IsNullOrWhiteSpace(response.EvidenceKey)))
+        {
+            if (!evidenceKeySet.Contains(response.EvidenceKey!))
+            {
+                conflicts.Add($"Risk factor '{response.FactorCode}' refers to evidence that is missing from the package.");
+            }
+        }
+        foreach (var investment in package.InvestmentReconciliations)
+        {
+            if (investment.PortableSnapshotSha256.Length != 64 ||
+                investment.PortableSnapshotSha256.Any(character => !Uri.IsHexDigit(character)))
+            {
+                conflicts.Add($"Investment '{investment.AccountNumber}' has an invalid portable review snapshot.");
+            }
+        }
+    }
+
+    private static ClientRelatedParty? MatchRelatedParty(
+        IEnumerable<ClientRelatedParty> parties,
+        ClientReviewRelatedPartyPackage source)
+    {
+        var list = parties.ToList();
+        List<ClientRelatedParty> matches;
+        if (!string.IsNullOrWhiteSpace(source.SouthAfricanIdNumber))
+        {
+            matches = list.Where(party => party.SouthAfricanIdNumber == source.SouthAfricanIdNumber).ToList();
+        }
+        else if (!string.IsNullOrWhiteSpace(source.PassportNumber))
+        {
+            matches = list.Where(party =>
+                string.Equals(party.PassportNumber, source.PassportNumber, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(party.PassportCountry, source.PassportCountry, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+        else if (!string.IsNullOrWhiteSpace(source.RegistrationNumber))
+        {
+            matches = list.Where(party =>
+                string.Equals(party.RegistrationNumber, source.RegistrationNumber, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+        else
+        {
+            matches = list.Where(party =>
+                party.PartyType == source.PartyType &&
+                string.Equals(party.DisplayName, source.DisplayName, StringComparison.OrdinalIgnoreCase) &&
+                party.BirthDate == source.BirthDate).ToList();
+        }
+        return matches.Count switch
+        {
+            0 => null,
+            1 => matches[0],
+            _ => throw new InvalidOperationException($"Related party '{source.DisplayName}' could not be matched uniquely on live.")
+        };
+    }
+
+    private static string CalculatePortableInvestmentSnapshot(
+        ClientInvestmentAccount account,
+        IEnumerable<ClientFundValuation> valuations)
+    {
+        var payload = JsonSerializer.Serialize(new
+        {
+            account.LegacyInvestmentAccountId,
+            account.InvestmentDate,
+            account.SurrenderDate,
+            account.Administrator,
+            account.AccountNumber,
+            account.ProductName,
+            account.ProductType,
+            account.FundName,
+            Transactions = account.Transactions.Where(item => !item.IsDeleted)
+                .OrderBy(item => item.LegacyInvestmentHistoryId)
+                .ThenBy(item => item.TransactionDate)
+                .ThenBy(item => item.Description)
+                .Select(item => new
+                {
+                    item.LegacyInvestmentHistoryId,
+                    item.TransactionDate,
+                    item.Description,
+                    item.ExchangeRate,
+                    item.InvestmentAmountForeign,
+                    item.InvestmentAmountZar,
+                    item.WithdrawalAmountForeign,
+                    item.WithdrawalAmountZar,
+                    item.BalanceForeign,
+                    item.BalanceZar
+                }),
+            Valuations = valuations
+                .OrderBy(item => item.LegacyFundId)
+                .ThenBy(item => item.ValuationDate)
+                .ThenBy(item => item.FundName)
+                .Select(item => new
+                {
+                    item.LegacyFundId,
+                    item.ValuationDate,
+                    item.AmountZar,
+                    item.AmountForeign,
+                    item.InvestmentUniqueNumber,
+                    item.Administrator,
+                    item.FundName
+                })
+        });
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))).ToLowerInvariant();
+    }
+
     private static ClientEvidenceRequirement? MatchRequirement(
         IEnumerable<ClientEvidenceRequirement> requirements,
         string clientCategory,
@@ -962,6 +1418,7 @@ public sealed class ClientReviewTransferService(
         package.Client.DisplayName,
         EvidenceCount = package.Evidence.Count,
         ExceptionCount = package.Exceptions.Count,
+        RelatedPartyCount = package.RelatedParties.Count,
         InvestmentReconciliationCount = package.InvestmentReconciliations.Count,
         package.Assessment.MethodologyName,
         package.Assessment.MethodologyVersionLabel,
@@ -970,10 +1427,34 @@ public sealed class ClientReviewTransferService(
         package.Assessment.EffectiveDate
     };
 
-    private static string EvidenceKey(string? hash, string evidenceType, string? fileName) =>
-        !string.IsNullOrWhiteSpace(hash)
-            ? $"sha256:{hash.Trim().ToLowerInvariant()}"
-            : $"meta:{evidenceType.Trim().ToLowerInvariant()}:{fileName?.Trim().ToLowerInvariant()}";
+    private static string EvidenceKey(ClientEvidenceItem item) =>
+        EvidenceKey(item.FileSha256, item.EvidenceType, item.FileName, item.Title,
+            item.ScreeningSubjectType, item.ScreeningSubjectName, item.ScreeningReviewDate);
+
+    private static string EvidenceKey(
+        string? hash,
+        string evidenceType,
+        string? fileName,
+        string? title,
+        string? screeningSubjectType,
+        string? screeningSubjectName,
+        DateOnly? screeningReviewDate)
+    {
+        if (!string.IsNullOrWhiteSpace(hash))
+        {
+            return $"sha256:{hash.Trim().ToLowerInvariant()}";
+        }
+        var metadata = string.Join("|", new[]
+        {
+            evidenceType.Trim().ToLowerInvariant(),
+            fileName?.Trim().ToLowerInvariant() ?? "",
+            title?.Trim().ToLowerInvariant() ?? "",
+            screeningSubjectType?.Trim().ToLowerInvariant() ?? "",
+            screeningSubjectName?.Trim().ToLowerInvariant() ?? "",
+            screeningReviewDate?.ToString("yyyy-MM-dd") ?? ""
+        });
+        return $"meta:{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(metadata))).ToLowerInvariant()}";
+    }
 
     private static ClientInvestmentAccount? MatchInvestmentAccount(
         IEnumerable<ClientInvestmentAccount> accounts,
@@ -1063,6 +1544,8 @@ public sealed class ClientReviewPackage
     public string ExportReason { get; set; } = "";
     public string SourceEnvironment { get; set; } = "";
     public ClientReviewClientPackage Client { get; set; } = new();
+    public ClientReviewEntityProfilePackage? EntityProfile { get; set; }
+    public List<ClientReviewRelatedPartyPackage> RelatedParties { get; set; } = [];
     public List<ClientReviewEvidencePackage> Evidence { get; set; } = [];
     public List<ClientReviewExceptionPackage> Exceptions { get; set; } = [];
     public List<ClientReviewVerificationPackage> VerificationItems { get; set; } = [];
@@ -1076,15 +1559,66 @@ public sealed class ClientReviewClientPackage
     public string? KanaanId { get; set; }
     public string DisplayName { get; set; } = "";
     public string ClientCategory { get; set; } = "";
+    public string ClientCategorySource { get; set; } = ClientCategorySources.Unknown;
+    public string? ClientCategoryReason { get; set; }
+    public DateTime? ClientCategoryUpdatedAtUtc { get; set; }
+    public string? ClientCategoryUpdatedBy { get; set; }
     public string LifecycleStatus { get; set; } = "";
     public string? LifecycleReason { get; set; }
     public DateTime? LifecycleReviewedAtUtc { get; set; }
     public string? LifecycleReviewedBy { get; set; }
 }
 
+public sealed class ClientReviewEntityProfilePackage
+{
+    public string? LegalForm { get; set; }
+    public string? RegistrationNumber { get; set; }
+    public string? RegistrationCountry { get; set; }
+    public DateOnly? EstablishmentDate { get; set; }
+    public string? NatureOfBusinessOrPurpose { get; set; }
+    public string OwnershipReviewStatus { get; set; } = ClientOwnershipReviewStatuses.Draft;
+    public string? ControlConclusion { get; set; }
+    public string? ControlConclusionReason { get; set; }
+    public DateTime? OwnershipReviewedAtUtc { get; set; }
+    public string? OwnershipReviewedBy { get; set; }
+    public DateOnly? NextOwnershipReviewDate { get; set; }
+}
+
+public sealed class ClientReviewRelatedPartyPackage
+{
+    public string PartyKey { get; set; } = "";
+    public string PartyType { get; set; } = ClientRelatedPartyTypes.NaturalPerson;
+    public string DisplayName { get; set; } = "";
+    public string? SouthAfricanIdNumber { get; set; }
+    public string? PassportNumber { get; set; }
+    public string? PassportCountry { get; set; }
+    public string? RegistrationNumber { get; set; }
+    public DateOnly? BirthDate { get; set; }
+    public string? Nationality { get; set; }
+    public string? CountryOfResidence { get; set; }
+    public decimal? OwnershipPercent { get; set; }
+    public string? ControlBasis { get; set; }
+    public string? AuthorityBasis { get; set; }
+    public DateOnly? EffectiveFrom { get; set; }
+    public DateOnly? EffectiveTo { get; set; }
+    public bool IsActive { get; set; }
+    public string? Notes { get; set; }
+    public List<string> Roles { get; set; } = [];
+    public List<ClientReviewRelatedPartyEvidenceLinkPackage> EvidenceLinks { get; set; } = [];
+}
+
+public sealed class ClientReviewRelatedPartyEvidenceLinkPackage
+{
+    public string EvidenceKey { get; set; } = "";
+    public string Purpose { get; set; } = ClientRelatedPartyEvidencePurposes.Other;
+    public DateTime LinkedAtUtc { get; set; }
+    public string? LinkedBy { get; set; }
+}
+
 public sealed class ClientReviewEvidencePackage
 {
     public string EvidenceKey { get; set; } = "";
+    public string? RelatedPartyKey { get; set; }
     public string? RequirementEvidenceType { get; set; }
     public string? RequirementTitle { get; set; }
     public string EvidenceType { get; set; } = "";
@@ -1159,6 +1693,7 @@ public sealed class ClientReviewInvestmentReconciliationPackage
     public string? Administrator { get; set; }
     public string Outcome { get; set; } = "";
     public DateOnly? SurrenderDate { get; set; }
+    public string PortableSnapshotSha256 { get; set; } = "";
     public int? RelatedLegacyInvestmentAccountId { get; set; }
     public string? RelatedAccountNumber { get; set; }
     public string? RelatedAdministrator { get; set; }

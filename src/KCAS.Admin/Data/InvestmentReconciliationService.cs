@@ -197,11 +197,6 @@ public sealed class InvestmentReconciliationService(ApplicationDbContext db)
         var user = Require(userName, "A signed-in reviewer is required.");
         var reason = Require(request.Reason, "A verification reason is required.");
         var evidenceReference = Require(request.EvidenceReference, "An evidence or data reference is required.");
-        if (!ClientInvestmentReconciliationOutcomes.All.Contains(request.Outcome))
-        {
-            throw new ValidationException("Select a valid reconciliation outcome.");
-        }
-
         var account = await db.ClientInvestmentAccounts
             .Include(item => item.Transactions)
             .SingleOrDefaultAsync(item => item.Id == accountId && item.ClientId == clientId, cancellationToken)
@@ -223,18 +218,14 @@ public sealed class InvestmentReconciliationService(ApplicationDbContext db)
                 ?? throw new ValidationException("The related investment account was not found for this client.");
         }
 
-        if (request.Outcome == ClientInvestmentReconciliationOutcomes.Current && matchedValuations.Count == 0)
+        var outcomeError = ValidateOutcome(
+            request.Outcome,
+            request.SurrenderDate,
+            relatedAccount is not null,
+            matchedValuations);
+        if (outcomeError is not null)
         {
-            throw new ValidationException("A current account requires a matching current valuation.");
-        }
-        if (request.Outcome is ClientInvestmentReconciliationOutcomes.HistoricalSurrendered or
-            ClientInvestmentReconciliationOutcomes.Transferred && request.SurrenderDate is null)
-        {
-            throw new ValidationException("A surrendered or transferred investment requires an effective date.");
-        }
-        if (request.Outcome == ClientInvestmentReconciliationOutcomes.DuplicateContinuation && relatedAccount is null)
-        {
-            throw new ValidationException("A duplicate or continuation must identify the related account.");
+            throw new ValidationException(outcomeError);
         }
 
         var oldValue = new
@@ -517,6 +508,42 @@ public sealed class InvestmentReconciliationService(ApplicationDbContext db)
             })
         });
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))).ToLowerInvariant();
+    }
+
+    internal static string? ValidateOutcome(
+        string outcome,
+        DateOnly? surrenderDate,
+        bool hasRelatedAccount,
+        IReadOnlyCollection<ClientFundValuation> matchedValuations)
+    {
+        if (!ClientInvestmentReconciliationOutcomes.All.Contains(outcome))
+        {
+            return "Select a valid reconciliation outcome.";
+        }
+
+        var hasCurrentValue = matchedValuations.Any(value =>
+            value.AmountZar.HasValue || value.AmountForeign.HasValue);
+        if (outcome == ClientInvestmentReconciliationOutcomes.Current && !hasCurrentValue)
+        {
+            return "A current account requires a matching current valuation.";
+        }
+        if (outcome is ClientInvestmentReconciliationOutcomes.HistoricalSurrendered or
+            ClientInvestmentReconciliationOutcomes.Transferred)
+        {
+            if (surrenderDate is null)
+            {
+                return "A surrendered or transferred investment requires an effective date.";
+            }
+            if (hasCurrentValue)
+            {
+                return "A surrendered or transferred investment cannot be verified while a matching current valuation remains.";
+            }
+        }
+        if (outcome == ClientInvestmentReconciliationOutcomes.DuplicateContinuation && !hasRelatedAccount)
+        {
+            return "A duplicate or continuation must identify the related account.";
+        }
+        return null;
     }
 
     private async Task<List<ClientInvestmentLinkedClientModel>> LoadLinkedClientsAsync(
