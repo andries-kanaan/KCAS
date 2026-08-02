@@ -475,7 +475,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
             .Where(item => item.Status == ClientEvidenceRequirementStatuses.Active &&
                 (item.ClientCategory == "All" || item.ClientCategory == ClientCategories.NaturalPerson))
             .ToListAsync();
-        var familyId = $"FAMILY-{Guid.NewGuid():N}";
+        var familyId = $"FAMILY-{Guid.NewGuid():N}"[..30];
         var legacySeed = Random.Shared.Next(2_000_000, 2_100_000);
         var first = ReviewedNaturalPerson(
             legacySeed, familyId, "Family Transfer One", 'c', methodology, requirements);
