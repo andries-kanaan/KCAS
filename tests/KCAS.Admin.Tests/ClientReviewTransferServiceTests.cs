@@ -71,7 +71,24 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
             SelectionStatus = ClientEvidenceSelectionStatuses.Current
         };
         client.EvidenceItems.Add(evidence);
-        foreach (var requirement in applicableRequirements.Where(item => item.EvidenceType != "Identity"))
+        var sharedDocumentRequirement = applicableRequirements.First(item => item.EvidenceType != "Identity");
+        var sharedDocumentEvidence = new ClientEvidenceItem
+        {
+            Client = client,
+            ClientEvidenceRequirementId = sharedDocumentRequirement.Id,
+            EvidenceType = sharedDocumentRequirement.EvidenceType,
+            Title = $"Verified {sharedDocumentRequirement.Title}",
+            FileName = "identity.pdf",
+            FileSha256 = evidence.FileSha256,
+            VerifiedDate = today,
+            Reviewer = "reviewer@example.test",
+            Status = ClientEvidenceStatuses.Verified,
+            OwnershipStatus = ClientEvidenceOwnershipStatuses.Confirmed,
+            SelectionStatus = ClientEvidenceSelectionStatuses.Current
+        };
+        client.EvidenceItems.Add(sharedDocumentEvidence);
+        foreach (var requirement in applicableRequirements.Where(item =>
+                     item.EvidenceType != "Identity" && item.Id != sharedDocumentRequirement.Id))
         {
             client.EvidenceExceptions.Add(new ClientEvidenceException
             {
@@ -131,7 +148,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         var encrypted = await File.ReadAllBytesAsync(export.StoragePath);
 
         db.ClientRiskAssessments.Remove(assessment);
-        db.ClientEvidenceItems.Remove(evidence);
+        db.ClientEvidenceItems.RemoveRange(evidence, sharedDocumentEvidence);
         db.ClientEvidenceExceptions.RemoveRange(client.EvidenceExceptions);
         client.LifecycleStatus = ClientLifecycleStatuses.Unreviewed;
         client.LifecycleReason = null;
@@ -144,7 +161,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         var preview = await service.PreviewAsync(encrypted, passphrase);
         Assert.True(preview.CanApply);
         Assert.Equal(client.Id, preview.TargetClientId);
-        Assert.Equal(1, preview.NewEvidenceCount);
+        Assert.Equal(2, preview.NewEvidenceCount);
         Assert.Equal(@"E:\Userdata\Kanaan Trust\Clients\TRANSFER PILOT", preview.TargetClientFolder);
         Assert.Contains(preview.Warnings, warning =>
             warning.Contains("Client folder will map", StringComparison.OrdinalIgnoreCase));
@@ -159,9 +176,9 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         var restoredClient = await db.Clients.AsNoTracking().SingleAsync(item => item.Id == client.Id);
         Assert.Equal(ClientLifecycleStatuses.Current, restoredClient.LifecycleStatus);
         Assert.Equal(@"E:\Userdata\Kanaan Trust\Clients\TRANSFER PILOT", restoredClient.ClientFolder);
-        Assert.Single(await db.ClientEvidenceItems.AsNoTracking()
-            .Where(item => item.ClientId == client.Id).ToListAsync());
-        Assert.Equal(applicableRequirements.Count - 1, await db.ClientEvidenceExceptions.AsNoTracking()
+        Assert.Equal(2, await db.ClientEvidenceItems.AsNoTracking()
+            .CountAsync(item => item.ClientId == client.Id));
+        Assert.Equal(applicableRequirements.Count - 2, await db.ClientEvidenceExceptions.AsNoTracking()
             .CountAsync(item => item.ClientId == client.Id));
         Assert.Single(await db.ClientRiskAssessments.AsNoTracking()
             .Where(item => item.ClientId == client.Id).ToListAsync());

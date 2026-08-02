@@ -558,6 +558,7 @@ public sealed class ClientReviewTransferService(
         foreach (var item in existingEvidence)
         {
             evidenceByKey[EvidenceKey(item)] = item;
+            evidenceByKey.TryAdd(LegacyEvidenceKey(item), item);
         }
 
         foreach (var source in package.Evidence)
@@ -1555,10 +1556,6 @@ public sealed class ClientReviewTransferService(
         string? screeningSubjectName,
         DateOnly? screeningReviewDate)
     {
-        if (!string.IsNullOrWhiteSpace(hash))
-        {
-            return $"sha256:{hash.Trim().ToLowerInvariant()}";
-        }
         var metadata = string.Join("|", new[]
         {
             evidenceType.Trim().ToLowerInvariant(),
@@ -1568,8 +1565,16 @@ public sealed class ClientReviewTransferService(
             screeningSubjectName?.Trim().ToLowerInvariant() ?? "",
             screeningReviewDate?.ToString("yyyy-MM-dd") ?? ""
         });
-        return $"meta:{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(metadata))).ToLowerInvariant()}";
+        var metadataHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(metadata))).ToLowerInvariant();
+        return string.IsNullOrWhiteSpace(hash)
+            ? $"meta:{metadataHash}"
+            : $"sha256:{hash.Trim().ToLowerInvariant()}:meta:{metadataHash}";
     }
+
+    private static string LegacyEvidenceKey(ClientEvidenceItem item) =>
+        string.IsNullOrWhiteSpace(item.FileSha256)
+            ? EvidenceKey(item)
+            : $"sha256:{item.FileSha256.Trim().ToLowerInvariant()}";
 
     private static ClientInvestmentAccount? MatchInvestmentAccount(
         IEnumerable<ClientInvestmentAccount> accounts,
