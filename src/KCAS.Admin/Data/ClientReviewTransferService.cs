@@ -21,15 +21,21 @@ public sealed class ClientReviewTransferService(
 
     public string StorageRoot => ResolveStorageRoot();
 
-    public async Task<List<InvestmentSummaryClientOption>> LoadClientOptionsAsync(
+    public async Task<List<ClientReviewTransferClientOption>> LoadClientOptionsAsync(
         CancellationToken cancellationToken = default) =>
         await db.Clients.AsNoTracking()
             .Where(client => client.RiskAssessments.Any(assessment =>
                 assessment.Status == ClientRiskAssessmentStatuses.Finalised ||
                 assessment.Status == ClientRiskAssessmentStatuses.Approved))
             .OrderBy(client => client.DisplayName)
-            .Select(client => new InvestmentSummaryClientOption(
-                client.Id, client.KanaanId, client.DisplayName, client.LifecycleStatus))
+            .ThenBy(client => client.SurnameOrEntityName)
+            .Select(client => new ClientReviewTransferClientOption(
+                client.Id,
+                client.LegacyClientId,
+                client.KanaanId,
+                client.DisplayName,
+                client.SurnameOrEntityName,
+                client.LifecycleStatus))
             .ToListAsync(cancellationToken);
 
     public async Task<ClientReviewExportResult> ExportAsync(
@@ -41,6 +47,56 @@ public sealed class ClientReviewTransferService(
     {
         ValidatePassphrase(passphrase);
         var user = Require(userName, "A signed-in exporter is required.");
+        reason = Require(reason, "An export reason is required.");
+
+        var payload = await CreateEmbeddedExportAsync(
+            clientId, passphrase, user, reason, cancellationToken);
+        var directory = Path.Combine(StorageRoot, "outgoing");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, payload.FileName);
+        await File.WriteAllBytesAsync(path, payload.EncryptedPackage, cancellationToken);
+
+        var record = new ClientReviewTransferRecord
+        {
+            PackageId = payload.Package.PackageId,
+            Direction = ClientReviewTransferDirections.Outgoing,
+            ContentSha256 = payload.ContentSha256,
+            ClientId = clientId,
+            Status = ClientReviewTransferStatuses.Exported,
+            FileName = payload.FileName,
+            StoragePath = path,
+            SummaryJson = JsonSerializer.Serialize(PackageSummary(payload.Package), JsonOptions)
+        };
+        db.ClientReviewTransferRecords.Add(record);
+        await db.SaveChangesAsync(cancellationToken);
+        db.ComplianceAuditEvents.Add(new ComplianceAuditEvent
+        {
+            EntityType = nameof(ClientReviewTransferRecord),
+            EntityId = checked((int)record.Id),
+            Action = "ClientReviewPackageExported",
+            NewValueJson = record.SummaryJson,
+            UserName = user,
+            Reason = reason
+        });
+        await db.SaveChangesAsync(cancellationToken);
+
+        return new ClientReviewExportResult(
+            payload.Package.PackageId,
+            payload.FileName,
+            path,
+            payload.EncryptedPackage.Length,
+            payload.ContentSha256);
+    }
+
+    internal async Task<ClientReviewEmbeddedExport> CreateEmbeddedExportAsync(
+        int clientId,
+        string passphrase,
+        string user,
+        string reason,
+        CancellationToken cancellationToken = default)
+    {
+        ValidatePassphrase(passphrase);
+        user = Require(user, "A signed-in exporter is required.");
         reason = Require(reason, "An export reason is required.");
 
         var client = await db.Clients.AsNoTracking()
@@ -88,37 +144,7 @@ public sealed class ClientReviewTransferService(
             client.SurnameOrEntityName,
             package.CreatedAtUtc,
             package.PackageId);
-        var directory = Path.Combine(StorageRoot, "outgoing");
-        Directory.CreateDirectory(directory);
-        var path = Path.Combine(directory, fileName);
-        await File.WriteAllBytesAsync(path, encrypted, cancellationToken);
-
-        var record = new ClientReviewTransferRecord
-        {
-            PackageId = package.PackageId,
-            Direction = ClientReviewTransferDirections.Outgoing,
-            ContentSha256 = contentSha256,
-            ClientId = client.Id,
-            Status = ClientReviewTransferStatuses.Exported,
-            FileName = fileName,
-            StoragePath = path,
-            SummaryJson = JsonSerializer.Serialize(PackageSummary(package), JsonOptions)
-        };
-        db.ClientReviewTransferRecords.Add(record);
-        await db.SaveChangesAsync(cancellationToken);
-        db.ComplianceAuditEvents.Add(new ComplianceAuditEvent
-        {
-            EntityType = nameof(ClientReviewTransferRecord),
-            EntityId = checked((int)record.Id),
-            Action = "ClientReviewPackageExported",
-            NewValueJson = record.SummaryJson,
-            UserName = user,
-            Reason = reason
-        });
-        await db.SaveChangesAsync(cancellationToken);
-
-        return new ClientReviewExportResult(
-            package.PackageId, fileName, path, encrypted.Length, contentSha256);
+        return new ClientReviewEmbeddedExport(package, fileName, encrypted, contentSha256);
     }
 
     public async Task<ClientReviewTransferPreview> PreviewAsync(
@@ -1775,6 +1801,20 @@ public sealed record ClientReviewExportResult(
     string FileName,
     string StoragePath,
     long SizeBytes,
+    string ContentSha256);
+
+public sealed record ClientReviewTransferClientOption(
+    int Id,
+    int? LegacyClientId,
+    string? KanaanId,
+    string DisplayName,
+    string? SurnameOrEntityName,
+    string LifecycleStatus);
+
+internal sealed record ClientReviewEmbeddedExport(
+    ClientReviewPackage Package,
+    string FileName,
+    byte[] EncryptedPackage,
     string ContentSha256);
 
 public sealed record ClientReviewImportResult(

@@ -4,6 +4,7 @@
 @using System.ComponentModel.DataAnnotations
 @using KCAS.Admin.Data
 @inject ClientReviewTransferService TransferService
+@inject ClientReviewFamilyTransferService FamilyTransferService
 @inject AuthenticationStateProvider AuthenticationStateProvider
 
 <PageTitle>Client review transfers</PageTitle>
@@ -32,19 +33,52 @@
         <p class="text-muted">Only a finalised or approved client assessment can be exported.</p>
         <label>
             Client
-            <select class="form-select" @bind="exportClientId">
-                <option value="0">Select a completed client</option>
+            <input class="form-control" type="text" name="kcas-review-client-combobox"
+                   role="combobox" list="review-transfer-client-options"
+                   autocomplete="off" data-1p-ignore="true" data-lpignore="true"
+                   value="@clientSearch" @oninput="ClientSearchChangedAsync"
+                   placeholder="Start typing a name, surname, Kanaan ID or legacy ID" />
+            <datalist id="review-transfer-client-options">
                 @foreach (var client in clients)
                 {
-                    <option value="@client.Id">@client.DisplayName (@Display(client.KanaanId))</option>
+                    <option value="@ClientOptionValue(client)"></option>
                 }
-            </select>
+            </datalist>
         </label>
+        @if (!string.IsNullOrWhiteSpace(clientSearch))
+        {
+            <button class="btn btn-link btn-sm px-0" type="button" @onclick="ClearClientSearch">
+                Clear client search
+            </button>
+        }
         @if (requestedClientSelected)
         {
             <div class="text-muted small">
                 The completed client assessment was selected from the client risk page.
             </div>
+        }
+        @if (selectedFamily is { Members.Count: > 1 })
+        {
+            <div class="form-check my-2">
+                <input class="form-check-input" type="checkbox" id="family-export" @bind="exportAsFamily" />
+                <label class="form-check-label" for="family-export">
+                    Export all reviewed clients linked to Kanaan ID @selectedFamily.KanaanId as one family bundle
+                </label>
+            </div>
+            @if (exportAsFamily)
+            {
+                <div class="border rounded p-2 mb-2">
+                    @foreach (var member in selectedFamily.Members)
+                    {
+                        <div>
+                            <strong>@member.DisplayName</strong>
+                            <span class="badge @(member.HasCompletedAssessment ? "text-bg-success" : "text-bg-warning")">
+                                @(member.HasCompletedAssessment ? "Included" : "Excluded — assessment incomplete")
+                            </span>
+                        </div>
+                    }
+                </div>
+            }
         }
         <label>Export reason <textarea class="form-control" @bind="exportReason"></textarea></label>
         <label>
@@ -55,7 +89,8 @@
             Confirm passphrase
             <input class="form-control" type="password" autocomplete="new-password" @bind="exportPassphraseConfirm" />
         </label>
-        <button class="btn btn-primary" type="button" @onclick="ExportAsync" disabled="@isBusy">
+        <button class="btn btn-primary" type="button" @onclick="ExportAsync"
+                disabled="@(isBusy || exportClientId == 0)">
             Create encrypted package
         </button>
 
@@ -71,6 +106,19 @@
                 </a>
             </div>
         }
+        @if (familyExportResult is not null)
+        {
+            <div class="alert alert-success mt-3">
+                <strong>@familyExportResult.FileName</strong>
+                <div>@familyExportResult.MemberCount client packages; @familyExportResult.ExcludedMemberCount excluded</div>
+                <div>@familyExportResult.SizeBytes.ToString("N0") bytes</div>
+                <div class="small text-muted">@familyExportResult.StoragePath</div>
+                <a class="btn btn-outline-primary btn-sm mt-2"
+                   href="@($"/compliance/review-transfers/{familyExportResult.PackageId}/download")">
+                    Download family bundle
+                </a>
+            </div>
+        }
     </article>
 
     <article class="detail-panel form-panel">
@@ -78,7 +126,7 @@
         <p class="text-muted">Preview never changes data. Apply is blocked if client, methodology or assessment data conflicts.</p>
         <label>
             Encrypted package
-            <InputFile class="form-control" OnChange="SelectImportFileAsync" accept=".kcas-review" />
+            <InputFile class="form-control" OnChange="SelectImportFileAsync" accept=".kcas-review,.kcas-family-review" />
         </label>
         @if (!string.IsNullOrWhiteSpace(importFileName))
         {
@@ -86,7 +134,7 @@
         }
         <label>
             Package passphrase
-            <input class="form-control" type="password" autocomplete="current-password" @bind="importPassphrase" />
+            <input class="form-control" type="password" autocomplete="new-password" @bind="importPassphrase" />
         </label>
         <button class="btn btn-outline-primary" type="button" @onclick="PreviewAsync"
                 disabled="@(isBusy || importBytes is null)">
@@ -135,6 +183,86 @@
                 }
             </div>
         }
+        @if (familyPreview is not null)
+        {
+            <div class="mt-3">
+                <h3>Family preview — Kanaan ID @familyPreview.Bundle.KanaanId</h3>
+                <p>
+                    @familyPreview.Bundle.Members.Count packaged client(s)
+                    @if (familyPreview.Bundle.ExcludedMembers.Count > 0)
+                    {
+                        <span>; @familyPreview.Bundle.ExcludedMembers.Count linked client(s) excluded at export</span>
+                    }
+                </p>
+                @foreach (var conflict in familyPreview.Conflicts)
+                {
+                    <div class="alert alert-danger">@conflict</div>
+                }
+                @foreach (var excluded in familyPreview.Bundle.ExcludedMembers)
+                {
+                    <div class="alert alert-warning">
+                        <strong>@excluded.DisplayName</strong> was not packaged: @excluded.Reason
+                    </div>
+                }
+                @foreach (var member in familyPreview.Members)
+                {
+                    var memberPreview = member.ClientPreview;
+                    <div class="border rounded p-3 mb-2">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox"
+                                   id="@($"family-member-{member.Manifest.PackageId}")"
+                                   checked="@selectedFamilyPackageIds.Contains(member.Manifest.PackageId)"
+                                   disabled="@(!member.CanApply)"
+                                   @onchange="args => ToggleFamilyMember(member.Manifest.PackageId, args)" />
+                            <label class="form-check-label" for="@($"family-member-{member.Manifest.PackageId}")">
+                                <strong>@member.Manifest.DisplayName</strong>
+                                @if (memberPreview is not null)
+                                {
+                                    <span> — live match: @Display(memberPreview.TargetClientName)</span>
+                                }
+                            </label>
+                        </div>
+                        @if (memberPreview is not null)
+                        {
+                            <div class="small text-muted">
+                                @memberPreview.Package.Assessment.FinalRating assessment;
+                                @memberPreview.NewEvidenceCount new evidence item(s);
+                                @memberPreview.Package.InvestmentReconciliations.Count investment decision(s)
+                            </div>
+                            @foreach (var warning in memberPreview.Warnings)
+                            {
+                                <div class="alert alert-warning py-1 mt-1 mb-0">@warning</div>
+                            }
+                        }
+                        @foreach (var conflict in member.AllConflicts)
+                        {
+                            <div class="alert alert-danger py-1 mt-1 mb-0">@conflict</div>
+                        }
+                        @if (memberPreview?.AlreadyApplied == true)
+                        {
+                            <div class="alert alert-info py-1 mt-1 mb-0">Already applied; it will not be imported again.</div>
+                        }
+                    </div>
+                }
+                @if (familyPreview.CanApply)
+                {
+                    <label>
+                        Live import approval reason
+                        <textarea class="form-control" @bind="importReason"></textarea>
+                    </label>
+                    <div class="form-check my-2">
+                        <input class="form-check-input" type="checkbox" id="confirm-family-transfer" @bind="confirmApply" />
+                        <label class="form-check-label" for="confirm-family-transfer">
+                            I confirm the selected family members match the correct live clients.
+                        </label>
+                    </div>
+                    <button class="btn btn-primary" type="button" @onclick="ApplyAsync"
+                            disabled="@(isBusy || !confirmApply || selectedFamilyPackageIds.Count == 0)">
+                        Apply selected family packages
+                    </button>
+                }
+            </div>
+        }
     </article>
 </section>
 
@@ -142,18 +270,24 @@
     [SupplyParameterFromQuery(Name = "clientId")]
     private int? requestedClientId { get; set; }
 
-    private List<InvestmentSummaryClientOption> clients = [];
+    private List<ClientReviewTransferClientOption> clients = [];
     private int exportClientId;
+    private string? clientSearch;
     private bool requestedClientSelected;
+    private bool exportAsFamily;
+    private ClientReviewFamilyGroup? selectedFamily;
     private string? exportReason;
     private string? exportPassphrase;
     private string? exportPassphraseConfirm;
     private ClientReviewExportResult? exportResult;
+    private ClientReviewFamilyExportResult? familyExportResult;
     private byte[]? importBytes;
     private string? importFileName;
     private string? importPassphrase;
     private string? importReason;
     private ClientReviewTransferPreview? preview;
+    private ClientReviewFamilyPreview? familyPreview;
+    private HashSet<string> selectedFamilyPackageIds = new(StringComparer.OrdinalIgnoreCase);
     private bool confirmApply;
     private bool isBusy;
     private bool isError;
@@ -167,7 +301,52 @@
         if (requestedClientSelected)
         {
             exportClientId = requestedClientId!.Value;
+            clientSearch = ClientOptionValue(clients.Single(client => client.Id == exportClientId));
+            await LoadSelectedFamilyAsync();
         }
+    }
+
+    private async Task LoadSelectedFamilyAsync()
+    {
+        exportAsFamily = false;
+        selectedFamily = exportClientId > 0
+            ? await FamilyTransferService.LoadFamilyAsync(exportClientId)
+            : null;
+    }
+
+    private async Task ClientSearchChangedAsync(ChangeEventArgs args)
+    {
+        clientSearch = args.Value?.ToString();
+        var selected = clients.FirstOrDefault(client =>
+            string.Equals(ClientOptionValue(client), clientSearch, StringComparison.OrdinalIgnoreCase));
+        var selectedId = selected?.Id ?? 0;
+        if (selectedId != exportClientId)
+        {
+            exportClientId = selectedId;
+            await LoadSelectedFamilyAsync();
+        }
+    }
+
+    private async Task ClearClientSearch()
+    {
+        clientSearch = null;
+        exportClientId = 0;
+        await LoadSelectedFamilyAsync();
+    }
+
+    private static string ClientOptionValue(ClientReviewTransferClientOption client) =>
+        $"{FullClientName(client)} — Kanaan {Display(client.KanaanId)} — Legacy {Display(client.LegacyClientId?.ToString())}";
+
+    private static string FullClientName(ClientReviewTransferClientOption client)
+    {
+        var displayName = client.DisplayName.Trim();
+        var surname = client.SurnameOrEntityName?.Trim();
+        if (string.IsNullOrWhiteSpace(surname) ||
+            string.Equals(displayName, surname, StringComparison.OrdinalIgnoreCase))
+        {
+            return displayName;
+        }
+        return $"{displayName} {surname}";
     }
 
     private async Task ExportAsync()
@@ -179,9 +358,21 @@
         }
         await RunAsync(async user =>
         {
-            exportResult = await TransferService.ExportAsync(
-                exportClientId, exportPassphrase ?? "", user, exportReason ?? "");
-            statusMessage = "Encrypted client review package created.";
+            exportResult = null;
+            familyExportResult = null;
+            if (exportAsFamily)
+            {
+                familyExportResult = await FamilyTransferService.ExportAsync(
+                    exportClientId, exportPassphrase ?? "", user, exportReason ?? "");
+                statusMessage =
+                    $"Encrypted family bundle created with {familyExportResult.MemberCount} client packages.";
+            }
+            else
+            {
+                exportResult = await TransferService.ExportAsync(
+                    exportClientId, exportPassphrase ?? "", user, exportReason ?? "");
+                statusMessage = "Encrypted client review package created.";
+            }
         });
     }
 
@@ -189,16 +380,18 @@
     {
         statusMessage = null;
         preview = null;
+        familyPreview = null;
+        selectedFamilyPackageIds.Clear();
         confirmApply = false;
         var file = args.File;
         importFileName = file.Name;
-        if (file.Size > 25 * 1024 * 1024)
+        if (file.Size > 100 * 1024 * 1024)
         {
             importBytes = null;
-            ShowError("The package exceeds the 25 MB safety limit.");
+            ShowError("The package exceeds the 100 MB family-bundle safety limit.");
             return;
         }
-        await using var stream = file.OpenReadStream(25 * 1024 * 1024);
+        await using var stream = file.OpenReadStream(100 * 1024 * 1024);
         using var memory = new MemoryStream();
         await stream.CopyToAsync(memory);
         importBytes = memory.ToArray();
@@ -208,12 +401,28 @@
     {
         await RunAsync(async _ =>
         {
-            preview = await TransferService.PreviewAsync(importBytes!, importPassphrase ?? "");
+            preview = null;
+            familyPreview = null;
+            selectedFamilyPackageIds.Clear();
+            if (ClientReviewFamilyTransferService.IsFamilyBundle(importBytes!))
+            {
+                familyPreview = await FamilyTransferService.PreviewAsync(
+                    importBytes!, importPassphrase ?? "");
+                foreach (var member in familyPreview.Members.Where(member => member.CanApply))
+                {
+                    selectedFamilyPackageIds.Add(member.Manifest.PackageId);
+                }
+            }
+            else
+            {
+                preview = await TransferService.PreviewAsync(importBytes!, importPassphrase ?? "");
+            }
             confirmApply = false;
-            statusMessage = preview.CanApply
+            var canApply = familyPreview?.CanApply ?? preview?.CanApply ?? false;
+            statusMessage = canApply
                 ? "Preview complete. Review the live match before applying."
                 : "Preview complete with conflicts.";
-            isError = !preview.CanApply;
+            isError = !canApply;
         });
     }
 
@@ -221,14 +430,41 @@
     {
         await RunAsync(async user =>
         {
-            var result = await TransferService.ApplyAsync(
-                importBytes!, importPassphrase ?? "", user, importReason ?? "");
-            statusMessage =
-                $"Package applied to {result.ClientDisplayName}. Assessment #{result.AssessmentId} " +
-                $"and {result.EvidenceImported} evidence item(s) imported.";
+            if (familyPreview is not null)
+            {
+                var result = await FamilyTransferService.ApplyAsync(
+                    importBytes!, importPassphrase ?? "", user, importReason ?? "",
+                    selectedFamilyPackageIds);
+                var applied = result.Members.Count(member => member.Status == "Applied");
+                var notApplied = result.Members.Count - applied;
+                statusMessage = $"Family bundle applied: {applied} client(s) imported" +
+                    (notApplied > 0 ? $"; {notApplied} not applied." : ".");
+            }
+            else
+            {
+                var result = await TransferService.ApplyAsync(
+                    importBytes!, importPassphrase ?? "", user, importReason ?? "");
+                statusMessage =
+                    $"Package applied to {result.ClientDisplayName}. Assessment #{result.AssessmentId} " +
+                    $"and {result.EvidenceImported} evidence item(s) imported.";
+            }
             preview = null;
+            familyPreview = null;
+            selectedFamilyPackageIds.Clear();
             confirmApply = false;
         });
+    }
+
+    private void ToggleFamilyMember(string packageId, ChangeEventArgs args)
+    {
+        if (args.Value is true)
+        {
+            selectedFamilyPackageIds.Add(packageId);
+        }
+        else
+        {
+            selectedFamilyPackageIds.Remove(packageId);
+        }
     }
 
     private async Task RunAsync(Func<string?, Task> action)
