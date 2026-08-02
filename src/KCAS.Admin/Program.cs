@@ -75,6 +75,7 @@ builder.Services.AddScoped<ClientOperationsService>();
 builder.Services.AddScoped<InvestmentSummaryService>();
 builder.Services.AddScoped<InvestmentReconciliationService>();
 builder.Services.AddScoped<ClientReviewTransferService>();
+builder.Services.AddScoped<ClientReviewFamilyTransferService>();
 builder.Services.AddScoped<ComplianceService>();
 builder.Services.AddScoped<ClientEvidenceReadinessService>();
 builder.Services.AddScoped<ClientEntityOwnershipService>();

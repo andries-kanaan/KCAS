@@ -457,6 +457,104 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
     }
 
     [Fact]
+    public async Task Family_bundle_exports_linked_clients_and_imports_each_member_independently()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var familyTransfers = scope.ServiceProvider.GetRequiredService<ClientReviewFamilyTransferService>();
+        var readiness = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        await readiness.LoadDashboardAsync();
+        var methodology = await db.RiskMethodologyVersions
+            .Include(item => item.Factors).ThenInclude(item => item.Options)
+            .Where(item => item.Status == ComplianceStatuses.Review ||
+                           item.Status == ComplianceStatuses.Approved ||
+                           item.Status == ComplianceStatuses.Active)
+            .OrderByDescending(item => item.Id)
+            .FirstAsync();
+        var requirements = await db.ClientEvidenceRequirements
+            .Where(item => item.Status == ClientEvidenceRequirementStatuses.Active &&
+                (item.ClientCategory == "All" || item.ClientCategory == ClientCategories.NaturalPerson))
+            .ToListAsync();
+        var familyId = $"FAMILY-{Guid.NewGuid():N}";
+        var legacySeed = Random.Shared.Next(2_000_000, 2_100_000);
+        var first = ReviewedNaturalPerson(
+            legacySeed, familyId, "Family Transfer One", 'c', methodology, requirements);
+        var second = ReviewedNaturalPerson(
+            legacySeed + 1, familyId, "Family Transfer Two", 'd', methodology, requirements);
+        var excluded = new Client
+        {
+            LegacyClientId = legacySeed + 2,
+            KanaanId = familyId,
+            DisplayName = "Family Transfer Pending",
+            SurnameOrEntityName = "Family Transfer Pending",
+            ClientCategory = ClientCategories.NaturalPerson,
+            LifecycleStatus = ClientLifecycleStatuses.Unreviewed
+        };
+        db.Clients.AddRange(first, second, excluded);
+        await db.SaveChangesAsync();
+
+        var family = await familyTransfers.LoadFamilyAsync(first.Id);
+        Assert.NotNull(family);
+        Assert.Equal(3, family.Members.Count);
+        Assert.Equal(2, family.Members.Count(member => member.HasCompletedAssessment));
+
+        const string passphrase = "family-transfer-passphrase";
+        var exported = await familyTransfers.ExportAsync(
+            first.Id, passphrase, "reviewer@example.test", "Transfer reviewed household together.");
+        Assert.Equal(2, exported.MemberCount);
+        Assert.Equal(1, exported.ExcludedMemberCount);
+        Assert.EndsWith(".kcas-family-review", exported.FileName);
+        var encrypted = await File.ReadAllBytesAsync(exported.StoragePath);
+        Assert.True(ClientReviewFamilyTransferService.IsFamilyBundle(encrypted));
+
+        var clientIds = new[] { first.Id, second.Id };
+        db.ClientRiskAssessments.RemoveRange(await db.ClientRiskAssessments
+            .Where(item => clientIds.Contains(item.ClientId)).ToListAsync());
+        db.ClientEvidenceItems.RemoveRange(await db.ClientEvidenceItems
+            .Where(item => clientIds.Contains(item.ClientId)).ToListAsync());
+        db.ClientEvidenceExceptions.RemoveRange(await db.ClientEvidenceExceptions
+            .Where(item => clientIds.Contains(item.ClientId)).ToListAsync());
+        first.LifecycleStatus = ClientLifecycleStatuses.Unreviewed;
+        second.LifecycleStatus = ClientLifecycleStatuses.Unreviewed;
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        var preview = await familyTransfers.PreviewAsync(encrypted, passphrase);
+        Assert.True(preview.CanApply);
+        Assert.Equal(2, preview.Members.Count);
+        Assert.All(preview.Members, member => Assert.True(member.CanApply));
+        Assert.Equal(clientIds.Order(), preview.Members
+            .Select(member => member.ClientPreview!.TargetClientId!.Value).Order());
+        var firstPackageId = preview.Members.Single(member =>
+            member.ClientPreview!.TargetClientId == first.Id).Manifest.PackageId;
+        var secondPackageId = preview.Members.Single(member =>
+            member.ClientPreview!.TargetClientId == second.Id).Manifest.PackageId;
+
+        var firstImport = await familyTransfers.ApplyAsync(
+            encrypted, passphrase, "live-importer@example.test", "Approve first household member.",
+            [firstPackageId]);
+        Assert.Single(firstImport.Members);
+        Assert.Equal("Applied", firstImport.Members[0].Status);
+        Assert.True(await db.ClientRiskAssessments.AnyAsync(item => item.ClientId == first.Id));
+        Assert.False(await db.ClientRiskAssessments.AnyAsync(item => item.ClientId == second.Id));
+
+        var resumedPreview = await familyTransfers.PreviewAsync(encrypted, passphrase);
+        Assert.True(resumedPreview.CanApply);
+        Assert.True(resumedPreview.Members.Single(member =>
+            member.Manifest.PackageId == firstPackageId).ClientPreview!.AlreadyApplied);
+        Assert.True(resumedPreview.Members.Single(member =>
+            member.Manifest.PackageId == secondPackageId).CanApply);
+
+        var secondImport = await familyTransfers.ApplyAsync(
+            encrypted, passphrase, "live-importer@example.test", "Approve remaining household member.",
+            [secondPackageId]);
+        Assert.Equal("Applied", Assert.Single(secondImport.Members).Status);
+        var completedPreview = await familyTransfers.PreviewAsync(encrypted, passphrase);
+        Assert.False(completedPreview.CanApply);
+        Assert.All(completedPreview.Members, member => Assert.True(member.ClientPreview!.AlreadyApplied));
+    }
+
+    [Fact]
     public async Task Preview_rejects_wrong_passphrase()
     {
         using var scope = factory.Services.CreateScope();
@@ -466,5 +564,86 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
             () => service.PreviewAsync([1, 2, 3, 4], "wrong-passphrase-long"));
 
         Assert.Contains("package", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static Client ReviewedNaturalPerson(
+        int legacyClientId,
+        string kanaanId,
+        string displayName,
+        char evidenceHashCharacter,
+        RiskMethodologyVersion methodology,
+        IReadOnlyCollection<ClientEvidenceRequirement> requirements)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var client = new Client
+        {
+            LegacyClientId = legacyClientId,
+            KanaanId = kanaanId,
+            DisplayName = displayName,
+            SurnameOrEntityName = displayName,
+            ClientCategory = ClientCategories.NaturalPerson,
+            LifecycleStatus = ClientLifecycleStatuses.Current,
+            LifecycleReason = "Current relationship confirmed for family transfer test.",
+            LifecycleReviewedAtUtc = DateTime.UtcNow,
+            LifecycleReviewedBy = "reviewer@example.test",
+            IsActive = true
+        };
+        var identityRequirement = requirements.Single(item => item.EvidenceType == "Identity");
+        var evidence = new ClientEvidenceItem
+        {
+            Client = client,
+            ClientEvidenceRequirementId = identityRequirement.Id,
+            EvidenceType = "Identity",
+            Title = $"Verified identity for {displayName}",
+            FileName = $"identity-{legacyClientId}.pdf",
+            FileSha256 = new string(evidenceHashCharacter, 64),
+            VerifiedDate = today,
+            Reviewer = "reviewer@example.test",
+            Status = ClientEvidenceStatuses.Verified,
+            OwnershipStatus = ClientEvidenceOwnershipStatuses.Confirmed,
+            SelectionStatus = ClientEvidenceSelectionStatuses.Current
+        };
+        client.EvidenceItems.Add(evidence);
+        foreach (var requirement in requirements.Where(item => item.Id != identityRequirement.Id))
+        {
+            client.EvidenceExceptions.Add(new ClientEvidenceException
+            {
+                Requirement = requirement,
+                Reason = $"Family transfer test exception for {requirement.EvidenceType}.",
+                ApprovedBy = "reviewer@example.test",
+                ReviewDate = today.AddYears(3)
+            });
+        }
+        client.RiskAssessments.Add(new ClientRiskAssessment
+        {
+            MethodologyVersion = methodology,
+            Status = ClientRiskAssessmentStatuses.Finalised,
+            CalculatedScore = methodology.Factors.Sum(factor => factor.Options.First().Score),
+            CalculatedRating = "Standard",
+            FinalRating = "Standard",
+            StandardControlsApplied = true,
+            Narrative = $"Completed assessment for {displayName}.",
+            EffectiveDate = today,
+            NextReviewDate = today.AddYears(3),
+            PreparedBy = "reviewer@example.test",
+            FinalisedBy = "reviewer@example.test",
+            FinalisedAtUtc = DateTime.UtcNow,
+            Responses = methodology.Factors.Select(factor =>
+            {
+                var option = factor.Options.OrderBy(item => item.SortOrder).First();
+                return new ClientRiskAssessmentResponse
+                {
+                    FactorDefinition = factor,
+                    SelectedOption = option,
+                    EvidenceItem = evidence,
+                    Score = option.Score,
+                    WeightedScore = option.Score * factor.Weight,
+                    Explanation = $"Confirmed {factor.Name}.",
+                    ConfirmedAtUtc = DateTime.UtcNow,
+                    ConfirmedBy = "reviewer@example.test"
+                };
+            }).ToList()
+        });
+        return client;
     }
 }
