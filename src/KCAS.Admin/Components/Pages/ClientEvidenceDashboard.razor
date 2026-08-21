@@ -140,6 +140,7 @@ else
                             <button type="button" class="sort-header" @onclick='() => SetClientSort("surname")'>Surname @SortGlyph("surname")</button>
                         </th>
                         <th>Category</th>
+                        <th>Lifecycle</th>
                         <th>Client folder</th>
                         <th>Linked</th>
                         <th>Verified</th>
@@ -152,7 +153,25 @@ else
                     <tr class="filter-row">
                         <th><input class="form-control form-control-sm" @bind="clientSearch" @bind:event="oninput" placeholder="Search client" /></th>
                         <th><input class="form-control form-control-sm" @bind="surnameSearch" @bind:event="oninput" placeholder="Search surname" /></th>
-                        <th colspan="9"></th>
+                        <th></th>
+                        <th>
+                            <select class="form-select form-select-sm" @bind="lifecycleFilter">
+                                <option value="">All lifecycle</option>
+                                @foreach (var status in ClientLifecycleStatuses.All.OrderBy(value => value))
+                                {
+                                    <option value="@status">@status</option>
+                                }
+                            </select>
+                        </th>
+                        <th colspan="6"></th>
+                        <th>
+                            <select class="form-select form-select-sm" @bind="readinessFilter">
+                                <option value="">All readiness</option>
+                                <option value="@ReadinessReady">Ready</option>
+                                <option value="@ReadinessNotReady">Not ready</option>
+                            </select>
+                        </th>
+                        <th></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -162,6 +181,7 @@ else
                             <td>@client.DisplayName</td>
                             <td>@Display(client.SurnameOrEntityName)</td>
                             <td>@client.ClientCategory</td>
+                            <td>@client.LifecycleStatus</td>
                             <td>
                                 @if (canManage)
                                 {
@@ -331,6 +351,8 @@ else
 
 @code {
     private const string RootUpdateReason = "Configure live client evidence root.";
+    private const string ReadinessReady = "Ready";
+    private const string ReadinessNotReady = "NotReady";
 
     private ClientEvidenceDashboardModel? model;
     private string? scanRootPath;
@@ -340,6 +362,8 @@ else
     private string? statusMessage;
     private string? clientSearch;
     private string? surnameSearch;
+    private string? lifecycleFilter;
+    private string? readinessFilter;
     private string clientSortColumn = "client";
     private bool isClientSortDescending;
     private bool isFolderPickerOpen;
@@ -383,6 +407,20 @@ else
             if (!string.IsNullOrWhiteSpace(surnameSearch))
             {
                 clients = clients.Where(client => ContainsSearch(client.SurnameOrEntityName, surnameSearch));
+            }
+
+            if (!string.IsNullOrWhiteSpace(lifecycleFilter))
+            {
+                clients = clients.Where(client => string.Equals(client.LifecycleStatus, lifecycleFilter, StringComparison.Ordinal));
+            }
+
+            if (readinessFilter == ReadinessReady)
+            {
+                clients = clients.Where(client => client.IsReadyForRiskAssessment);
+            }
+            else if (readinessFilter == ReadinessNotReady)
+            {
+                clients = clients.Where(client => !client.IsReadyForRiskAssessment);
             }
 
             clients = clientSortColumn == "surname"

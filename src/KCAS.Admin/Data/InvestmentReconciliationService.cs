@@ -161,6 +161,7 @@ public sealed class InvestmentReconciliationService(ApplicationDbContext db)
             .ToList();
 
         var linkedClients = await LoadLinkedClientsAsync(client, cancellationToken);
+        var relatedAccountOptions = await LoadRelatedAccountOptionsAsync(client, cancellationToken);
         var unmatchedIssues = issues.Where(issue => issue.AccountIds.Count == 0).ToList();
         var requiresReview = accountRows.Count > 0 || client.FundValuations.Count > 0;
         var isComplete = !requiresReview ||
@@ -178,7 +179,8 @@ public sealed class InvestmentReconciliationService(ApplicationDbContext db)
             NeedsFollowUpCount = accountRows.Count(row => row.NeedsFollowUp),
             Accounts = accountRows,
             UnmatchedIssues = unmatchedIssues,
-            LinkedClients = linkedClients
+            LinkedClients = linkedClients,
+            RelatedAccountOptions = relatedAccountOptions
         };
     }
 
@@ -198,6 +200,7 @@ public sealed class InvestmentReconciliationService(ApplicationDbContext db)
         var reason = Require(request.Reason, "A verification reason is required.");
         var evidenceReference = Require(request.EvidenceReference, "An evidence or data reference is required.");
         var account = await db.ClientInvestmentAccounts
+            .Include(item => item.Client)
             .Include(item => item.Transactions)
             .SingleOrDefaultAsync(item => item.Id == accountId && item.ClientId == clientId, cancellationToken)
             ?? throw new KeyNotFoundException("Investment account not found.");
@@ -213,15 +216,21 @@ public sealed class InvestmentReconciliationService(ApplicationDbContext db)
             {
                 throw new ValidationException("A related account must be a different investment account.");
             }
-            relatedAccount = await db.ClientInvestmentAccounts.SingleOrDefaultAsync(item =>
-                item.Id == request.RelatedAccountId.Value && item.ClientId == clientId, cancellationToken)
-                ?? throw new ValidationException("The related investment account was not found for this client.");
+            relatedAccount = await db.ClientInvestmentAccounts
+                .Include(item => item.Client)
+                .SingleOrDefaultAsync(item => item.Id == request.RelatedAccountId.Value, cancellationToken)
+                ?? throw new ValidationException("The related investment account was not found.");
+            if (!CanRelateAccounts(account, relatedAccount))
+            {
+                throw new ValidationException("The related investment account must belong to this client or a linked household/shared-folder client.");
+            }
         }
 
         var outcomeError = ValidateOutcome(
             request.Outcome,
             request.SurrenderDate,
             relatedAccount is not null,
+            relatedAccount is not null && relatedAccount.ClientId != account.ClientId,
             matchedValuations);
         if (outcomeError is not null)
         {
@@ -238,9 +247,10 @@ public sealed class InvestmentReconciliationService(ApplicationDbContext db)
         {
             account.SurrenderDate = null;
         }
-        else if (request.Outcome is ClientInvestmentReconciliationOutcomes.HistoricalSurrendered or
-                 ClientInvestmentReconciliationOutcomes.Transferred or
-                 ClientInvestmentReconciliationOutcomes.DuplicateContinuation && request.SurrenderDate.HasValue)
+        else if ((request.Outcome is ClientInvestmentReconciliationOutcomes.HistoricalSurrendered or
+                  ClientInvestmentReconciliationOutcomes.Transferred or
+                  ClientInvestmentReconciliationOutcomes.DuplicateContinuation) &&
+                 request.SurrenderDate.HasValue)
         {
             account.SurrenderDate = request.SurrenderDate;
         }
@@ -514,6 +524,7 @@ public sealed class InvestmentReconciliationService(ApplicationDbContext db)
         string outcome,
         DateOnly? surrenderDate,
         bool hasRelatedAccount,
+        bool relatedAccountIsDifferentClient,
         IReadOnlyCollection<ClientFundValuation> matchedValuations)
     {
         if (!ClientInvestmentReconciliationOutcomes.All.Contains(outcome))
@@ -543,6 +554,17 @@ public sealed class InvestmentReconciliationService(ApplicationDbContext db)
         {
             return "A duplicate or continuation must identify the related account.";
         }
+        if (outcome == ClientInvestmentReconciliationOutcomes.WrongClientDuplicate)
+        {
+            if (!hasRelatedAccount)
+            {
+                return "A wrong-client duplicate must identify the correct client's related account.";
+            }
+            if (!relatedAccountIsDifferentClient)
+            {
+                return "A wrong-client duplicate must link to an account on a different client.";
+            }
+        }
         return null;
     }
 
@@ -564,6 +586,40 @@ public sealed class InvestmentReconciliationService(ApplicationDbContext db)
                 item.InvestmentAccounts.Count,
                 item.FundValuations.Where(value => value.AmountZar.HasValue).Sum(value => value.AmountZar) ?? 0))
             .ToListAsync(cancellationToken);
+    }
+
+    private async Task<List<ClientInvestmentRelatedAccountOptionModel>> LoadRelatedAccountOptionsAsync(
+        Client client,
+        CancellationToken cancellationToken)
+    {
+        var normalizedFolder = string.IsNullOrWhiteSpace(client.ClientFolder) ? null : client.ClientFolder.Trim();
+        return await db.ClientInvestmentAccounts.AsNoTracking()
+            .Include(item => item.Client)
+            .Where(account =>
+                account.ClientId == client.Id ||
+                (!string.IsNullOrWhiteSpace(client.KanaanId) && account.Client.KanaanId == client.KanaanId) ||
+                (normalizedFolder != null && account.Client.ClientFolder == normalizedFolder))
+            .OrderBy(account => account.Client.DisplayName)
+            .ThenBy(account => account.AccountNumber)
+            .ThenBy(account => account.Id)
+            .Select(account => new ClientInvestmentRelatedAccountOptionModel(
+                account.Id,
+                account.ClientId,
+                account.Client.DisplayName,
+                account.Client.KanaanId,
+                account.AccountNumber,
+                account.Administrator,
+                account.FundName))
+            .ToListAsync(cancellationToken);
+    }
+
+    private static bool CanRelateAccounts(ClientInvestmentAccount account, ClientInvestmentAccount relatedAccount)
+    {
+        if (relatedAccount.ClientId == account.ClientId) return true;
+        return (!string.IsNullOrWhiteSpace(account.Client.KanaanId) &&
+                string.Equals(account.Client.KanaanId, relatedAccount.Client.KanaanId, StringComparison.OrdinalIgnoreCase)) ||
+               (!string.IsNullOrWhiteSpace(account.Client.ClientFolder) &&
+                string.Equals(account.Client.ClientFolder, relatedAccount.Client.ClientFolder, StringComparison.OrdinalIgnoreCase));
     }
 
     private static List<ClientInvestmentEvidenceCandidateModel> FindEvidence(
@@ -733,6 +789,7 @@ public sealed class ClientInvestmentReconciliationPageModel
     public List<ClientInvestmentReconciliationAccountModel> Accounts { get; init; } = [];
     public List<InvestmentReconciliationIssue> UnmatchedIssues { get; init; } = [];
     public List<ClientInvestmentLinkedClientModel> LinkedClients { get; init; } = [];
+    public List<ClientInvestmentRelatedAccountOptionModel> RelatedAccountOptions { get; init; } = [];
 }
 
 public sealed class ClientInvestmentReconciliationAccountModel
@@ -779,6 +836,15 @@ public sealed record ClientInvestmentLinkedClientModel(
     string LifecycleStatus,
     int InvestmentAccountCount,
     decimal CurrentValueZar);
+
+public sealed record ClientInvestmentRelatedAccountOptionModel(
+    int AccountId,
+    int ClientId,
+    string ClientDisplayName,
+    string? KanaanId,
+    string? AccountNumber,
+    string? Administrator,
+    string? FundName);
 
 public sealed class ClientInvestmentReconciliationReviewRequest
 {

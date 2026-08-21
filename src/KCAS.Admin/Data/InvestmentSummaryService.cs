@@ -40,14 +40,18 @@ public sealed class InvestmentSummaryService(ApplicationDbContext db)
         var clients = await clientsQuery
             .Include(client => client.InvestmentAccounts)
                 .ThenInclude(account => account.Transactions)
+            .Include(client => client.InvestmentReconciliationReviews)
             .Include(client => client.FundValuations)
             .AsSplitQuery()
             .ToListAsync(cancellationToken);
 
         var allRows = clients
-            .SelectMany(client => InvestmentSummaryCalculator
-                .BuildRows(client.InvestmentAccounts, client.FundValuations)
-                .Select(row => InvestmentSummaryRow.From(client, row, staleCutoff)))
+            .SelectMany(client =>
+            {
+                var rows = InvestmentSummaryCalculator.BuildRows(client.InvestmentAccounts, client.FundValuations);
+                ApplyLatestReviews(rows, client.InvestmentReconciliationReviews);
+                return rows.Select(row => InvestmentSummaryRow.From(client, row, staleCutoff));
+            })
             .ToList();
 
         var fundOptions = allRows
@@ -223,6 +227,36 @@ public sealed class InvestmentSummaryService(ApplicationDbContext db)
 
     private static bool Contains(string? value, string search) =>
         value?.Contains(search, StringComparison.OrdinalIgnoreCase) == true;
+
+    private static void ApplyLatestReviews(
+        IEnumerable<ClientFundSummaryRowModel> rows,
+        IEnumerable<ClientInvestmentReconciliationReview> reviews)
+    {
+        var latestReviews = reviews
+            .GroupBy(review => review.ClientInvestmentAccountId)
+            .ToDictionary(
+                group => group.Key,
+                group => group
+                    .OrderByDescending(review => review.ReviewedAtUtc)
+                    .ThenByDescending(review => review.Id)
+                    .First());
+
+        foreach (var row in rows)
+        {
+            if (!row.AccountId.HasValue ||
+                !latestReviews.TryGetValue(row.AccountId.Value, out var review))
+            {
+                continue;
+            }
+
+            var outcomeLabel = ClientInvestmentReconciliationOutcomes.Label(review.Outcome);
+            row.Source = $"Reconciliation review: {outcomeLabel}";
+            row.StatusReason = string.IsNullOrWhiteSpace(review.Reason)
+                ? outcomeLabel
+                : $"{outcomeLabel}: {review.Reason}";
+            row.NeedsStatusCorrection = review.Outcome == ClientInvestmentReconciliationOutcomes.NeedsFollowUp;
+        }
+    }
 
     private static decimal? Sum(IEnumerable<decimal?> values)
     {

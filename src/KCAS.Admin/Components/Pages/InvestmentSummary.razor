@@ -17,6 +17,10 @@
         {
             <a class="btn btn-outline-secondary" href="@($"/clients/{clientId.Value}#investments")">Back to client</a>
         }
+        @if (!string.IsNullOrWhiteSpace(FamilyInvestmentKanaanId))
+        {
+            <a class="btn btn-outline-secondary" href="@($"/investments/summary?kanaanId={Uri.EscapeDataString(FamilyInvestmentKanaanId)}")">Family investments</a>
+        }
         <AuthorizeView Policy="@KcasPermissions.InvestmentsManage">
             <Authorized>
                 <a class="btn btn-outline-secondary" href="/investments/reconciliation">Reconciliation</a>
@@ -266,22 +270,26 @@
         await LoadAsync();
     }
 
-    private void SelectClient(ChangeEventArgs args)
+    private async Task SelectClient(ChangeEventArgs args)
     {
         clientId = int.TryParse(args.Value?.ToString(), out var value) ? value : null;
         if (clientId.HasValue)
         {
             kanaanId = null;
         }
+
+        await LoadAsync();
     }
 
-    private void SelectKanaanId(ChangeEventArgs args)
+    private async Task SelectKanaanId(ChangeEventArgs args)
     {
         kanaanId = string.IsNullOrWhiteSpace(args.Value?.ToString()) ? null : args.Value!.ToString();
         if (!string.IsNullOrWhiteSpace(kanaanId))
         {
             clientId = null;
         }
+
+        await LoadAsync();
     }
 
     private async Task ResetFiltersAsync()
@@ -337,6 +345,11 @@
         SortColumn: sortColumn,
         SortDescending: sortDescending,
         StaleAfterDays: staleAfterDays);
+
+    private string? FamilyInvestmentKanaanId =>
+        !string.IsNullOrWhiteSpace(kanaanId)
+            ? kanaanId
+            : model.ClientOptions.FirstOrDefault(option => option.Id == clientId)?.KanaanId;
 
     private string ExportUrl
     {

@@ -145,6 +145,105 @@ public sealed class InvestmentReconciliationReviewServiceTests(KcasWebApplicatio
     }
 
     [Fact]
+    public async Task Wrong_client_duplicate_requires_related_account_on_linked_client()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = new InvestmentReconciliationService(db);
+        var source = new Client
+        {
+            LegacyClientId = 99831,
+            KanaanId = "RECON-HOUSE-1",
+            DisplayName = "Wrong Client Source",
+            SurnameOrEntityName = "Wrong Client Source",
+            ClientFolder = @"C:\Clients\Household",
+            InvestmentAccounts =
+            {
+                new ClientInvestmentAccount
+                {
+                    LegacyInvestmentAccountId = 99831,
+                    AccountNumber = "WRONG-1",
+                    Administrator = "Test Platform"
+                }
+            }
+        };
+        var linked = new Client
+        {
+            LegacyClientId = 99832,
+            KanaanId = "RECON-HOUSE-1",
+            DisplayName = "Correct Linked Client",
+            SurnameOrEntityName = "Correct Linked Client",
+            ClientFolder = @"C:\Clients\Household",
+            InvestmentAccounts =
+            {
+                new ClientInvestmentAccount
+                {
+                    LegacyInvestmentAccountId = 99832,
+                    AccountNumber = "WRONG-1",
+                    Administrator = "Test Platform"
+                }
+            }
+        };
+        var unrelated = new Client
+        {
+            LegacyClientId = 99833,
+            KanaanId = "RECON-OTHER",
+            DisplayName = "Unrelated Client",
+            SurnameOrEntityName = "Unrelated Client",
+            ClientFolder = @"C:\Clients\Other",
+            InvestmentAccounts =
+            {
+                new ClientInvestmentAccount
+                {
+                    LegacyInvestmentAccountId = 99833,
+                    AccountNumber = "WRONG-1",
+                    Administrator = "Test Platform"
+                }
+            }
+        };
+        db.Clients.AddRange(source, linked, unrelated);
+        await db.SaveChangesAsync();
+        var sourceAccount = source.InvestmentAccounts.Single();
+        var linkedAccount = linked.InvestmentAccounts.Single();
+        var unrelatedAccount = unrelated.InvestmentAccounts.Single();
+
+        await Assert.ThrowsAsync<System.ComponentModel.DataAnnotations.ValidationException>(() =>
+            service.ReviewAccountAsync(source.Id, sourceAccount.Id, new ClientInvestmentReconciliationReviewRequest
+            {
+                Outcome = ClientInvestmentReconciliationOutcomes.WrongClientDuplicate,
+                EvidenceReference = "Folder evidence",
+                Reason = "Account belongs to a different client."
+            }, "reviewer@example.test"));
+
+        await Assert.ThrowsAsync<System.ComponentModel.DataAnnotations.ValidationException>(() =>
+            service.ReviewAccountAsync(source.Id, sourceAccount.Id, new ClientInvestmentReconciliationReviewRequest
+            {
+                Outcome = ClientInvestmentReconciliationOutcomes.WrongClientDuplicate,
+                RelatedAccountId = unrelatedAccount.Id,
+                EvidenceReference = "Folder evidence",
+                Reason = "Account belongs to a different client."
+            }, "reviewer@example.test"));
+
+        await service.ReviewAccountAsync(source.Id, sourceAccount.Id, new ClientInvestmentReconciliationReviewRequest
+        {
+            Outcome = ClientInvestmentReconciliationOutcomes.WrongClientDuplicate,
+            RelatedAccountId = linkedAccount.Id,
+            EvidenceReference = "Folder evidence names the linked client",
+            Reason = "Imported account row belongs to the linked client."
+        }, "reviewer@example.test");
+
+        var verified = await service.LoadClientReviewAsync(source.Id);
+        Assert.True(verified.IsComplete);
+        var row = verified.Accounts.Single();
+        Assert.True(row.IsVerified);
+        Assert.Equal(ClientInvestmentReconciliationOutcomes.WrongClientDuplicate, row.ReviewOutcome);
+        Assert.Null(await db.ClientInvestmentAccounts
+            .Where(item => item.Id == sourceAccount.Id)
+            .Select(item => item.SurrenderDate)
+            .SingleAsync());
+    }
+
+    [Fact]
     public async Task Batch_verification_rolls_back_all_rows_when_one_proposal_is_invalid()
     {
         using var scope = factory.Services.CreateScope();

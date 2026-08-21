@@ -60,6 +60,73 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
     }
 
     [Fact]
+    public async Task Dashboard_exposes_client_lifecycle_for_filtering()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var kanaanId = $"LIFE-{Guid.NewGuid():N}"[..30];
+        var clientId = await CreateClientAsync(db, "Lifecycle Filter Client", kanaanId, @"z:\Kanaan Trust\Clients\Lifecycle Filter Client");
+        var client = await db.Clients.SingleAsync(item => item.Id == clientId);
+        client.LifecycleStatus = ClientLifecycleStatuses.Historical;
+        await db.SaveChangesAsync();
+
+        var dashboard = await service.LoadDashboardAsync();
+
+        var summary = dashboard.Clients.Single(item => item.ClientId == clientId);
+        Assert.Equal(ClientLifecycleStatuses.Historical, summary.LifecycleStatus);
+    }
+
+    [Fact]
+    public async Task Readiness_recommends_local_folder_when_saved_client_folder_is_unavailable()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var root = CreateTempRoot();
+        var correctFolder = Directory.CreateDirectory(Path.Combine(root, "ALPHA PRIMARY and PARTNER (Example Trust)"));
+        Directory.CreateDirectory(Path.Combine(root, "RELATED-ALPHA SECONDARY HOUSEHOLD"));
+
+        try
+        {
+            db.ClientEvidenceScanRoots.Add(new ClientEvidenceScanRoot
+            {
+                RootPath = root,
+                IsActive = true
+            });
+            var kanaanId = $"ALPHA-{Guid.NewGuid():N}"[..30];
+            var clientId = await CreateClientAsync(
+                db,
+                "Primary and Partner Alpha",
+                kanaanId,
+                @"z:\Kanaan Trust\Clients\Clients\Alpha and Partner Primary",
+                initials: "P and P",
+                fullName: "Primary Example and Partner",
+                surnameOrEntityName: "Alpha");
+            await CreateClientAsync(
+                db,
+                "Primary Example Alpha",
+                kanaanId,
+                @"z:\Kanaan Trust\Clients\Clients\Alpha Primary",
+                initials: "PE",
+                fullName: "Primary Example",
+                surnameOrEntityName: "Alpha");
+
+            var readiness = await service.LoadClientReadinessAsync(clientId);
+
+            Assert.False(readiness.ClientFolderExists);
+            Assert.Equal(root, readiness.ActiveScanRoot);
+            var recommendation = Assert.Single(readiness.FolderRecommendations);
+            Assert.Equal(correctFolder.FullName, recommendation.Path);
+            Assert.DoesNotContain(readiness.FolderRecommendations, item => item.FolderName.Contains("RELATED", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Requirement_matrix_varies_for_trust_clients()
     {
         using var scope = factory.Services.CreateScope();
@@ -202,17 +269,17 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
         using var scope = factory.Services.CreateScope();
         var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        var clientId = await CreateClientAsync(db, "Philip Nel", "354", @"z:\Kanaan Trust\Clients\Clients\Badenhorst PN", initials: "PN", fullName: "Philip Nel", surnameOrEntityName: "Badenhorst");
+        var clientId = await CreateClientAsync(db, "Example Client", "354", @"z:\Kanaan Trust\Clients\Clients\Example Client", initials: "EC", fullName: "Example Client", surnameOrEntityName: "Client");
         var root = CreateTempRoot();
-        await WriteFileAsync(root, "BADENHORST PN", "Storage Data", "FICA", "Individual", "Proof of address PN Badenhorst.pdf");
-        await WriteFileAsync(root, "BADENHORST PN", "Storage Data", "Tax", "2025", "SARS tax certificate.pdf");
-        await WriteFileAsync(root, "BADENHORST PN", "Storage Data", "Application Forms", "Offshore", "Bidvest", "BOP.pdf");
-        await WriteFileAsync(root, "BADENHORST PN", "Storage Data", "Application Forms", "Unit Trust", "AIMS", "Beneficiaries", "Beneficiary Nomination.pdf");
+        await WriteFileAsync(root, "EXAMPLE CLIENT", "Storage Data", "FICA", "Individual", "Proof of address Example Client.pdf");
+        await WriteFileAsync(root, "EXAMPLE CLIENT", "Storage Data", "Tax", "2025", "SARS tax certificate.pdf");
+        await WriteFileAsync(root, "EXAMPLE CLIENT", "Storage Data", "Application Forms", "Offshore", "Bidvest", "BOP.pdf");
+        await WriteFileAsync(root, "EXAMPLE CLIENT", "Storage Data", "Application Forms", "Unit Trust", "AIMS", "Beneficiaries", "Beneficiary Nomination.pdf");
 
         await service.RunScanAsync(root, "scanner@example.test", "Scan sampled evidence types.");
 
         var files = await db.ClientEvidenceScanFiles.Where(file => file.ClientId == clientId).ToListAsync();
-        Assert.Contains(files, file => file.FileName == "Proof of address PN Badenhorst.pdf" && file.SuggestedEvidenceType == "Address");
+        Assert.Contains(files, file => file.FileName == "Proof of address Example Client.pdf" && file.SuggestedEvidenceType == "Address");
         Assert.Contains(files, file => file.FileName == "SARS tax certificate.pdf" && file.SuggestedEvidenceType == "TaxResidency");
         Assert.Contains(files, file => file.FileName == "BOP.pdf" && file.SuggestedEvidenceType == "SourceOfFunds");
         Assert.Contains(files, file => file.FileName == "Beneficiary Nomination.pdf" && file.SuggestedEvidenceType == "BeneficialOwnership");
@@ -253,15 +320,15 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var clientId = await CreateClientAsync(
             db,
-            "Philip Nel Auto",
+            "Example Client Auto",
             "AUTO-BEN-001",
-            @"z:\Kanaan Trust\Clients\Clients\Badenhorst PN Auto",
-            initials: "PN",
-            fullName: "Philip Nel",
-            surnameOrEntityName: "Badenhorst",
+            @"z:\Kanaan Trust\Clients\Clients\Example Client Auto",
+            initials: "EC",
+            fullName: "Example Client",
+            surnameOrEntityName: "Client",
             categorySource: ClientCategorySources.LegacyImportInferred);
         var root = CreateTempRoot();
-        await WriteFileAsync(root, "BADENHORST PN AUTO", "Storage Data", "Application Forms", "Unit Trust", "AIMS", "Beneficiaries", "PN Badenhorst Beneficiary Nom Form Updated.pdf");
+        await WriteFileAsync(root, "EXAMPLE CLIENT AUTO", "Storage Data", "Application Forms", "Unit Trust", "AIMS", "Beneficiaries", "Example Client Beneficiary Nom Form Updated.pdf");
 
         await service.RunScanAsync(root, "scanner@example.test", "Scan beneficiary nomination evidence.");
 
@@ -602,7 +669,7 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
     public void Evidence_path_does_not_infer_estate_category_from_financial_planning_terms()
     {
         var result = ClientCategoryInference.InferFromEvidence(
-            @"Storage Data\Finplan\Bate Verdeling PN Badenhorst.xlsx",
+            @"Storage Data\Finplan\Asset Allocation Example Client.xlsx",
             "General");
 
         Assert.Null(result);
@@ -615,17 +682,17 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
         var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var root = CreateTempRoot();
-        var wifeId = await CreateClientAsync(db, "Annalize Bodenstein", "SHARED-001", root, initials: "AR", fullName: "Annalize Bodenstein", surnameOrEntityName: "Bodenstein");
-        await CreateClientAsync(db, "Barend J", "SHARED-002", root, initials: "BJ", fullName: "Barend Jacobus Bodenstein", surnameOrEntityName: "Bodenstein");
-        var jointId = await CreateClientAsync(db, "BJ and AR Bodenstein", "SHARED-003", root, initials: "BJ and AR", fullName: "BJ and AR Bodenstein", surnameOrEntityName: "Bodenstein");
-        await WriteFileAsync(root, "FICA", "AR Bodenstein ID.pdf");
-        await WriteFileAsync(root, "Investments", "BJ and AR Bodenstein application.pdf");
+        var wifeId = await CreateClientAsync(db, "Example A Shared", "SHARED-001", root, initials: "EA", fullName: "Example A Shared", surnameOrEntityName: "Shared");
+        await CreateClientAsync(db, "Example B Shared", "SHARED-002", root, initials: "EB", fullName: "Example B Shared", surnameOrEntityName: "Shared");
+        var jointId = await CreateClientAsync(db, "EA and EB Shared", "SHARED-003", root, initials: "EA and EB", fullName: "EA and EB Shared", surnameOrEntityName: "Shared");
+        await WriteFileAsync(root, "FICA", "EA Shared ID.pdf");
+        await WriteFileAsync(root, "Investments", "EA and EB Shared application.pdf");
         await WriteFileAsync(root, "FICA", "Utility Bill.pdf");
 
         await service.RunClientFolderScanAsync(wifeId, root, "scanner@example.test", "Scan shared client folder.");
 
-        Assert.Contains(await db.ClientEvidenceItems.ToListAsync(), item => item.ClientId == wifeId && item.FileName == "AR Bodenstein ID.pdf" && item.OwnershipStatus == ClientEvidenceOwnershipStatuses.AutoAssigned);
-        Assert.Contains(await db.ClientEvidenceItems.ToListAsync(), item => item.ClientId == jointId && item.FileName == "BJ and AR Bodenstein application.pdf" && item.OwnershipStatus == ClientEvidenceOwnershipStatuses.AutoAssigned);
+        Assert.Contains(await db.ClientEvidenceItems.ToListAsync(), item => item.ClientId == wifeId && item.FileName == "EA Shared ID.pdf" && item.OwnershipStatus == ClientEvidenceOwnershipStatuses.AutoAssigned);
+        Assert.Contains(await db.ClientEvidenceItems.ToListAsync(), item => item.ClientId == jointId && item.FileName == "EA and EB Shared application.pdf" && item.OwnershipStatus == ClientEvidenceOwnershipStatuses.AutoAssigned);
         Assert.Contains(await db.ClientEvidenceItems.ToListAsync(), item => item.FileName == "Utility Bill.pdf" && item.OwnershipStatus == ClientEvidenceOwnershipStatuses.NeedsReview);
         Assert.Contains(await db.ClientEvidenceScanFiles.ToListAsync(), file => file.FileName == "Utility Bill.pdf" && file.MatchStatus == ClientEvidenceScanFileStatuses.OwnershipReview);
     }

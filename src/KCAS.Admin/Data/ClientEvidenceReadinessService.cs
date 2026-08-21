@@ -29,6 +29,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                 SurnameOrEntityName = client.SurnameOrEntityName,
                 KanaanId = client.KanaanId,
                 ClientCategory = client.ClientCategory,
+                LifecycleStatus = client.LifecycleStatus,
                 ClientFolder = client.ClientFolder
             })
             .ToListAsync();
@@ -193,6 +194,16 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             client.RelatedParties,
             items,
             today);
+        var activeScanRoot = await db.ClientEvidenceScanRoots
+            .AsNoTracking()
+            .Where(root => root.IsActive)
+            .OrderByDescending(root => root.Id)
+            .Select(root => root.RootPath)
+            .FirstOrDefaultAsync();
+        var clientFolderExists = !string.IsNullOrWhiteSpace(client.ClientFolder) && Directory.Exists(client.ClientFolder);
+        var folderRecommendations = clientFolderExists
+            ? []
+            : await ClientFolderRecommendations.BuildAsync(db, client, activeScanRoot);
 
         var requirementRows = requirements
             .Select(requirement =>
@@ -237,6 +248,9 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             KanaanId = client.KanaanId,
             ClientCategory = client.ClientCategory,
             ClientFolder = client.ClientFolder,
+            ClientFolderExists = clientFolderExists,
+            ActiveScanRoot = activeScanRoot,
+            FolderRecommendations = folderRecommendations,
             ScreeningSubjects = BuildScreeningSubjects(client),
             OwnershipBlockers = ownershipBlockers,
             Requirements = requirementRows,
@@ -2219,6 +2233,7 @@ public sealed class ClientEvidenceClientSummaryModel
     public string SurnameOrEntityName { get; set; } = "";
     public string? KanaanId { get; set; }
     public string ClientCategory { get; set; } = ClientCategories.NaturalPerson;
+    public string LifecycleStatus { get; set; } = ClientLifecycleStatuses.Unreviewed;
     public string? ClientFolder { get; set; }
     public int RequiredCount { get; set; }
     public int CompleteCount { get; set; }
@@ -2237,6 +2252,9 @@ public sealed class ClientEvidenceReadinessModel
     public string? KanaanId { get; set; }
     public string ClientCategory { get; set; } = ClientCategories.NaturalPerson;
     public string? ClientFolder { get; set; }
+    public bool ClientFolderExists { get; set; }
+    public string? ActiveScanRoot { get; set; }
+    public List<ClientFolderRecommendation> FolderRecommendations { get; set; } = [];
     public int RequiredCount { get; set; }
     public int CompleteCount { get; set; }
     public int ExceptionCount { get; set; }

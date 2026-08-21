@@ -105,7 +105,7 @@ public sealed class ClientReviewTransferService(
             .Include(item => item.RelatedParties).ThenInclude(item => item.Roles)
             .Include(item => item.RelatedParties).ThenInclude(item => item.EvidenceLinks).ThenInclude(item => item.EvidenceItem)
             .Include(item => item.InvestmentAccounts).ThenInclude(item => item.Transactions)
-            .Include(item => item.InvestmentReconciliationReviews)
+            .Include(item => item.InvestmentReconciliationReviews).ThenInclude(item => item.RelatedInvestmentAccount).ThenInclude(item => item!.Client)
             .Include(item => item.FundValuations)
             .Include(item => item.EvidenceItems).ThenInclude(item => item.Requirement)
             .Include(item => item.EvidenceExceptions).ThenInclude(item => item.Requirement)
@@ -264,8 +264,10 @@ public sealed class ClientReviewTransferService(
 
             var liveAccounts = await db.ClientInvestmentAccounts.AsNoTracking()
                 .Include(item => item.Transactions)
+                .Include(item => item.Client)
                 .Where(item => item.ClientId == client.Id)
                 .ToListAsync(cancellationToken);
+            var linkedLiveAccounts = await LoadLinkedInvestmentAccountsAsync(client, asNoTracking: true, cancellationToken);
             var liveValuations = await db.ClientFundValuations.AsNoTracking()
                 .Where(item => item.ClientId == client.Id)
                 .ToListAsync(cancellationToken);
@@ -281,9 +283,16 @@ public sealed class ClientReviewTransferService(
                 {
                     warnings.Add($"Investment {match.AccountNumber}: surrender/transfer date will change from {match.SurrenderDate?.ToString("yyyy-MM-dd") ?? "blank"} to {source.SurrenderDate?.ToString("yyyy-MM-dd") ?? "blank"}.");
                 }
+                ClientInvestmentAccount? related = null;
                 if (source.RelatedLegacyInvestmentAccountId.HasValue || !string.IsNullOrWhiteSpace(source.RelatedAccountNumber))
                 {
-                    var related = MatchInvestmentAccount(liveAccounts, source.RelatedLegacyInvestmentAccountId, source.RelatedAccountNumber, source.RelatedAdministrator);
+                    related = MatchInvestmentAccount(
+                        source.Outcome == ClientInvestmentReconciliationOutcomes.WrongClientDuplicate
+                            ? liveAccounts.Concat(linkedLiveAccounts)
+                            : liveAccounts,
+                        source.RelatedLegacyInvestmentAccountId,
+                        source.RelatedAccountNumber,
+                        source.RelatedAdministrator);
                     if (related is null)
                     {
                         conflicts.Add($"Related investment for '{source.AccountNumber}' could not be matched uniquely on live.");
@@ -294,15 +303,21 @@ public sealed class ClientReviewTransferService(
                     source.Outcome,
                     source.SurrenderDate,
                     source.RelatedLegacyInvestmentAccountId.HasValue || !string.IsNullOrWhiteSpace(source.RelatedAccountNumber),
+                    related is not null && related.ClientId != match.ClientId,
                     matchedValuations);
                 if (outcomeError is not null)
                 {
                     conflicts.Add($"Investment {match.AccountNumber}: {outcomeError}");
                 }
                 var oldSurrenderDate = match.SurrenderDate;
-                match.SurrenderDate = source.Outcome == ClientInvestmentReconciliationOutcomes.Current
-                    ? null
-                    : source.SurrenderDate;
+                if (source.Outcome == ClientInvestmentReconciliationOutcomes.Current)
+                {
+                    match.SurrenderDate = null;
+                }
+                else if (source.Outcome != ClientInvestmentReconciliationOutcomes.WrongClientDuplicate)
+                {
+                    match.SurrenderDate = source.SurrenderDate;
+                }
                 var portableSnapshot = CalculatePortableInvestmentSnapshot(match, matchedValuations);
                 match.SurrenderDate = oldSurrenderDate;
                 if (!string.Equals(source.PortableSnapshotSha256, portableSnapshot, StringComparison.OrdinalIgnoreCase))
@@ -393,6 +408,7 @@ public sealed class ClientReviewTransferService(
             .Include(item => item.InvestmentAccounts).ThenInclude(item => item.Transactions)
             .Include(item => item.FundValuations)
             .SingleAsync(item => item.Id == preview.TargetClientId.Value, cancellationToken);
+        var linkedInvestmentAccounts = await LoadLinkedInvestmentAccountsAsync(client, asNoTracking: false, cancellationToken);
         var methodology = await db.RiskMethodologyVersions
             .Include(item => item.Factors).ThenInclude(item => item.Options)
             .SingleAsync(item =>
@@ -509,7 +525,13 @@ public sealed class ClientReviewTransferService(
             ClientInvestmentAccount? related = null;
             if (source.RelatedLegacyInvestmentAccountId.HasValue || !string.IsNullOrWhiteSpace(source.RelatedAccountNumber))
             {
-                related = MatchInvestmentAccount(client.InvestmentAccounts, source.RelatedLegacyInvestmentAccountId, source.RelatedAccountNumber, source.RelatedAdministrator)
+                related = MatchInvestmentAccount(
+                    source.Outcome == ClientInvestmentReconciliationOutcomes.WrongClientDuplicate
+                        ? client.InvestmentAccounts.Concat(linkedInvestmentAccounts)
+                        : client.InvestmentAccounts,
+                    source.RelatedLegacyInvestmentAccountId,
+                    source.RelatedAccountNumber,
+                    source.RelatedAdministrator)
                     ?? throw new InvalidOperationException($"Related investment for '{source.AccountNumber}' could not be matched uniquely on live.");
             }
             var oldSurrenderDate = account.SurrenderDate;
@@ -518,14 +540,20 @@ public sealed class ClientReviewTransferService(
                 source.Outcome,
                 source.SurrenderDate,
                 related is not null,
+                related is not null && related.ClientId != account.ClientId,
                 matchedValuations);
             if (outcomeError is not null)
             {
                 throw new InvalidOperationException($"Investment {account.AccountNumber}: {outcomeError}");
             }
-            account.SurrenderDate = source.Outcome == ClientInvestmentReconciliationOutcomes.Current
-                ? null
-                : source.SurrenderDate;
+            if (source.Outcome == ClientInvestmentReconciliationOutcomes.Current)
+            {
+                account.SurrenderDate = null;
+            }
+            else if (source.Outcome != ClientInvestmentReconciliationOutcomes.WrongClientDuplicate)
+            {
+                account.SurrenderDate = source.SurrenderDate;
+            }
             var portableSnapshot = CalculatePortableInvestmentSnapshot(account, matchedValuations);
             if (!string.Equals(source.PortableSnapshotSha256, portableSnapshot, StringComparison.OrdinalIgnoreCase))
             {
@@ -539,7 +567,7 @@ public sealed class ClientReviewTransferService(
                 ClientInvestmentAccountId = account.Id,
                 Outcome = source.Outcome,
                 RelatedClientInvestmentAccountId = related?.Id,
-                AppliedSurrenderDate = source.SurrenderDate,
+                AppliedSurrenderDate = account.SurrenderDate,
                 EvidenceReference = source.EvidenceReference,
                 Reason = source.Reason,
                 SnapshotSha256 = InvestmentReconciliationService.CalculateSnapshot(account, matchedValuations),
@@ -555,7 +583,7 @@ public sealed class ClientReviewTransferService(
                 NewValueJson = JsonSerializer.Serialize(new
                 {
                     source.Outcome,
-                    source.SurrenderDate,
+                    AppliedSurrenderDate = account.SurrenderDate,
                     RelatedClientInvestmentAccountId = related?.Id,
                     source.EvidenceReference,
                     SourcePackageId = package.PackageId
@@ -1120,7 +1148,8 @@ public sealed class ClientReviewTransferService(
                 .Select(entry =>
                 {
                     var related = entry.Review!.RelatedClientInvestmentAccountId.HasValue
-                        ? client.InvestmentAccounts.FirstOrDefault(account => account.Id == entry.Review.RelatedClientInvestmentAccountId.Value)
+                        ? entry.Review.RelatedInvestmentAccount ??
+                          client.InvestmentAccounts.FirstOrDefault(account => account.Id == entry.Review.RelatedClientInvestmentAccountId.Value)
                         : null;
                     return new ClientReviewInvestmentReconciliationPackage
                     {
@@ -1135,6 +1164,8 @@ public sealed class ClientReviewTransferService(
                         RelatedLegacyInvestmentAccountId = related?.LegacyInvestmentAccountId,
                         RelatedAccountNumber = related?.AccountNumber,
                         RelatedAdministrator = related?.Administrator,
+                        RelatedClientLegacyId = related?.Client.LegacyClientId,
+                        RelatedClientKanaanId = related?.Client.KanaanId,
                         EvidenceReference = entry.Review.EvidenceReference,
                         Reason = entry.Review.Reason,
                         ReviewedAtUtc = entry.Review.ReviewedAtUtc,
@@ -1421,6 +1452,26 @@ public sealed class ClientReviewTransferService(
             .OrderByDescending(root => root.Id)
             .Select(root => root.RootPath)
             .FirstOrDefaultAsync(cancellationToken);
+
+    private async Task<List<ClientInvestmentAccount>> LoadLinkedInvestmentAccountsAsync(
+        Client client,
+        bool asNoTracking,
+        CancellationToken cancellationToken)
+    {
+        var normalizedFolder = string.IsNullOrWhiteSpace(client.ClientFolder) ? null : client.ClientFolder.Trim();
+        var query = db.ClientInvestmentAccounts
+            .Include(account => account.Transactions)
+            .Include(account => account.Client)
+            .Where(account =>
+                account.ClientId != client.Id &&
+                ((!string.IsNullOrWhiteSpace(client.KanaanId) && account.Client.KanaanId == client.KanaanId) ||
+                 (normalizedFolder != null && account.Client.ClientFolder == normalizedFolder)));
+        if (asNoTracking)
+        {
+            query = query.AsNoTracking();
+        }
+        return await query.ToListAsync(cancellationToken);
+    }
 
     internal static string? MapClientFolderToLiveRoot(string? sourceFolder, string? liveRoot)
     {
@@ -2087,6 +2138,8 @@ public sealed class ClientReviewInvestmentReconciliationPackage
     public int? RelatedLegacyInvestmentAccountId { get; set; }
     public string? RelatedAccountNumber { get; set; }
     public string? RelatedAdministrator { get; set; }
+    public int? RelatedClientLegacyId { get; set; }
+    public string? RelatedClientKanaanId { get; set; }
     public string EvidenceReference { get; set; } = "";
     public string Reason { get; set; } = "";
     public DateTime ReviewedAtUtc { get; set; }

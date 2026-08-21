@@ -60,16 +60,69 @@ public sealed class ClientComplianceReviewServiceTests(KcasWebApplicationFactory
     }
 
     [Fact]
+    public async Task Unified_review_recommends_local_folder_when_saved_client_folder_is_unavailable()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = scope.ServiceProvider.GetRequiredService<ClientComplianceReviewService>();
+        var root = Path.Combine(Path.GetTempPath(), "kcas-compliance-tests", Guid.NewGuid().ToString("N"));
+        var correctFolder = Directory.CreateDirectory(Path.Combine(root, "ALPHA PRIMARY and PARTNER (Example Trust)"));
+        Directory.CreateDirectory(Path.Combine(root, "RELATED-ALPHA SECONDARY HOUSEHOLD"));
+
+        try
+        {
+            db.ClientEvidenceScanRoots.Add(new ClientEvidenceScanRoot
+            {
+                RootPath = root,
+                IsActive = true
+            });
+            var client = new Client
+            {
+                LegacyClientId = Random.Shared.Next(800000, 899999),
+                KanaanId = $"ALPHA-{Guid.NewGuid():N}"[..30],
+                DisplayName = "Primary and Partner Alpha",
+                FullName = "Primary Example and Partner",
+                Initials = "P and P",
+                SurnameOrEntityName = "Alpha",
+                ClientFolder = @"z:\Kanaan Trust\Clients\Clients\Alpha and Partner Primary"
+            };
+            db.Clients.Add(client);
+            db.Clients.Add(new Client
+            {
+                LegacyClientId = Random.Shared.Next(800000, 899999),
+                KanaanId = client.KanaanId,
+                DisplayName = "Primary Example Alpha",
+                FullName = "Primary Example",
+                Initials = "PE",
+                SurnameOrEntityName = "Alpha"
+            });
+            await db.SaveChangesAsync();
+
+            var review = await service.LoadAsync(client.Id);
+
+            Assert.False(review.ClientFolderExists);
+            Assert.Equal(root, review.ActiveScanRoot);
+            var recommendation = Assert.Single(review.FolderRecommendations);
+            Assert.Equal(correctFolder.FullName, recommendation.Path);
+            Assert.DoesNotContain(review.FolderRecommendations, item => item.FolderName.Contains("RELATED", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Review_display_name_does_not_repeat_an_existing_surname()
     {
         var client = new Client
         {
-            FullName = "Maria Badenhorst",
-            SurnameOrEntityName = "Badenhorst",
-            DisplayName = "Maria Badenhorst"
+            FullName = "Example Person",
+            SurnameOrEntityName = "Person",
+            DisplayName = "Example Person"
         };
 
-        Assert.Equal("Maria Badenhorst", ClientNameFormatter.FullNameAndSurname(client));
+        Assert.Equal("Example Person", ClientNameFormatter.FullNameAndSurname(client));
     }
 
     [Fact]

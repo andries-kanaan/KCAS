@@ -55,6 +55,16 @@ public sealed class ClientComplianceReviewService(
         var investments = await investmentService.LoadClientReviewAsync(clientId, cancellationToken);
         var evidence = await evidenceService.LoadClientReadinessAsync(clientId);
         var risk = await riskService.LoadAsync(clientId);
+        var activeScanRoot = await db.ClientEvidenceScanRoots
+            .AsNoTracking()
+            .Where(root => root.IsActive)
+            .OrderByDescending(root => root.Id)
+            .Select(root => root.RootPath)
+            .FirstOrDefaultAsync(cancellationToken);
+        var clientFolderExists = !string.IsNullOrWhiteSpace(client.ClientFolder) && Directory.Exists(client.ClientFolder);
+        var folderRecommendations = clientFolderExists
+            ? []
+            : await ClientFolderRecommendations.BuildAsync(db, client, activeScanRoot, cancellationToken);
         var latestFolderScan = string.IsNullOrWhiteSpace(client.ClientFolder)
             ? null
             : await db.ClientEvidenceScanRuns.AsNoTracking()
@@ -133,6 +143,9 @@ public sealed class ClientComplianceReviewService(
             KanaanId = client.KanaanId,
             ClientCategory = client.ClientCategory,
             ClientFolder = client.ClientFolder,
+            ClientFolderExists = clientFolderExists,
+            ActiveScanRoot = activeScanRoot,
+            FolderRecommendations = folderRecommendations,
             LifecycleStatus = client.LifecycleStatus,
             LifecycleReason = client.LifecycleReason,
             LifecycleProposal = lifecycleProposal,
@@ -219,6 +232,9 @@ public sealed class ClientComplianceReviewModel
     public string? KanaanId { get; init; }
     public string ClientCategory { get; init; } = "";
     public string? ClientFolder { get; init; }
+    public bool ClientFolderExists { get; init; }
+    public string? ActiveScanRoot { get; init; }
+    public List<ClientFolderRecommendation> FolderRecommendations { get; init; } = [];
     public string LifecycleStatus { get; init; } = "";
     public string? LifecycleReason { get; init; }
     public required ClientLifecycleProposal LifecycleProposal { get; init; }
