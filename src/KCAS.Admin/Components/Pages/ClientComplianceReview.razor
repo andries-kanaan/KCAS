@@ -99,6 +99,41 @@ else
                 }
             </dd>
         </dl>
+        @if (!string.IsNullOrWhiteSpace(model.ClientFolder) && !model.ClientFolderExists)
+        {
+            <div class="alert alert-warning mt-3">
+                <strong>Saved folder is not available to this KCAS server.</strong>
+                <div class="small">Active evidence scan root: @Display(model.ActiveScanRoot)</div>
+                @if (model.FolderRecommendations.Count > 0)
+                {
+                    <div class="list-group mt-2">
+                        @foreach (var recommendation in model.FolderRecommendations)
+                        {
+                            <div class="list-group-item">
+                                <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+                                    <div>
+                                        <strong>@recommendation.FolderName</strong>
+                                        <div class="small">@recommendation.Path</div>
+                                        <div class="text-muted small">@recommendation.Reason</div>
+                                    </div>
+                                    @if (canManageEvidence)
+                                    {
+                                        <div class="row-actions">
+                                            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="() => SaveRecommendedFolderAsync(recommendation.Path)" disabled="@isBusy">Save this folder</button>
+                                            <button class="btn btn-primary btn-sm" type="button" @onclick="() => SelectFolderAsync(recommendation.Path)" disabled="@isBusy">Scan this folder</button>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="small mt-2">No likely folder was found under the active scan root. Browse from the scan root and choose the client folder manually.</div>
+                }
+            </div>
+        }
         @if (ScanIsRunning && model.LatestFolderScan is not null)
         {
             <div class="mt-3" aria-live="polite">
@@ -115,7 +150,7 @@ else
             </div>
         }
         <ServerFolderPicker IsOpen="@folderPickerOpen"
-                            InitialPath="@model.ClientFolder"
+                            InitialPath="@FolderPickerInitialPath"
                             Disabled="@(!canManageEvidence || isBusy)"
                             Title="Choose client folder"
                             Selected="SelectFolderAsync"
@@ -301,6 +336,9 @@ else
     private List<ClientEvidenceRequirementStatusModel> BlockedEvidence => model?.EvidenceRequirements.Where(item => item.IsBlocked).ToList() ?? [];
     private List<ClientEvidenceRequirementStatusModel> BlockedScreening => model?.ScreeningRequirements.Where(item => item.IsBlocked).ToList() ?? [];
     private bool EvidenceComplete => BlockedEvidence.Count == 0 && (model?.Evidence.OwnershipBlockers.Count ?? 0) == 0;
+    private string? FolderPickerInitialPath => model?.ClientFolderExists == true
+        ? model.ClientFolder
+        : model?.ActiveScanRoot ?? model?.ClientFolder;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -345,6 +383,19 @@ else
                     "Confirm existing client folder for unified compliance review.");
                 statusMessage = "Existing client folder confirmed; completed scan results retained.";
             }
+        });
+    }
+
+    private async Task SaveRecommendedFolderAsync(string path)
+    {
+        await ExecuteAsync(async () =>
+        {
+            await EvidenceService.SaveClientEvidenceFolderAsync(
+                ClientId,
+                path,
+                currentUser,
+                "Save recommended client folder for unified compliance review.");
+            statusMessage = "Client folder updated. Scan the folder when you are ready.";
         });
     }
 

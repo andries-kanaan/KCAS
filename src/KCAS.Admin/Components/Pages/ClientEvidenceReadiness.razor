@@ -68,6 +68,41 @@ else
         <h2>Readiness result</h2>
         <p class="lead mb-0">@(model.IsReadyForRiskAssessment ? "Ready for risk assessment" : "Not ready for risk assessment")</p>
         <p class="text-muted mb-0">Client folder: @Display(model.ClientFolder)</p>
+        @if (!string.IsNullOrWhiteSpace(model.ClientFolder) && !model.ClientFolderExists)
+        {
+            <div class="alert alert-warning mt-3 mb-0">
+                <strong>Saved folder is not available to this KCAS server.</strong>
+                <div class="small">Active evidence scan root: @Display(model.ActiveScanRoot)</div>
+                @if (model.FolderRecommendations.Count > 0)
+                {
+                    <div class="list-group mt-2">
+                        @foreach (var recommendation in model.FolderRecommendations)
+                        {
+                            <div class="list-group-item">
+                                <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+                                    <div>
+                                        <strong>@recommendation.FolderName</strong>
+                                        <div class="small">@recommendation.Path</div>
+                                        <div class="text-muted small">@recommendation.Reason</div>
+                                    </div>
+                                    @if (canManage)
+                                    {
+                                        <div class="row-actions">
+                                            <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => SelectClientFolder(recommendation.Path)">Save this folder</button>
+                                            <button type="button" class="btn btn-primary btn-sm" @onclick="() => ScanRecommendedFolderAsync(recommendation.Path)">Scan this folder</button>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="small mt-2">No likely folder was found under the active scan root. Browse from the scan root and choose the client folder manually.</div>
+                }
+            </div>
+        }
     </section>
 
     @if (model.OwnershipBlockers.Count > 0)
@@ -99,7 +134,7 @@ else
                 <button type="button" class="btn btn-primary" @onclick="RunClientScanAsync">Scan this client</button>
             </div>
             <ServerFolderPicker IsOpen="@isClientFolderPickerOpen"
-                                InitialPath="@selectedClientFolder"
+                                InitialPath="@ClientFolderPickerInitialPath"
                                 Disabled="@(!canManage)"
                                 Title="Choose client folder"
                                 Selected="SelectClientFolder"
@@ -516,6 +551,12 @@ else
         }
     }
 
+    private async Task ScanRecommendedFolderAsync(string path)
+    {
+        selectedClientFolder = path;
+        await RunClientScanAsync();
+    }
+
     private void OpenClientFolderPicker() => isClientFolderPickerOpen = true;
 
     private async Task SelectClientFolder(string path)
@@ -735,4 +776,8 @@ else
     private string ReviewReason => string.IsNullOrWhiteSpace(reason)
         ? "Record screening review completed."
         : reason;
+
+    private string? ClientFolderPickerInitialPath => model?.ClientFolderExists == true
+        ? selectedClientFolder
+        : model?.ActiveScanRoot ?? selectedClientFolder;
 }

@@ -177,9 +177,9 @@ Do not resolve a material conflict merely by choosing the newest filename. Recor
 | 5 | RMCP control and approval management | Technical foundation delivered and browser-checked by the user on 2026-07-26; production RMCP v1.0 signed, Board-approved and effective on 2026-07-31; KCAS control/evidence reconciliation continues in Phase 8 | Approved RMCP version links risks, controls and evidence |
 | 6 | Monitoring, reviews and remediation | Technical foundation delivered and browser-checked by the user on 2026-07-26; operational acceptance is deferred to Phase 8 | End-to-end review and escalation cases pass |
 | 7 | Inspection readiness, reporting and rollout | Technical foundation delivered and browser-checked by the user on 2026-07-26; the requested document pack was uploaded to the FSCA and confirmed by email on 2026-07-31; onsite operational acceptance continues in Phase 8 | Inspection pack, security, recovery and rollout accepted |
-| 8 | Controlled operational population and verification | In progress: control foundation delivered and first live Badenhorst pilot completed; resume the remaining population client by client | Every current client is reviewed, verified and assessed |
+| 8 | Controlled operational population and verification | In progress: control foundation delivered and first live pilot completed; resume the remaining population client by client | Every current client is reviewed, verified and assessed |
 
-Current resume point: **resume Phase 8 client by client under explicit user approval using the completed Prof Philip Nel Badenhorst pilot as the operational pattern, while continuing the operating-effectiveness and retrieval evidence required for the 22 September 2026 onsite inspection.**
+Current resume point: **resume Phase 8 client by client under explicit user approval using the completed first live pilot as the operational pattern, while continuing the operating-effectiveness and retrieval evidence required for the 22 September 2026 onsite inspection.**
 
 The inspection-readiness work does not replace or cancel Phase 8. It creates two controlled horizons:
 
@@ -378,8 +378,8 @@ Make KCAS the reliable evidence base from which client risk can be assessed.
 ### Current Phase 2 acceptance position
 
 - The first live pilot scans completed successfully without unmatched client folders or scan errors.
-- Philip Nel and Jacob Benade were restored to natural-person classification after false evidence-path inference; the correction is audited.
-- The shared Bodenstein dossier is configured for wife, husband and joint aliases.
+- Two pilot natural-person records were restored to natural-person classification after false evidence-path inference; the correction is audited.
+- The shared-folder pilot dossier is configured for spouse and joint aliases.
 - Explicitly named files were reconciled; 195 generic shared-folder documents remain queued for ownership review.
 - Representative legal-person scanning, evidence verification, screening review, exceptions/tasks and final natural-person/trust/legal-person acceptance remain outstanding.
 - The entity-ownership register is deployed without inferred live parties; Tomora Trust remains deliberately blocked until its reviewed registration, party, evidence and screening facts are captured.
@@ -649,7 +649,7 @@ Return deliberately to the client information and evidence population work only 
 - Technical delivery creates no lifecycle decisions or verification items for live clients.
 - Technical verification through 2026-07-27 passed 161 automated tests with zero failures and no pending EF model changes. Migration `20260726175421_AddClientOperationalVerification` was applied after backup; all 490 imported clients initially remained Unreviewed and the verification register remained empty before controlled live population began.
 
-### First live client pilot — Prof Philip Nel Badenhorst
+### First Live Client Pilot
 
 The first complete client-by-client review was performed collaboratively and re-executed against the restored operational database on 2026-07-27. It establishes the following operational order for later clients:
 
@@ -705,7 +705,7 @@ Current prepared position:
 - The 2026 Board approval resolution and four explanatory/factual letters are prepared but unsigned.
 - The FIC Act/RMCP core training deck, MLCO/goAML/TFS operational deck, assessment and register are prepared for the scheduled 29 July 2026 session. The session is not recorded as complete until signed attendance, results and any remediation exist.
 - Every-business-day goAML message-board checking commenced on 28 July 2026; Andre's separate backup access is confirmed and must be evidenced and tested.
-- KCAS provides the technical evidence, screening, assessment, BRA/RMCP, monitoring and inspection-pack destination. The Badenhorst pilot proves the client workflow; the remaining population and TFS coverage remain operational work.
+- KCAS provides the technical evidence, screening, assessment, BRA/RMCP, monitoring and inspection-pack destination. The first live pilot proves the client workflow; the remaining population and TFS coverage remain operational work.
 
 The submission and onsite dates are controlled separately. Draft preparation is not approval, signature or operating evidence. The final submission must use the exact signed/approved files and retain the delivery receipt, while transparent dated implementation actions may continue toward the onsite inspection.
 

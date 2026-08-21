@@ -148,7 +148,7 @@ Existing URLs remain available and redirect or deep-link to the relevant tab, pr
 - Added stale-review detection so a material account, transaction or valuation change automatically reopens that row.
 - Made completed investment reconciliation a prerequisite for finalising a client risk assessment, while clients with no investment data pass without a synthetic task.
 - Included current reconciliation decisions and their approved surrender dates/links in client review export/import packages, rematched by stable legacy ID or account number/administrator on the receiving server.
-- Recorded the approved Maria van Aswegen, Gerhard van Aswegen and Badenhorst reconciliations in the local structured review register. Deeper inline editing and the final atomic approve/complete command remain planned below.
+- Recorded the approved pilot reconciliations in the local structured review register. Deeper inline editing and the final atomic approve/complete command remain planned below.
 - Reduced the Compliance submenu to Client reviews, Daily compliance, Programme and controls, and Inspection readiness. Client/goAML transfers are contextual actions on their working pages, Programme and controls consolidates BRA/RMCP/monitoring links, and all prior deep links remain available.
 
 ### Phase A — orchestration and page shell

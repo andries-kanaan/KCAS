@@ -197,9 +197,9 @@ else
                                 <label class="form-label mt-2">Related account</label>
                                 <select class="form-select" @bind="form.RelatedAccountIdText">
                                     <option value="">No related account selected</option>
-                                    @foreach (var related in model.Accounts.Where(item => item.AccountId != account.AccountId))
+                                    @foreach (var related in model.RelatedAccountOptions.Where(item => item.AccountId != account.AccountId))
                                     {
-                                        <option value="@related.AccountId">@Display(related.AccountNumber) · @Display(related.Administrator)</option>
+                                        <option value="@related.AccountId">@Display(related.AccountNumber) · @Display(related.Administrator) · @related.ClientDisplayName (@Display(related.KanaanId))</option>
                                     }
                                 </select>
                                 <label class="form-label mt-2">Evidence or data source</label>

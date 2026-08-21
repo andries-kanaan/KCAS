@@ -44,10 +44,11 @@ public static class ClientInvestmentReconciliationOutcomes
     public const string HistoricalSurrendered = "HistoricalSurrendered";
     public const string Transferred = "Transferred";
     public const string DuplicateContinuation = "DuplicateContinuation";
+    public const string WrongClientDuplicate = "WrongClientDuplicate";
     public const string NeedsFollowUp = "NeedsFollowUp";
 
     public static readonly string[] All =
-        [Current, HistoricalSurrendered, Transferred, DuplicateContinuation, NeedsFollowUp];
+        [Current, HistoricalSurrendered, Transferred, DuplicateContinuation, WrongClientDuplicate, NeedsFollowUp];
 
     public static string Label(string value) => value switch
     {
@@ -55,6 +56,7 @@ public static class ClientInvestmentReconciliationOutcomes
         HistoricalSurrendered => "Historical - surrendered",
         Transferred => "Transferred",
         DuplicateContinuation => "Duplicate / continuation",
+        WrongClientDuplicate => "Wrong client duplicate",
         NeedsFollowUp => "Needs follow-up",
         _ => value
     };

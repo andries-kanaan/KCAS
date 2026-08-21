@@ -342,7 +342,7 @@ Verified locally after the security, import, compliance foundation and client ev
 - Client evidence readiness, server-folder scanner idempotence, unmatched-file handling, evidence verification and exception logic are covered by automated tests.
 - Shared client-folder aliases, conservative ownership assignment, multi-client evidence confirmation and category false-positive prevention are covered by automated tests.
 - Trust/legal-person entity profiles, multi-role related parties, party evidence links, screening subjects and ownership readiness blockers are covered by automated tests.
-- The live shared-folder pilot retains 195 generic Bodenstein documents for explicit ownership review; no generic file is accepted into readiness automatically.
+- The live shared-folder pilot retains generic shared-folder documents for explicit ownership review; no generic file is accepted into readiness automatically.
 
 Still to verify manually in browser:
 

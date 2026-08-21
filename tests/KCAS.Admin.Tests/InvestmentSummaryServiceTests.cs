@@ -130,6 +130,93 @@ public sealed class InvestmentSummaryServiceTests(KcasWebApplicationFactory fact
     }
 
     [Fact]
+    public async Task LoadAsync_clears_correction_for_reviewed_wrong_client_duplicate()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = new InvestmentSummaryService(db);
+
+        var source = new Client
+        {
+            LegacyClientId = 99101,
+            KanaanId = "IS-WCD",
+            DisplayName = "IS Wrong Duplicate Source",
+            SurnameOrEntityName = "IS Wrong Duplicate Source",
+            LifecycleStatus = ClientLifecycleStatuses.Current,
+            IsActive = true,
+            InvestmentAccounts =
+            {
+                new ClientInvestmentAccount
+                {
+                    AccountNumber = "IS-WRONG-CLIENT",
+                    Administrator = "IS Platform",
+                    ProductName = "Imported duplicate"
+                }
+            }
+        };
+        var owner = new Client
+        {
+            LegacyClientId = 99102,
+            KanaanId = "IS-WCD",
+            DisplayName = "IS Correct Owner",
+            SurnameOrEntityName = "IS Correct Owner",
+            LifecycleStatus = ClientLifecycleStatuses.Current,
+            IsActive = true,
+            InvestmentAccounts =
+            {
+                new ClientInvestmentAccount
+                {
+                    AccountNumber = "IS-WRONG-CLIENT",
+                    Administrator = "IS Platform",
+                    ProductName = "Owned account"
+                }
+            },
+            FundValuations =
+            {
+                new ClientFundValuation
+                {
+                    LegacyFundId = 99103,
+                    InvestmentUniqueNumber = "IS-WRONG-CLIENT",
+                    Administrator = "IS Platform",
+                    ProductName = "Owned account",
+                    FundName = "Stable SA",
+                    AmountZar = 75_000m,
+                    ValuationDate = DateOnly.FromDateTime(DateTime.Today)
+                }
+            }
+        };
+
+        db.Clients.AddRange(source, owner);
+        await db.SaveChangesAsync();
+
+        var sourceAccount = source.InvestmentAccounts.Single();
+        var ownerAccount = owner.InvestmentAccounts.Single();
+        db.ClientInvestmentReconciliationReviews.Add(new ClientInvestmentReconciliationReview
+        {
+            ClientId = source.Id,
+            ClientInvestmentAccountId = sourceAccount.Id,
+            Outcome = ClientInvestmentReconciliationOutcomes.WrongClientDuplicate,
+            RelatedClientInvestmentAccountId = ownerAccount.Id,
+            EvidenceReference = "Test evidence",
+            Reason = "Reviewed as a wrong-client duplicate linked to the correct owner.",
+            SnapshotSha256 = new string('a', 64),
+            ReviewedAtUtc = DateTime.UtcNow,
+            ReviewedBy = "test"
+        });
+        await db.SaveChangesAsync();
+
+        var model = await service.LoadAsync(new InvestmentSummaryQuery(
+            KanaanId: "IS-WCD",
+            Scope: InvestmentSummaryScopes.All));
+
+        var duplicateRow = Assert.Single(model.Rows, row => row.ClientId == source.Id);
+        Assert.False(duplicateRow.NeedsStatusCorrection);
+        Assert.Contains("Wrong client duplicate", duplicateRow.Source);
+        Assert.Contains("wrong-client duplicate", duplicateRow.StatusReason);
+        Assert.Equal(0, model.StatusCorrectionCount);
+    }
+
+    [Fact]
     public async Task LoadAsync_builds_portfolio_client_and_historical_views_from_one_calculation()
     {
         using var scope = factory.Services.CreateScope();

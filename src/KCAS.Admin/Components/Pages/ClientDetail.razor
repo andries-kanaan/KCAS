@@ -31,6 +31,10 @@ else
                 <a class="btn btn-outline-secondary" href="@($"/clients/{Id}/ownership")">Ownership register</a>
             }
             <a class="btn btn-outline-secondary" href="@($"/clients/{Id}#investments")">Investments</a>
+            @if (!string.IsNullOrWhiteSpace(client.KanaanId))
+            {
+                <a class="btn btn-outline-secondary" href="@($"/investments/summary?kanaanId={Uri.EscapeDataString(client.KanaanId)}")">Family investments</a>
+            }
             <a class="btn btn-outline-secondary" href="@($"/clients/{Id}#notes")">Notes</a>
             <AuthorizeView Policy="@KcasPermissions.ClientsManage">
                 <Authorized>
@@ -166,6 +170,27 @@ else
 
         <article class="detail-panel">
             <h2>Family and relationships</h2>
+            @if (relatedClients.Count > 0)
+            {
+                <h3>Related clients</h3>
+                @if (!string.IsNullOrWhiteSpace(client.KanaanId))
+                {
+                    <p>
+                        <a class="btn btn-outline-secondary btn-sm" href="@($"/investments/summary?kanaanId={Uri.EscapeDataString(client.KanaanId)}")">
+                            View family investments for Kanaan ID @client.KanaanId
+                        </a>
+                    </p>
+                }
+                <div class="row-actions mb-3">
+                    @foreach (var related in relatedClients)
+                    {
+                        <a class="btn btn-outline-secondary btn-sm" href="@($"/clients/{related.ClientId}")">
+                            @related.DisplayName (@Display(related.KanaanId))
+                            <span class="text-muted">- @related.RelationshipSummary</span>
+                        </a>
+                    }
+                </div>
+            }
             @if (!string.IsNullOrWhiteSpace(client.PersonalProfile?.FamilyDetailRaw))
             {
                 <h3>Family detail</h3>
@@ -999,6 +1024,7 @@ else
     private const int NotePageSize = 10;
     private Client? client;
     private List<InvestmentFundReference> investmentFundReferences = [];
+    private List<RelatedClientLink> relatedClients = [];
     private string? noteFilter;
     private string? statusMessage;
     private int notePage = 1;
@@ -1032,6 +1058,83 @@ else
         investmentFundReferences = await Db.InvestmentFundReferences
             .AsNoTracking()
             .ToListAsync();
+        await LoadRelatedClientsAsync();
+    }
+
+    private async Task LoadRelatedClientsAsync()
+    {
+        relatedClients = [];
+        if (client is null)
+        {
+            return;
+        }
+
+        var relationshipByLegacyClientId = client.Relationships
+            .Where(relationship => relationship.LegacyRelatedClientId.HasValue)
+            .GroupBy(relationship => relationship.LegacyRelatedClientId!.Value)
+            .ToDictionary(
+                group => group.Key,
+                group => string.Join(", ", group
+                    .Select(relationship => Display(relationship.RelationshipType))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)));
+
+        var legacyRelatedClientIds = relationshipByLegacyClientId.Keys.ToList();
+        var hasKanaanId = !string.IsNullOrWhiteSpace(client.KanaanId);
+        var duplicateOfClientId = client.DuplicateOfClientId;
+
+        var candidates = await Db.Clients
+            .AsNoTracking()
+            .Where(candidate => candidate.Id != client.Id &&
+                ((hasKanaanId && candidate.KanaanId == client.KanaanId) ||
+                 (duplicateOfClientId.HasValue && candidate.Id == duplicateOfClientId.Value) ||
+                 candidate.DuplicateOfClientId == client.Id ||
+                 (candidate.LegacyClientId.HasValue && legacyRelatedClientIds.Contains(candidate.LegacyClientId.Value))))
+            .Select(candidate => new
+            {
+                candidate.Id,
+                candidate.LegacyClientId,
+                candidate.KanaanId,
+                candidate.DisplayName,
+                candidate.LifecycleStatus,
+                candidate.DuplicateOfClientId
+            })
+            .OrderBy(candidate => candidate.DisplayName)
+            .ToListAsync();
+
+        relatedClients = candidates
+            .Select(candidate =>
+            {
+                var reasons = new List<string>();
+                if (hasKanaanId && string.Equals(candidate.KanaanId, client.KanaanId, StringComparison.OrdinalIgnoreCase))
+                {
+                    reasons.Add("Same Kanaan ID");
+                }
+
+                if (candidate.LegacyClientId.HasValue &&
+                    relationshipByLegacyClientId.TryGetValue(candidate.LegacyClientId.Value, out var relationshipTypes))
+                {
+                    reasons.Add(relationshipTypes);
+                }
+
+                if (duplicateOfClientId == candidate.Id)
+                {
+                    reasons.Add("Duplicate target");
+                }
+
+                if (candidate.DuplicateOfClientId == client.Id)
+                {
+                    reasons.Add("Duplicate record");
+                }
+
+                reasons.Add(candidate.LifecycleStatus);
+
+                return new RelatedClientLink(
+                    candidate.Id,
+                    candidate.DisplayName,
+                    candidate.KanaanId,
+                    string.Join(" | ", reasons.Distinct(StringComparer.OrdinalIgnoreCase)));
+            })
+            .ToList();
     }
 
     private List<ClientNote> ActiveNotes => client?.Notes
@@ -1329,4 +1432,6 @@ else
         var values = policies.Select(selector).Where(value => value.HasValue).Select(value => value!.Value).ToList();
         return values.Count == 0 ? null : values.Sum();
     }
+
+    private sealed record RelatedClientLink(int ClientId, string DisplayName, string? KanaanId, string RelationshipSummary);
 }
