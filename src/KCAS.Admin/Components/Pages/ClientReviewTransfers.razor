@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @attribute [Authorize(Policy = KcasPermissions.ComplianceManage)]
 @using System.ComponentModel.DataAnnotations
+@using System.IO.Compression
 @using KCAS.Admin.Data
 @inject ClientReviewTransferService TransferService
 @inject ClientReviewFamilyTransferService FamilyTransferService
@@ -251,8 +252,8 @@
         <h2>2. Preview and apply on live</h2>
         <p class="text-muted">Preview never changes data. Apply is blocked if client, methodology or assessment data conflicts.</p>
         <label>
-            Encrypted package
-            <InputFile class="form-control" OnChange="SelectImportFileAsync" accept=".kcas-review,.kcas-family-review" />
+            Encrypted package or batch ZIP
+            <InputFile class="form-control" OnChange="SelectImportFileAsync" accept=".kcas-review,.kcas-family-review,.zip" />
         </label>
         @if (!string.IsNullOrWhiteSpace(importFileName))
         {
@@ -266,6 +267,60 @@
                 disabled="@(isBusy || importBytes is null)">
             Preview package
         </button>
+
+        @if (batchImportPackages.Count > 0)
+        {
+            <div class="mt-3">
+                <h3>Batch ZIP preview</h3>
+                <p>@batchImportPackages.Count package file(s) found in the ZIP.</p>
+                <div class="form-actions my-2">
+                    <button class="btn btn-link btn-sm px-0" type="button" @onclick="SelectAllBatchImportPackages" disabled="@isBusy">Select all valid</button>
+                    <button class="btn btn-link btn-sm" type="button" @onclick="ClearBatchImportSelection" disabled="@isBusy">Clear</button>
+                </div>
+                @foreach (var package in batchImportPackages)
+                {
+                    <div class="border rounded p-3 mb-2">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox"
+                                   id="@($"batch-import-{package.Key}")"
+                                   checked="@selectedBatchImportKeys.Contains(package.Key)"
+                                   disabled="@(!package.CanApply || isBusy)"
+                                   @onchange="args => ToggleBatchImportPackage(package.Key, args)" />
+                            <label class="form-check-label" for="@($"batch-import-{package.Key}")">
+                                <strong>@package.Label</strong>
+                                <span class="badge @(package.CanApply ? "text-bg-success" : "text-bg-danger")">
+                                    @(package.CanApply ? "Ready" : "Blocked")
+                                </span>
+                                <span class="small text-muted">@package.Kind</span>
+                            </label>
+                        </div>
+                        <div class="small text-muted">@package.FileName</div>
+                        @foreach (var warning in package.Warnings)
+                        {
+                            <div class="alert alert-warning py-1 mt-1 mb-0">@warning</div>
+                        }
+                        @foreach (var conflict in package.Conflicts)
+                        {
+                            <div class="alert alert-danger py-1 mt-1 mb-0">@conflict</div>
+                        }
+                    </div>
+                }
+                <label>
+                    Live import approval reason
+                    <textarea class="form-control" @bind="importReason"></textarea>
+                </label>
+                <div class="form-check my-2">
+                    <input class="form-check-input" type="checkbox" id="confirm-batch-transfer" @bind="confirmApply" />
+                    <label class="form-check-label" for="confirm-batch-transfer">
+                        I confirm the selected ZIP packages match the correct live clients.
+                    </label>
+                </div>
+                <button class="btn btn-primary" type="button" @onclick="ApplyAsync"
+                        disabled="@(isBusy || !confirmApply || selectedBatchImportKeys.Count == 0)">
+                    Apply selected ZIP packages (@selectedBatchImportKeys.Count)
+                </button>
+            </div>
+        }
 
         @if (preview is not null)
         {
@@ -421,6 +476,8 @@
     private ClientReviewTransferPreview? preview;
     private ClientReviewFamilyPreview? familyPreview;
     private HashSet<string> selectedFamilyPackageIds = new(StringComparer.OrdinalIgnoreCase);
+    private List<BatchImportPackageView> batchImportPackages = [];
+    private HashSet<string> selectedBatchImportKeys = new(StringComparer.OrdinalIgnoreCase);
     private bool confirmApply;
     private bool isBusy;
     private bool isError;
@@ -681,6 +738,8 @@
         statusMessage = null;
         preview = null;
         familyPreview = null;
+        batchImportPackages = [];
+        selectedBatchImportKeys.Clear();
         selectedFamilyPackageIds.Clear();
         confirmApply = false;
         var file = args.File;
@@ -688,7 +747,7 @@
         if (file.Size > 100 * 1024 * 1024)
         {
             importBytes = null;
-            ShowError("The package exceeds the 100 MB family-bundle safety limit.");
+            ShowError("The package exceeds the 100 MB transfer upload safety limit.");
             return;
         }
         await using var stream = file.OpenReadStream(100 * 1024 * 1024);
@@ -703,8 +762,18 @@
         {
             preview = null;
             familyPreview = null;
+            batchImportPackages = [];
+            selectedBatchImportKeys.Clear();
             selectedFamilyPackageIds.Clear();
-            if (ClientReviewFamilyTransferService.IsFamilyBundle(importBytes!))
+            if (IsBatchZipImport())
+            {
+                batchImportPackages = await PreviewBatchZipAsync();
+                selectedBatchImportKeys = batchImportPackages
+                    .Where(package => package.CanApply)
+                    .Select(package => package.Key)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            }
+            else if (ClientReviewFamilyTransferService.IsFamilyBundle(importBytes!))
             {
                 familyPreview = await FamilyTransferService.PreviewAsync(
                     importBytes!, importPassphrase ?? "");
@@ -718,10 +787,14 @@
                 preview = await TransferService.PreviewAsync(importBytes!, importPassphrase ?? "");
             }
             confirmApply = false;
-            var canApply = familyPreview?.CanApply ?? preview?.CanApply ?? false;
-            statusMessage = canApply
-                ? "Preview complete. Review the live match before applying."
-                : "Preview complete with conflicts.";
+            var canApply = batchImportPackages.Count > 0
+                ? batchImportPackages.Any(package => package.CanApply)
+                : familyPreview?.CanApply ?? preview?.CanApply ?? false;
+            statusMessage = batchImportPackages.Count > 0
+                ? $"ZIP preview complete. {selectedBatchImportKeys.Count} package(s) are ready to apply."
+                : canApply
+                    ? "Preview complete. Review the live match before applying."
+                    : "Preview complete with conflicts.";
             isError = !canApply;
         });
     }
@@ -730,7 +803,11 @@
     {
         await RunAsync(async user =>
         {
-            if (familyPreview is not null)
+            if (batchImportPackages.Count > 0)
+            {
+                await ApplyBatchZipAsync(user);
+            }
+            else if (familyPreview is not null)
             {
                 var result = await FamilyTransferService.ApplyAsync(
                     importBytes!, importPassphrase ?? "", user, importReason ?? "",
@@ -761,9 +838,158 @@
             }
             preview = null;
             familyPreview = null;
+            batchImportPackages = [];
+            selectedBatchImportKeys.Clear();
             selectedFamilyPackageIds.Clear();
             confirmApply = false;
         });
+    }
+
+    private async Task<List<BatchImportPackageView>> PreviewBatchZipAsync()
+    {
+        using var memory = new MemoryStream(importBytes!);
+        using var archive = new ZipArchive(memory, ZipArchiveMode.Read);
+        var packages = new List<BatchImportPackageView>();
+        foreach (var entry in archive.Entries
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.Name))
+            .OrderBy(entry => entry.FullName, StringComparer.OrdinalIgnoreCase))
+        {
+            var extension = Path.GetExtension(entry.Name);
+            if (!extension.Equals(".kcas-review", StringComparison.OrdinalIgnoreCase) &&
+                !extension.Equals(".kcas-family-review", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            await using var entryStream = entry.Open();
+            using var entryMemory = new MemoryStream();
+            await entryStream.CopyToAsync(entryMemory);
+            var bytes = entryMemory.ToArray();
+            var key = $"zip:{packages.Count + 1}";
+            packages.Add(ClientReviewFamilyTransferService.IsFamilyBundle(bytes)
+                ? await PreviewBatchFamilyPackageAsync(key, entry.Name, bytes)
+                : await PreviewBatchClientPackageAsync(key, entry.Name, bytes));
+        }
+
+        if (packages.Count == 0)
+        {
+            throw new ValidationException("The ZIP does not contain any KCAS review package files.");
+        }
+
+        return packages;
+    }
+
+    private async Task<BatchImportPackageView> PreviewBatchClientPackageAsync(
+        string key,
+        string fileName,
+        byte[] bytes)
+    {
+        try
+        {
+            var packagePreview = await TransferService.PreviewAsync(bytes, importPassphrase ?? "");
+            return new BatchImportPackageView(
+                key,
+                fileName,
+                "Client package",
+                packagePreview.Package.Client.DisplayName,
+                bytes,
+                packagePreview,
+                null,
+                [],
+                []);
+        }
+        catch (ValidationException exception)
+        {
+            return BatchImportPackageView.Blocked(key, fileName, "Client package", exception.Message, bytes);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return BatchImportPackageView.Blocked(key, fileName, "Client package", exception.Message, bytes);
+        }
+    }
+
+    private async Task<BatchImportPackageView> PreviewBatchFamilyPackageAsync(
+        string key,
+        string fileName,
+        byte[] bytes)
+    {
+        try
+        {
+            var packagePreview = await FamilyTransferService.PreviewAsync(bytes, importPassphrase ?? "");
+            var memberPackageIds = packagePreview.Members
+                .Where(member => member.CanApply)
+                .Select(member => member.Manifest.PackageId)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return new BatchImportPackageView(
+                key,
+                fileName,
+                "Family bundle",
+                $"Kanaan ID {packagePreview.Bundle.KanaanId}",
+                bytes,
+                null,
+                packagePreview,
+                memberPackageIds,
+                []);
+        }
+        catch (ValidationException exception)
+        {
+            return BatchImportPackageView.Blocked(key, fileName, "Family bundle", exception.Message, bytes);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return BatchImportPackageView.Blocked(key, fileName, "Family bundle", exception.Message, bytes);
+        }
+    }
+
+    private async Task ApplyBatchZipAsync(string? user)
+    {
+        var selected = batchImportPackages
+            .Where(package => selectedBatchImportKeys.Contains(package.Key))
+            .ToList();
+        var applied = 0;
+        var skipped = 0;
+        var messages = new List<string>();
+        foreach (var package in selected)
+        {
+            if (!package.CanApply)
+            {
+                skipped++;
+                continue;
+            }
+
+            if (package.FamilyPreview is not null)
+            {
+                var result = await FamilyTransferService.ApplyAsync(
+                    package.Bytes,
+                    importPassphrase ?? "",
+                    user,
+                    importReason ?? "",
+                    package.SelectedFamilyPackageIds);
+                var appliedMembers = result.Members.Count(member => member.Status == "Applied");
+                if (appliedMembers > 0)
+                {
+                    applied++;
+                }
+                else
+                {
+                    skipped++;
+                }
+                messages.Add($"{package.Label}: {appliedMembers} family member package(s) applied.");
+                continue;
+            }
+
+            var imported = await TransferService.ApplyAsync(
+                package.Bytes,
+                importPassphrase ?? "",
+                user,
+                importReason ?? "");
+            applied++;
+            messages.Add($"{package.Label}: applied to {imported.ClientDisplayName}.");
+        }
+
+        statusMessage = $"Batch ZIP applied: {applied} package(s) imported" +
+            (skipped > 0 ? $"; {skipped} skipped." : ".") +
+            (messages.Count == 0 ? "" : $" {string.Join(" ", messages)}");
     }
 
     private void ToggleFamilyMember(string packageId, ChangeEventArgs args)
@@ -775,6 +1001,31 @@
         else
         {
             selectedFamilyPackageIds.Remove(packageId);
+        }
+    }
+
+    private void SelectAllBatchImportPackages()
+    {
+        selectedBatchImportKeys = batchImportPackages
+            .Where(package => package.CanApply)
+            .Select(package => package.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private void ClearBatchImportSelection()
+    {
+        selectedBatchImportKeys.Clear();
+    }
+
+    private void ToggleBatchImportPackage(string key, ChangeEventArgs args)
+    {
+        if (args.Value is true)
+        {
+            selectedBatchImportKeys.Add(key);
+        }
+        else
+        {
+            selectedBatchImportKeys.Remove(key);
         }
     }
 
@@ -800,6 +1051,10 @@
         {
             ShowError(ex.Message);
         }
+        catch (InvalidDataException ex)
+        {
+            ShowError(ex.Message);
+        }
         finally
         {
             isBusy = false;
@@ -818,6 +1073,9 @@
     private static string FormatDateTime(DateTime value) =>
         value.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
 
+    private bool IsBatchZipImport() =>
+        importFileName?.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) == true;
+
     private sealed record BatchExportResultView(
         string Label,
         string PackageId,
@@ -825,4 +1083,37 @@
         string StoragePath,
         int ClientId,
         int MemberCount);
+
+    private sealed record BatchImportPackageView(
+        string Key,
+        string FileName,
+        string Kind,
+        string Label,
+        byte[] Bytes,
+        ClientReviewTransferPreview? ClientPreview,
+        ClientReviewFamilyPreview? FamilyPreview,
+        HashSet<string> SelectedFamilyPackageIds,
+        List<string> AdditionalConflicts,
+        List<string>? AdditionalWarnings = null)
+    {
+        public List<string> Conflicts => AdditionalConflicts
+            .Concat(ClientPreview?.Conflicts ?? [])
+            .Concat(FamilyPreview?.Conflicts ?? [])
+            .ToList();
+
+        public List<string> Warnings => (AdditionalWarnings ?? [])
+            .Concat(ClientPreview?.Warnings ?? [])
+            .ToList();
+
+        public bool CanApply => ClientPreview?.CanApply == true ||
+            FamilyPreview is { CanApply: true } && SelectedFamilyPackageIds.Count > 0;
+
+        public static BatchImportPackageView Blocked(
+            string key,
+            string fileName,
+            string kind,
+            string message,
+            byte[] bytes) =>
+            new(key, fileName, kind, fileName, bytes, null, null, [], [message]);
+    }
 }
