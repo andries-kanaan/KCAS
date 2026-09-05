@@ -2007,7 +2007,6 @@ public sealed class ClientReviewTransferService(
     {
         var payload = JsonSerializer.Serialize(new
         {
-            account.LegacyInvestmentAccountId,
             account.InvestmentDate,
             account.SurrenderDate,
             account.Administrator,
@@ -2169,7 +2168,11 @@ public sealed class ClientReviewTransferService(
         var list = accounts.ToList();
         if (legacyInvestmentAccountId.HasValue)
         {
-            return list.SingleOrDefault(item => item.LegacyInvestmentAccountId == legacyInvestmentAccountId.Value);
+            var legacyMatch = list.SingleOrDefault(item => item.LegacyInvestmentAccountId == legacyInvestmentAccountId.Value);
+            if (legacyMatch is not null)
+            {
+                return legacyMatch;
+            }
         }
         var normalized = ClientInvestmentStatusClassifier.NormalizeAccountNumber(accountNumber);
         if (normalized is null)

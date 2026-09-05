@@ -472,6 +472,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         db.ClientRelatedParties.RemoveRange(await db.ClientRelatedParties.Where(item => item.ClientId == client.Id).ToListAsync());
         db.ClientEntityProfiles.RemoveRange(await db.ClientEntityProfiles.Where(item => item.ClientId == client.Id).ToListAsync());
         db.ClientInvestmentReconciliationReviews.RemoveRange(await db.ClientInvestmentReconciliationReviews.Where(item => item.ClientId == client.Id).ToListAsync());
+        account.LegacyInvestmentAccountId = null;
         account.SurrenderDate = null;
         client.ClientCategory = ClientCategories.LegalPerson;
         client.ClientCategorySource = ClientCategorySources.EvidenceScanInferred;
