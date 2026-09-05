@@ -60,6 +60,9 @@
                         Export selected (@selectedBatchGroupKeys.Count)
                     </button>
                 </div>
+                <div class="small text-muted mb-2">
+                    Tick one date result to load it into the Client selector below, or tick more than one to create multiple packages with the same passphrase.
+                </div>
                 <div class="table-responsive">
                     <table class="table table-sm align-middle">
                         <thead>
@@ -78,7 +81,7 @@
                                     <td>
                                         <input class="form-check-input" type="checkbox"
                                                checked="@selectedBatchGroupKeys.Contains(group.GroupKey)"
-                                               @onchange="args => ToggleBatchGroup(group.GroupKey, args)"
+                                               @onchange="args => ToggleBatchGroupAsync(group.GroupKey, args)"
                                                disabled="@isBusy" />
                                     </td>
                                     <td>
@@ -125,6 +128,18 @@
             {
                 <div class="alert alert-success mt-2">
                     <strong>Batch packages created</strong>
+                    @if (batchArchiveResult is not null)
+                    {
+                        <div class="my-2">
+                            <a class="btn btn-primary btn-sm"
+                               href="@($"/compliance/review-transfers/{batchArchiveResult.PackageId}/download")">
+                                Download batch ZIP (@batchArchiveResult.PackageCount packages)
+                            </a>
+                        </div>
+                        <div class="small text-muted mb-2">
+                            @batchArchiveResult.FileName (@batchArchiveResult.SizeBytes.ToString("N0") bytes)
+                        </div>
+                    }
                     @foreach (var result in batchExportResults)
                     {
                         <div>
@@ -150,6 +165,12 @@
                 }
             </datalist>
         </label>
+        @if (selectedBatchGroupKeys.Count > 1)
+        {
+            <div class="text-muted small">
+                @selectedBatchGroupKeys.Count date-result groups are selected. Creating a package will export all selected groups.
+            </div>
+        }
         @if (!string.IsNullOrWhiteSpace(clientSearch))
         {
             <button class="btn btn-link btn-sm px-0" type="button" @onclick="ClearClientSearch">
@@ -194,9 +215,9 @@
             Confirm passphrase
             <input class="form-control" type="password" autocomplete="new-password" @bind="exportPassphraseConfirm" />
         </label>
-        <button class="btn btn-primary" type="button" @onclick="ExportAsync"
-                disabled="@(isBusy || exportClientId == 0)">
-            Create encrypted package
+        <button class="btn btn-primary" type="button" @onclick="ExportCurrentSelectionAsync"
+                disabled="@(isBusy || !HasExportSelection)">
+            @CreatePackageButtonText
         </button>
 
         @if (exportResult is not null)
@@ -392,6 +413,7 @@
     private List<ClientReviewBatchTransferGroup> batchGroups = [];
     private HashSet<string> selectedBatchGroupKeys = new(StringComparer.OrdinalIgnoreCase);
     private List<BatchExportResultView> batchExportResults = [];
+    private ClientReviewBatchArchiveResult? batchArchiveResult;
     private byte[]? importBytes;
     private string? importFileName;
     private string? importPassphrase;
@@ -404,6 +426,11 @@
     private bool isError;
     private string? statusMessage;
     private string BatchCompletedSinceValue => batchCompletedSince.ToString("yyyy-MM-dd");
+    private bool HasBatchSelection => selectedBatchGroupKeys.Count > 0;
+    private bool HasExportSelection => exportClientId > 0 || HasBatchSelection;
+    private string CreatePackageButtonText => selectedBatchGroupKeys.Count > 1
+        ? $"Create encrypted packages ({selectedBatchGroupKeys.Count})"
+        : "Create encrypted package";
 
     protected override async Task OnParametersSetAsync()
     {
@@ -443,24 +470,27 @@
             batchGroups = await TransferService.LoadBatchCandidatesAsync(batchCompletedSince);
             selectedBatchGroupKeys = batchGroups.Select(group => group.GroupKey)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            await SyncExportSelectionFromBatchAsync();
             statusMessage = batchGroups.Count == 0
                 ? "No finalised or approved client assessments were completed on or after the selected date."
                 : $"Found {batchGroups.Count} transfer group(s) completed on or after {batchCompletedSince:yyyy-MM-dd}.";
         });
     }
 
-    private void SelectAllBatchGroups()
+    private async Task SelectAllBatchGroups()
     {
         selectedBatchGroupKeys = batchGroups.Select(group => group.GroupKey)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        await SyncExportSelectionFromBatchAsync();
     }
 
-    private void ClearBatchSelection()
+    private async Task ClearBatchSelection()
     {
         selectedBatchGroupKeys.Clear();
+        await SyncExportSelectionFromBatchAsync();
     }
 
-    private void ToggleBatchGroup(string groupKey, ChangeEventArgs args)
+    private async Task ToggleBatchGroupAsync(string groupKey, ChangeEventArgs args)
     {
         if (args.Value is true)
         {
@@ -469,6 +499,41 @@
         else
         {
             selectedBatchGroupKeys.Remove(groupKey);
+        }
+        await SyncExportSelectionFromBatchAsync();
+    }
+
+    private async Task SyncExportSelectionFromBatchAsync()
+    {
+        if (selectedBatchGroupKeys.Count == 0)
+        {
+            exportClientId = 0;
+            clientSearch = null;
+            selectedFamily = null;
+            exportAsFamily = false;
+            return;
+        }
+
+        if (selectedBatchGroupKeys.Count == 1)
+        {
+            var group = batchGroups.FirstOrDefault(group => selectedBatchGroupKeys.Contains(group.GroupKey));
+            if (group is not null)
+            {
+                exportClientId = group.AnchorClientId;
+                var selected = clients.FirstOrDefault(client => client.Id == exportClientId);
+                clientSearch = selected is null ? group.Label : ClientOptionValue(selected);
+                await LoadSelectedFamilyAsync();
+                exportAsFamily = group.CanExportFamilyBundle;
+                return;
+            }
+        }
+
+        if (selectedBatchGroupKeys.Count > 1)
+        {
+            exportClientId = 0;
+            clientSearch = null;
+            selectedFamily = null;
+            exportAsFamily = false;
         }
     }
 
@@ -485,6 +550,7 @@
             exportResult = null;
             familyExportResult = null;
             batchExportResults = [];
+            batchArchiveResult = null;
             foreach (var group in batchGroups.Where(group => selectedBatchGroupKeys.Contains(group.GroupKey)))
             {
                 if (group.CanExportFamilyBundle)
@@ -496,6 +562,7 @@
                         exported.PackageId,
                         exported.FileName,
                         exported.StoragePath,
+                        group.AnchorClientId,
                         exported.MemberCount));
                     continue;
                 }
@@ -509,10 +576,26 @@
                         exported.PackageId,
                         exported.FileName,
                         exported.StoragePath,
+                        member.ClientId,
                         1));
                 }
             }
-            statusMessage = $"Created {batchExportResults.Count} encrypted transfer package(s).";
+            if (batchExportResults.Count > 0)
+            {
+                batchArchiveResult = await TransferService.CreateBatchArchiveAsync(
+                    batchExportResults.Select(result => new ClientReviewBatchArchiveItem(
+                        result.Label,
+                        result.PackageId,
+                        result.FileName,
+                        result.StoragePath,
+                        result.ClientId,
+                        result.MemberCount)).ToList(),
+                    user,
+                    exportReason ?? "");
+            }
+            statusMessage = batchArchiveResult is null
+                ? $"Created {batchExportResults.Count} encrypted transfer package(s)."
+                : $"Created {batchExportResults.Count} encrypted transfer package(s) and one batch ZIP.";
         });
     }
 
@@ -524,6 +607,7 @@
         var selectedId = selected?.Id ?? 0;
         if (selectedId != exportClientId)
         {
+            selectedBatchGroupKeys.Clear();
             exportClientId = selectedId;
             await LoadSelectedFamilyAsync();
         }
@@ -533,6 +617,7 @@
     {
         clientSearch = null;
         exportClientId = 0;
+        selectedBatchGroupKeys.Clear();
         await LoadSelectedFamilyAsync();
     }
 
@@ -551,6 +636,17 @@
         return $"{displayName} {surname}";
     }
 
+    private async Task ExportCurrentSelectionAsync()
+    {
+        if (selectedBatchGroupKeys.Count > 1)
+        {
+            await ExportSelectedBatchAsync();
+            return;
+        }
+
+        await ExportAsync();
+    }
+
     private async Task ExportAsync()
     {
         if (exportPassphrase != exportPassphraseConfirm)
@@ -560,11 +656,13 @@
         }
         await RunAsync(async user =>
         {
-            exportResult = null;
-            familyExportResult = null;
-            if (exportAsFamily)
-            {
-                familyExportResult = await FamilyTransferService.ExportAsync(
+        exportResult = null;
+        familyExportResult = null;
+        batchArchiveResult = null;
+        batchExportResults = [];
+        if (exportAsFamily)
+        {
+            familyExportResult = await FamilyTransferService.ExportAsync(
                     exportClientId, exportPassphrase ?? "", user, exportReason ?? "");
                 statusMessage =
                     $"Encrypted family bundle created with {familyExportResult.MemberCount} client packages.";
@@ -725,5 +823,6 @@
         string PackageId,
         string FileName,
         string StoragePath,
+        int ClientId,
         int MemberCount);
 }

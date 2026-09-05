@@ -500,9 +500,9 @@ public sealed class ClientReviewFamilyTransferService(
 
     private static void ValidatePassphrase(string passphrase)
     {
-        if (string.IsNullOrWhiteSpace(passphrase) || passphrase.Length < 12)
+        if (string.IsNullOrWhiteSpace(passphrase) || passphrase.Length < 7)
         {
-            throw new ValidationException("Use a package passphrase of at least 12 characters.");
+            throw new ValidationException("Use a package passphrase of at least 7 characters.");
         }
     }
 

@@ -639,8 +639,8 @@ public sealed class GoAmlTransferService(
 
     private static void ValidatePassphrase(string passphrase)
     {
-        if (string.IsNullOrWhiteSpace(passphrase) || passphrase.Length < 12)
-            throw new ValidationException("Use a package passphrase of at least 12 characters.");
+        if (string.IsNullOrWhiteSpace(passphrase) || passphrase.Length < 7)
+            throw new ValidationException("Use a package passphrase of at least 7 characters.");
     }
 
     private static string Require(string? value, string message) =>
