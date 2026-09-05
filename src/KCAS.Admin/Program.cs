@@ -280,9 +280,12 @@ app.MapGet("/compliance/review-transfers/{packageId}/download", async Task<IResu
         return Results.NotFound();
     }
 
+    var contentType = record.FileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
+        ? "application/zip"
+        : "application/vnd.kcas.client-review";
     return Results.File(
         record.StoragePath,
-        "application/vnd.kcas.client-review",
+        contentType,
         record.FileName);
 }).RequireAuthorization(KcasPermissions.ComplianceManage);
 

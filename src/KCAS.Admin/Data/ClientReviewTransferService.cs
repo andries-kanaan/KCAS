@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -227,6 +228,99 @@ public sealed class ClientReviewTransferService(
             path,
             payload.EncryptedPackage.Length,
             payload.ContentSha256);
+    }
+
+    public async Task<ClientReviewBatchArchiveResult> CreateBatchArchiveAsync(
+        IReadOnlyCollection<ClientReviewBatchArchiveItem> packages,
+        string? userName,
+        string reason,
+        CancellationToken cancellationToken = default)
+    {
+        var user = Require(userName, "A signed-in exporter is required.");
+        reason = Require(reason, "An export reason is required.");
+        if (packages.Count == 0)
+        {
+            throw new ValidationException("Select at least one package to archive.");
+        }
+        foreach (var package in packages)
+        {
+            if (!File.Exists(package.StoragePath))
+            {
+                throw new FileNotFoundException("A generated transfer package could not be found.", package.StoragePath);
+            }
+        }
+
+        var createdAtUtc = DateTime.UtcNow;
+        var archiveId = Guid.NewGuid().ToString("D");
+        var archiveToken = archiveId.Replace("-", "")[..12];
+        var directory = Path.Combine(StorageRoot, "outgoing");
+        Directory.CreateDirectory(directory);
+        var fileName = $"KCAS-review-batch-{createdAtUtc:yyyyMMdd}-{archiveToken}.zip";
+        var path = Path.Combine(directory, fileName);
+
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+        }
+
+        var entryNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+        {
+            foreach (var package in packages)
+            {
+                var entryName = UniqueZipEntryName(package.FileName, entryNames);
+                archive.CreateEntryFromFile(package.StoragePath, entryName, CompressionLevel.NoCompression);
+            }
+        }
+
+        var contentSha256 = await Sha256FileAsync(path, cancellationToken);
+        var summary = JsonSerializer.Serialize(new
+        {
+            ArchiveId = archiveId,
+            CreatedAtUtc = createdAtUtc,
+            ExportedBy = user,
+            ExportReason = reason,
+            PackageCount = packages.Count,
+            Packages = packages.Select(package => new
+            {
+                package.PackageId,
+                package.FileName,
+                package.Label,
+                package.MemberCount
+            })
+        }, JsonOptions);
+
+        var record = new ClientReviewTransferRecord
+        {
+            PackageId = archiveId,
+            Direction = ClientReviewTransferDirections.Outgoing,
+            ContentSha256 = contentSha256,
+            ClientId = packages.First().ClientId,
+            Status = ClientReviewTransferStatuses.Exported,
+            FileName = fileName,
+            StoragePath = path,
+            SummaryJson = summary
+        };
+        db.ClientReviewTransferRecords.Add(record);
+        await db.SaveChangesAsync(cancellationToken);
+        db.ComplianceAuditEvents.Add(new ComplianceAuditEvent
+        {
+            EntityType = nameof(ClientReviewTransferRecord),
+            EntityId = checked((int)record.Id),
+            Action = "ClientReviewBatchArchiveExported",
+            NewValueJson = summary,
+            UserName = user,
+            Reason = reason
+        });
+        await db.SaveChangesAsync(cancellationToken);
+
+        return new ClientReviewBatchArchiveResult(
+            archiveId,
+            fileName,
+            path,
+            new FileInfo(path).Length,
+            contentSha256,
+            packages.Count);
     }
 
     internal async Task<ClientReviewEmbeddedExport> CreateEmbeddedExportAsync(
@@ -2036,6 +2130,36 @@ public sealed class ClientReviewTransferService(
             ? EvidenceKey(item)
             : $"sha256:{item.FileSha256.Trim().ToLowerInvariant()}";
 
+    private static string UniqueZipEntryName(string fileName, HashSet<string> usedNames)
+    {
+        var safeName = Path.GetFileName(fileName);
+        if (string.IsNullOrWhiteSpace(safeName))
+        {
+            safeName = "package.kcas-review";
+        }
+
+        var candidate = safeName;
+        var extension = Path.GetExtension(safeName);
+        var stem = Path.GetFileNameWithoutExtension(safeName);
+        var suffix = 2;
+        while (!usedNames.Add(candidate))
+        {
+            candidate = $"{stem}-{suffix}{extension}";
+            suffix++;
+        }
+
+        return candidate;
+    }
+
+    private static async Task<string> Sha256FileAsync(
+        string path,
+        CancellationToken cancellationToken)
+    {
+        await using var stream = File.OpenRead(path);
+        var hash = await SHA256.HashDataAsync(stream, cancellationToken);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
     private static ClientInvestmentAccount? MatchInvestmentAccount(
         IEnumerable<ClientInvestmentAccount> accounts,
         int? legacyInvestmentAccountId,
@@ -2071,9 +2195,9 @@ public sealed class ClientReviewTransferService(
 
     private static void ValidatePassphrase(string passphrase)
     {
-        if (string.IsNullOrWhiteSpace(passphrase) || passphrase.Length < 12)
+        if (string.IsNullOrWhiteSpace(passphrase) || passphrase.Length < 7)
         {
-            throw new ValidationException("Use a package passphrase of at least 12 characters.");
+            throw new ValidationException("Use a package passphrase of at least 7 characters.");
         }
     }
 
@@ -2362,6 +2486,22 @@ public sealed record ClientReviewExportResult(
     string StoragePath,
     long SizeBytes,
     string ContentSha256);
+
+public sealed record ClientReviewBatchArchiveItem(
+    string Label,
+    string PackageId,
+    string FileName,
+    string StoragePath,
+    int ClientId,
+    int MemberCount);
+
+public sealed record ClientReviewBatchArchiveResult(
+    string PackageId,
+    string FileName,
+    string StoragePath,
+    long SizeBytes,
+    string ContentSha256,
+    int PackageCount);
 
 public sealed record ClientReviewTransferClientOption(
     int Id,
