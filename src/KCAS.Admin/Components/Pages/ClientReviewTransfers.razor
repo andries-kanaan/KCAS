@@ -31,6 +31,111 @@
     <article class="detail-panel form-panel">
         <h2>1. Export completed review</h2>
         <p class="text-muted">Only a finalised or approved client assessment can be exported.</p>
+        <div class="border rounded p-3 mb-3">
+            <div class="section-heading-row">
+                <div>
+                    <h3>Batch export</h3>
+                    <p class="text-muted mb-0">Find completed assessments by date and export them as family bundles or individual packages.</p>
+                </div>
+            </div>
+            <div class="import-grid">
+                <label>
+                    Completed since
+                    <input class="form-control" type="date" value="@BatchCompletedSinceValue"
+                           @onchange="BatchCompletedSinceChangedAsync" disabled="@isBusy" />
+                </label>
+                <div class="form-actions align-self-end">
+                    <button class="btn btn-outline-primary" type="button" @onclick="LoadBatchCandidatesAsync" disabled="@isBusy">
+                        List clients to transfer
+                    </button>
+                </div>
+            </div>
+            @if (batchGroups.Count > 0)
+            {
+                <div class="form-actions my-2">
+                    <button class="btn btn-link btn-sm px-0" type="button" @onclick="SelectAllBatchGroups" disabled="@isBusy">Select all</button>
+                    <button class="btn btn-link btn-sm" type="button" @onclick="ClearBatchSelection" disabled="@isBusy">Clear</button>
+                    <button class="btn btn-primary btn-sm" type="button" @onclick="ExportSelectedBatchAsync"
+                            disabled="@(isBusy || selectedBatchGroupKeys.Count == 0)">
+                        Export selected (@selectedBatchGroupKeys.Count)
+                    </button>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th>Transfer</th>
+                                <th>Group</th>
+                                <th>Completed</th>
+                                <th>Included</th>
+                                <th>Excluded</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var group in batchGroups)
+                            {
+                                <tr>
+                                    <td>
+                                        <input class="form-check-input" type="checkbox"
+                                               checked="@selectedBatchGroupKeys.Contains(group.GroupKey)"
+                                               @onchange="args => ToggleBatchGroup(group.GroupKey, args)"
+                                               disabled="@isBusy" />
+                                    </td>
+                                    <td>
+                                        <strong>@group.Label</strong>
+                                        <div class="small text-muted">
+                                            @(group.CanExportFamilyBundle ? "Family bundle" : "Single-client package")
+                                        </div>
+                                    </td>
+                                    <td>@FormatDateTime(group.LatestCompletedAtUtc)</td>
+                                    <td>
+                                        @foreach (var member in group.Members.Where(member => member.HasCompletedAssessment))
+                                        {
+                                            <div>
+                                                @member.FullName
+                                                <span class="badge text-bg-secondary">@Display(member.FinalRating)</span>
+                                                <span class="small text-muted">@member.AssessmentStatus · @member.LifecycleStatus</span>
+                                                @if (member.IsEligibleByDate)
+                                                {
+                                                    <span class="badge text-bg-success">since date</span>
+                                                }
+                                            </div>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (group.ExcludedMemberCount == 0)
+                                        {
+                                            <span class="text-muted">None</span>
+                                        }
+                                        else
+                                        {
+                                            @foreach (var member in group.Members.Where(member => !member.HasCompletedAssessment))
+                                            {
+                                                <div class="small text-muted">@member.FullName — incomplete</div>
+                                            }
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            @if (batchExportResults.Count > 0)
+            {
+                <div class="alert alert-success mt-2">
+                    <strong>Batch packages created</strong>
+                    @foreach (var result in batchExportResults)
+                    {
+                        <div>
+                            @result.Label:
+                            <a href="@($"/compliance/review-transfers/{result.PackageId}/download")">@result.FileName</a>
+                            <span class="small text-muted">(@result.MemberCount client@(result.MemberCount == 1 ? "" : "s"))</span>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
         <label>
             Client
             <input class="form-control" type="text" name="kcas-review-client-combobox"
@@ -283,6 +388,10 @@
     private string? exportPassphraseConfirm;
     private ClientReviewExportResult? exportResult;
     private ClientReviewFamilyExportResult? familyExportResult;
+    private DateOnly batchCompletedSince = DateOnly.FromDateTime(DateTime.Today.AddDays(-30));
+    private List<ClientReviewBatchTransferGroup> batchGroups = [];
+    private HashSet<string> selectedBatchGroupKeys = new(StringComparer.OrdinalIgnoreCase);
+    private List<BatchExportResultView> batchExportResults = [];
     private byte[]? importBytes;
     private string? importFileName;
     private string? importPassphrase;
@@ -294,6 +403,7 @@
     private bool isBusy;
     private bool isError;
     private string? statusMessage;
+    private string BatchCompletedSinceValue => batchCompletedSince.ToString("yyyy-MM-dd");
 
     protected override async Task OnParametersSetAsync()
     {
@@ -314,6 +424,96 @@
         selectedFamily = exportClientId > 0
             ? await FamilyTransferService.LoadFamilyAsync(exportClientId)
             : null;
+    }
+
+    private async Task BatchCompletedSinceChangedAsync(ChangeEventArgs args)
+    {
+        if (DateOnly.TryParse(args.Value?.ToString(), out var parsed))
+        {
+            batchCompletedSince = parsed;
+        }
+        await LoadBatchCandidatesAsync();
+    }
+
+    private async Task LoadBatchCandidatesAsync()
+    {
+        await RunAsync(async _ =>
+        {
+            batchExportResults = [];
+            batchGroups = await TransferService.LoadBatchCandidatesAsync(batchCompletedSince);
+            selectedBatchGroupKeys = batchGroups.Select(group => group.GroupKey)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            statusMessage = batchGroups.Count == 0
+                ? "No finalised or approved client assessments were completed on or after the selected date."
+                : $"Found {batchGroups.Count} transfer group(s) completed on or after {batchCompletedSince:yyyy-MM-dd}.";
+        });
+    }
+
+    private void SelectAllBatchGroups()
+    {
+        selectedBatchGroupKeys = batchGroups.Select(group => group.GroupKey)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private void ClearBatchSelection()
+    {
+        selectedBatchGroupKeys.Clear();
+    }
+
+    private void ToggleBatchGroup(string groupKey, ChangeEventArgs args)
+    {
+        if (args.Value is true)
+        {
+            selectedBatchGroupKeys.Add(groupKey);
+        }
+        else
+        {
+            selectedBatchGroupKeys.Remove(groupKey);
+        }
+    }
+
+    private async Task ExportSelectedBatchAsync()
+    {
+        if (exportPassphrase != exportPassphraseConfirm)
+        {
+            ShowError("The export passphrases do not match.");
+            return;
+        }
+
+        await RunAsync(async user =>
+        {
+            exportResult = null;
+            familyExportResult = null;
+            batchExportResults = [];
+            foreach (var group in batchGroups.Where(group => selectedBatchGroupKeys.Contains(group.GroupKey)))
+            {
+                if (group.CanExportFamilyBundle)
+                {
+                    var exported = await FamilyTransferService.ExportAsync(
+                        group.AnchorClientId, exportPassphrase ?? "", user, exportReason ?? "");
+                    batchExportResults.Add(new BatchExportResultView(
+                        group.Label,
+                        exported.PackageId,
+                        exported.FileName,
+                        exported.StoragePath,
+                        exported.MemberCount));
+                    continue;
+                }
+
+                foreach (var member in group.Members.Where(member => member.IsEligibleByDate))
+                {
+                    var exported = await TransferService.ExportAsync(
+                        member.ClientId, exportPassphrase ?? "", user, exportReason ?? "");
+                    batchExportResults.Add(new BatchExportResultView(
+                        member.FullName,
+                        exported.PackageId,
+                        exported.FileName,
+                        exported.StoragePath,
+                        1));
+                }
+            }
+            statusMessage = $"Created {batchExportResults.Count} encrypted transfer package(s).";
+        });
     }
 
     private async Task ClientSearchChangedAsync(ChangeEventArgs args)
@@ -516,4 +716,14 @@
 
     private static string Display(string? value) =>
         string.IsNullOrWhiteSpace(value) ? "Not captured" : value;
+
+    private static string FormatDateTime(DateTime value) =>
+        value.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+
+    private sealed record BatchExportResultView(
+        string Label,
+        string PackageId,
+        string FileName,
+        string StoragePath,
+        int MemberCount);
 }

@@ -39,6 +39,146 @@ public sealed class ClientReviewTransferService(
                 client.LifecycleStatus))
             .ToListAsync(cancellationToken);
 
+    public async Task<List<ClientReviewBatchTransferGroup>> LoadBatchCandidatesAsync(
+        DateOnly completedSince,
+        CancellationToken cancellationToken = default)
+    {
+        var sinceUtc = completedSince.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+        var completedClients = await db.Clients.AsNoTracking()
+            .Where(client => client.RiskAssessments.Any(assessment =>
+                (assessment.Status == ClientRiskAssessmentStatuses.Finalised ||
+                 assessment.Status == ClientRiskAssessmentStatuses.Approved) &&
+                ((assessment.ApprovedAtUtc ?? assessment.FinalisedAtUtc) ?? assessment.UpdatedAtUtc) >= sinceUtc))
+            .Select(client => new
+            {
+                client.Id,
+                client.LegacyClientId,
+                client.KanaanId,
+                client.DisplayName,
+                client.SurnameOrEntityName,
+                client.LifecycleStatus,
+                Assessment = client.RiskAssessments
+                    .Where(assessment =>
+                        assessment.Status == ClientRiskAssessmentStatuses.Finalised ||
+                        assessment.Status == ClientRiskAssessmentStatuses.Approved)
+                    .OrderByDescending(assessment => (assessment.ApprovedAtUtc ?? assessment.FinalisedAtUtc) ?? assessment.UpdatedAtUtc)
+                    .ThenByDescending(assessment => assessment.Id)
+                    .Select(assessment => new
+                    {
+                        assessment.Status,
+                        assessment.FinalRating,
+                        CompletedAtUtc = (assessment.ApprovedAtUtc ?? assessment.FinalisedAtUtc) ?? assessment.UpdatedAtUtc
+                    })
+                    .FirstOrDefault()
+            })
+            .ToListAsync(cancellationToken);
+
+        var familyIds = completedClients
+            .Select(client => client.KanaanId)
+            .Where(kanaanId => !string.IsNullOrWhiteSpace(kanaanId))
+            .Select(kanaanId => kanaanId!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var familyMembers = familyIds.Count == 0
+            ? []
+            : (await db.Clients.AsNoTracking()
+                .Where(client => client.KanaanId != null && client.KanaanId != "")
+                .Select(client => new
+                {
+                    client.Id,
+                    client.LegacyClientId,
+                    client.KanaanId,
+                    client.DisplayName,
+                    client.SurnameOrEntityName,
+                    client.LifecycleStatus,
+                    Assessment = client.RiskAssessments
+                        .Where(assessment =>
+                            assessment.Status == ClientRiskAssessmentStatuses.Finalised ||
+                            assessment.Status == ClientRiskAssessmentStatuses.Approved)
+                        .OrderByDescending(assessment => (assessment.ApprovedAtUtc ?? assessment.FinalisedAtUtc) ?? assessment.UpdatedAtUtc)
+                        .ThenByDescending(assessment => assessment.Id)
+                        .Select(assessment => new
+                        {
+                            assessment.Status,
+                            assessment.FinalRating,
+                            CompletedAtUtc = (assessment.ApprovedAtUtc ?? assessment.FinalisedAtUtc) ?? assessment.UpdatedAtUtc
+                        })
+                        .FirstOrDefault()
+                })
+                .ToListAsync(cancellationToken))
+                .Where(client => familyIds.Contains(client.KanaanId!, StringComparer.OrdinalIgnoreCase))
+                .ToList();
+
+        var groups = new List<ClientReviewBatchTransferGroup>();
+        var familyKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var familyId in familyIds.OrderBy(value => value, StringComparer.OrdinalIgnoreCase))
+        {
+            var members = familyMembers
+                .Where(member => string.Equals(member.KanaanId, familyId, StringComparison.OrdinalIgnoreCase))
+                .Select(member => new ClientReviewBatchTransferMember(
+                    member.Id,
+                    member.LegacyClientId,
+                    member.DisplayName,
+                    member.SurnameOrEntityName,
+                    member.LifecycleStatus,
+                    member.Assessment?.Status,
+                    member.Assessment?.FinalRating,
+                    member.Assessment?.CompletedAtUtc,
+                    member.Assessment?.CompletedAtUtc >= sinceUtc))
+                .OrderBy(member => member.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var triggerMembers = members.Where(member => member.IsEligibleByDate).ToList();
+            if (triggerMembers.Count == 0)
+            {
+                continue;
+            }
+
+            var completedMemberCount = members.Count(member => member.HasCompletedAssessment);
+            groups.Add(new ClientReviewBatchTransferGroup(
+                $"family:{familyId}",
+                familyId,
+                triggerMembers.Min(member => member.ClientId),
+                members.Count > 1,
+                completedMemberCount >= 2,
+                triggerMembers.Max(member => member.CompletedAtUtc)!.Value,
+                members));
+            familyKeys.Add(familyId);
+        }
+
+        foreach (var client in completedClients
+            .Where(client => string.IsNullOrWhiteSpace(client.KanaanId) || !familyKeys.Contains(client.KanaanId))
+            .OrderBy(client => client.DisplayName, StringComparer.OrdinalIgnoreCase))
+        {
+            if (client.Assessment is null)
+            {
+                continue;
+            }
+            var member = new ClientReviewBatchTransferMember(
+                client.Id,
+                client.LegacyClientId,
+                client.DisplayName,
+                client.SurnameOrEntityName,
+                client.LifecycleStatus,
+                client.Assessment.Status,
+                client.Assessment.FinalRating,
+                client.Assessment.CompletedAtUtc,
+                true);
+            groups.Add(new ClientReviewBatchTransferGroup(
+                $"client:{client.Id}",
+                null,
+                client.Id,
+                false,
+                false,
+                client.Assessment.CompletedAtUtc,
+                [member]));
+        }
+
+        return groups
+            .OrderByDescending(group => group.LatestCompletedAtUtc)
+            .ThenBy(group => group.Label, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     public async Task<ClientReviewExportResult> ExportAsync(
         int clientId,
         string passphrase,
@@ -2230,6 +2370,49 @@ public sealed record ClientReviewTransferClientOption(
     string DisplayName,
     string? SurnameOrEntityName,
     string LifecycleStatus);
+
+public sealed record ClientReviewBatchTransferGroup(
+    string GroupKey,
+    string? KanaanId,
+    int AnchorClientId,
+    bool IsFamilyGroup,
+    bool CanExportFamilyBundle,
+    DateTime LatestCompletedAtUtc,
+    List<ClientReviewBatchTransferMember> Members)
+{
+    public string Label => IsFamilyGroup && !string.IsNullOrWhiteSpace(KanaanId)
+        ? $"Kanaan ID {KanaanId}"
+        : Members.FirstOrDefault()?.FullName ?? "Client";
+    public int IncludedMemberCount => Members.Count(member => member.HasCompletedAssessment);
+    public int EligibleSinceCount => Members.Count(member => member.IsEligibleByDate);
+    public int ExcludedMemberCount => Members.Count(member => !member.HasCompletedAssessment);
+}
+
+public sealed record ClientReviewBatchTransferMember(
+    int ClientId,
+    int? LegacyClientId,
+    string DisplayName,
+    string? SurnameOrEntityName,
+    string LifecycleStatus,
+    string? AssessmentStatus,
+    string? FinalRating,
+    DateTime? CompletedAtUtc,
+    bool IsEligibleByDate)
+{
+    public bool HasCompletedAssessment => CompletedAtUtc.HasValue;
+    public string FullName
+    {
+        get
+        {
+            var displayName = DisplayName.Trim();
+            var surname = SurnameOrEntityName?.Trim();
+            return string.IsNullOrWhiteSpace(surname) ||
+                string.Equals(displayName, surname, StringComparison.OrdinalIgnoreCase)
+                    ? displayName
+                    : $"{displayName} {surname}";
+        }
+    }
+}
 
 internal sealed record ClientReviewEmbeddedExport(
     ClientReviewPackage Package,

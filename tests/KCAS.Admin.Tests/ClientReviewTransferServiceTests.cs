@@ -634,6 +634,70 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
     }
 
     [Fact]
+    public async Task Batch_candidates_group_completed_assessments_since_date()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var transferService = scope.ServiceProvider.GetRequiredService<ClientReviewTransferService>();
+        var readiness = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        await readiness.LoadDashboardAsync();
+        var methodology = await db.RiskMethodologyVersions
+            .Include(item => item.Factors).ThenInclude(item => item.Options)
+            .Where(item => item.Status == ComplianceStatuses.Review ||
+                           item.Status == ComplianceStatuses.Approved ||
+                           item.Status == ComplianceStatuses.Active)
+            .OrderByDescending(item => item.Id)
+            .FirstAsync();
+        var requirements = await db.ClientEvidenceRequirements
+            .Where(item => item.Status == ClientEvidenceRequirementStatuses.Active &&
+                (item.ClientCategory == "All" || item.ClientCategory == ClientCategories.NaturalPerson))
+            .ToListAsync();
+        var since = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-7));
+        var afterSince = DateTime.UtcNow.AddDays(-1);
+        var beforeSince = DateTime.UtcNow.AddDays(-20);
+        var familyId = $"BATCH-{Guid.NewGuid():N}"[..30];
+        var legacySeed = Random.Shared.Next(2_100_001, 2_200_000);
+        var recentFamily = ReviewedNaturalPerson(
+            legacySeed, familyId, "Batch Family Recent", 'e', methodology, requirements);
+        recentFamily.RiskAssessments.Single().FinalisedAtUtc = afterSince;
+        var olderFamily = ReviewedNaturalPerson(
+            legacySeed + 1, familyId, "Batch Family Older", 'f', methodology, requirements);
+        olderFamily.RiskAssessments.Single().FinalisedAtUtc = beforeSince;
+        var excludedFamily = new Client
+        {
+            LegacyClientId = legacySeed + 2,
+            KanaanId = familyId,
+            DisplayName = "Batch Family Pending",
+            SurnameOrEntityName = "Batch Family Pending",
+            ClientCategory = ClientCategories.NaturalPerson,
+            LifecycleStatus = ClientLifecycleStatuses.Unreviewed
+        };
+        var standalone = ReviewedNaturalPerson(
+            legacySeed + 3, "", "Batch Standalone Recent", 'a', methodology, requirements);
+        standalone.RiskAssessments.Single().FinalisedAtUtc = afterSince;
+        var tooOld = ReviewedNaturalPerson(
+            legacySeed + 4, "", "Batch Standalone Old", 'b', methodology, requirements);
+        tooOld.RiskAssessments.Single().FinalisedAtUtc = beforeSince;
+        db.Clients.AddRange(recentFamily, olderFamily, excludedFamily, standalone, tooOld);
+        await db.SaveChangesAsync();
+
+        var groups = await transferService.LoadBatchCandidatesAsync(since);
+
+        var family = groups.Single(group => group.KanaanId == familyId);
+        Assert.True(family.IsFamilyGroup);
+        Assert.True(family.CanExportFamilyBundle);
+        Assert.Equal(2, family.IncludedMemberCount);
+        Assert.Equal(1, family.EligibleSinceCount);
+        Assert.Equal(1, family.ExcludedMemberCount);
+        Assert.Contains(family.Members, member => member.DisplayName == "Batch Family Older" && !member.IsEligibleByDate);
+
+        var standaloneGroup = groups.Single(group => group.Members.Any(member => member.ClientId == standalone.Id));
+        Assert.False(standaloneGroup.IsFamilyGroup);
+        Assert.False(standaloneGroup.CanExportFamilyBundle);
+        Assert.DoesNotContain(groups, group => group.Members.Any(member => member.ClientId == tooOld.Id));
+    }
+
+    [Fact]
     public void Client_folder_mapping_preserves_relative_path_and_uses_active_live_drive()
     {
         Assert.Equal(
