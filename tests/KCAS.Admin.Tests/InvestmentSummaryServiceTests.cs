@@ -372,5 +372,13 @@ public sealed class InvestmentSummaryServiceTests(KcasWebApplicationFactory fact
         Assert.Contains("Moriah Global", csv);
         Assert.Contains("10000.00", csv);
         Assert.Contains("200000.00", csv);
+
+        var pdf = Encoding.ASCII.GetString(await service.ExportPdfAsync(
+            new InvestmentSummaryQuery(ClientId: primary.Id)));
+        Assert.StartsWith("%PDF-1.4", pdf);
+        Assert.Contains("KCAS Investment Summary Report", pdf);
+        Assert.Contains("IS Primary Client", pdf);
+        Assert.Contains("Moriah Global", pdf);
+        Assert.Contains("%%EOF", pdf);
     }
 }
