@@ -204,37 +204,25 @@ app.MapGet("/investments/summary.csv", async Task<IResult> (
     InvestmentSummaryService investments,
     CancellationToken cancellationToken) =>
 {
-    var values = context.Request.Query;
-    var clientId = int.TryParse(values["clientId"], out var parsedClientId)
-        ? parsedClientId
-        : (int?)null;
-    var sortDescending = bool.TryParse(values["sortDescending"], out var parsedSortDescending) &&
-                         parsedSortDescending;
-    var staleAfterDays = int.TryParse(values["staleAfterDays"], out var parsedStaleAfterDays)
-        ? Math.Clamp(parsedStaleAfterDays, 1, 3650)
-        : 90;
-    var scope = values["scope"].ToString();
-    if (scope is not (InvestmentSummaryScopes.Current or InvestmentSummaryScopes.Historical or InvestmentSummaryScopes.All))
-    {
-        scope = InvestmentSummaryScopes.Current;
-    }
-
-    var query = new InvestmentSummaryQuery(
-        ClientId: clientId,
-        KanaanId: values["kanaanId"],
-        Search: values["search"],
-        LifecycleStatus: values["lifecycleStatus"],
-        FundName: values["fundName"],
-        Administrator: values["administrator"],
-        Scope: scope,
-        SortColumn: string.IsNullOrWhiteSpace(values["sortColumn"]) ? "client" : values["sortColumn"].ToString(),
-        SortDescending: sortDescending,
-        StaleAfterDays: staleAfterDays);
+    var query = ParseInvestmentSummaryQuery(context.Request.Query);
     var csv = await investments.ExportCsvAsync(query, cancellationToken);
     return Results.File(
         csv,
         "text/csv; charset=utf-8",
         $"KCAS-investment-summary-{DateTime.Today:yyyy-MM-dd}.csv");
+}).RequireAuthorization(KcasPermissions.InvestmentsView);
+
+app.MapGet("/investments/summary.pdf", async Task<IResult> (
+    HttpContext context,
+    InvestmentSummaryService investments,
+    CancellationToken cancellationToken) =>
+{
+    var query = ParseInvestmentSummaryQuery(context.Request.Query);
+    var pdf = await investments.ExportPdfAsync(query, cancellationToken);
+    return Results.File(
+        pdf,
+        "application/pdf",
+        $"KCAS-investment-summary-{DateTime.Today:yyyy-MM-dd}.pdf");
 }).RequireAuthorization(KcasPermissions.InvestmentsView);
 
 app.MapGet("/compliance/client-risk/register.csv", async Task<IResult> (
@@ -351,6 +339,35 @@ if (!app.Environment.IsEnvironment("Testing"))
 }
 
 app.Run();
+
+static InvestmentSummaryQuery ParseInvestmentSummaryQuery(IQueryCollection values)
+{
+    var clientId = int.TryParse(values["clientId"], out var parsedClientId)
+        ? parsedClientId
+        : (int?)null;
+    var sortDescending = bool.TryParse(values["sortDescending"], out var parsedSortDescending) &&
+                         parsedSortDescending;
+    var staleAfterDays = int.TryParse(values["staleAfterDays"], out var parsedStaleAfterDays)
+        ? Math.Clamp(parsedStaleAfterDays, 1, 3650)
+        : 90;
+    var scope = values["scope"].ToString();
+    if (scope is not (InvestmentSummaryScopes.Current or InvestmentSummaryScopes.Historical or InvestmentSummaryScopes.All))
+    {
+        scope = InvestmentSummaryScopes.Current;
+    }
+
+    return new InvestmentSummaryQuery(
+        ClientId: clientId,
+        KanaanId: values["kanaanId"],
+        Search: values["search"],
+        LifecycleStatus: values["lifecycleStatus"],
+        FundName: values["fundName"],
+        Administrator: values["administrator"],
+        Scope: scope,
+        SortColumn: string.IsNullOrWhiteSpace(values["sortColumn"]) ? "client" : values["sortColumn"].ToString(),
+        SortDescending: sortDescending,
+        StaleAfterDays: staleAfterDays);
+}
 
 static ClientRiskRegisterQuery ParseClientRiskRegisterQuery(IQueryCollection values)
 {

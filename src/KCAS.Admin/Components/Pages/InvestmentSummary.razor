@@ -26,6 +26,7 @@
                 <a class="btn btn-outline-secondary" href="/investments/reconciliation">Reconciliation</a>
             </Authorized>
         </AuthorizeView>
+        <a class="btn btn-outline-secondary" href="@PdfExportUrl">Download PDF</a>
         <a class="btn btn-outline-secondary" href="@ExportUrl">Export CSV</a>
     </div>
 </div>
@@ -355,6 +356,24 @@
     {
         get
         {
+            var query = ExportQueryString;
+            return $"/investments/summary.csv?{query}";
+        }
+    }
+
+    private string PdfExportUrl
+    {
+        get
+        {
+            var query = ExportQueryString;
+            return $"/investments/summary.pdf?{query}";
+        }
+    }
+
+    private string ExportQueryString
+    {
+        get
+        {
             var values = new Dictionary<string, string?>
             {
                 ["clientId"] = clientId?.ToString(),
@@ -371,7 +390,7 @@
             var query = string.Join("&", values
                 .Where(item => !string.IsNullOrWhiteSpace(item.Value))
                 .Select(item => $"{Uri.EscapeDataString(item.Key)}={Uri.EscapeDataString(item.Value!)}"));
-            return $"/investments/summary.csv?{query}";
+            return query;
         }
     }
 
