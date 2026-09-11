@@ -12,11 +12,13 @@ public sealed class IncrementalLegacyImporter(
     MySqlConnection legacyConnection,
     LegacyImportRunRecorder recorder,
     IReadOnlyDictionary<(string Table, long Id), string>? approvedNewRows = null,
-    IReadOnlySet<string>? tableScopes = null)
+    IReadOnlySet<string>? tableScopes = null,
+    IReadOnlySet<string>? autoApplySourceTables = null)
 {
     private readonly IReadOnlyDictionary<(string Table, long Id), string> approvedNewRows = approvedNewRows
         ?? new Dictionary<(string Table, long Id), string>();
     private readonly IReadOnlySet<string> tableScopes = tableScopes ?? LegacyImportTableScopes.Normalize(LegacyImportTableScopes.AllMapped);
+    private readonly IReadOnlySet<string> autoApplySourceTables = autoApplySourceTables ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<(string Table, long Id)> observedApprovedRows = [];
     private readonly Dictionary<int, int?> clientTargets = [];
     private readonly HashSet<int> sourceClientIds = [];
@@ -591,7 +593,7 @@ public sealed class IncrementalLegacyImporter(
         DateTime? sourceUpdatedAt)
         where T : class
     {
-        var approvedForApply = IsApprovedNew(table, sourceId, payload);
+        var approvedForApply = autoApplySourceTables.Contains(table) || IsApprovedNew(table, sourceId, payload);
         if (current is not null)
         {
             recorder.Stage(table, sourceId, payload, baseline(current), entityType, targetId(current), sourceUpdatedAt);
