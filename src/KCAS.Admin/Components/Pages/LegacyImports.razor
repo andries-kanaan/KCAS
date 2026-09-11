@@ -153,6 +153,12 @@ else
                         @(isBusy ? "Working..." : $"Apply all eligible new records ({eligibleNewCount})")
                     </button>
                 }
+                @if (CanRefreshFundValuations)
+                {
+                    <button type="button" class="btn btn-outline-primary" @onclick="RefreshFundValuationsAsync" disabled="@isBusy">
+                        @(isBusy ? "Working..." : $"Refresh monthly fund valuations ({fundValuationRefreshItemCount})")
+                    </button>
+                }
             </div>
             <p>
                 New @selectedRun.NewCount · Applied @selectedRun.AppliedCount · Unchanged @selectedRun.UnchangedCount ·
@@ -161,6 +167,10 @@ else
             </p>
             <p class="text-muted mb-1">Source database: @selectedRun.SourceLabel · Snapshot SHA-256: @ShortHash(selectedRun.SourceSnapshotSha256)</p>
             <p class="text-muted">During incremental reconciliation, fund valuations remain review-only because monthly replacement workflows create new primary IDs.</p>
+            @if (CanRefreshFundValuations)
+            {
+                <p class="text-muted">Use <strong>Refresh monthly fund valuations</strong> to replace the current legacy fund valuation set from this staged snapshot. KCAS backs up the database first and leaves clients, notes, KYC, investment accounts/history, and compliance evidence unchanged.</p>
+            }
             @if (selectedRun.ApprovedScanRunId.HasValue)
             {
                 <p class="text-muted">Approved scan: #@selectedRun.ApprovedScanRunId</p>
@@ -339,6 +349,7 @@ else
     private string? statusMessage;
     private string? errorMessage;
     private int eligibleNewCount;
+    private int fundValuationRefreshItemCount;
     private bool canReviewImports;
     private bool canApplyImports;
 
@@ -347,6 +358,12 @@ else
         selectedRun.Status is LegacyImportRunStatuses.Completed or LegacyImportRunStatuses.AwaitingReview &&
         canApplyImports &&
         eligibleNewCount > 0;
+
+    private bool CanRefreshFundValuations =>
+        selectedRun is { Mode: LegacyImportModes.Scan, CompletedAtUtc: not null } &&
+        selectedRun.Status is LegacyImportRunStatuses.Completed or LegacyImportRunStatuses.AwaitingReview &&
+        canApplyImports &&
+        fundValuationRefreshItemCount > 0;
 
     private bool IsIncrementalMode => importMode == ImportModeIncremental;
     private bool CanBaselineImport => ImportService.CanResetImportedLegacyData;
@@ -370,6 +387,7 @@ else
             sourceTables = [];
             currentKcasPayloads = new Dictionary<long, string?>();
             eligibleNewCount = 0;
+            fundValuationRefreshItemCount = 0;
             return;
         }
 
@@ -385,6 +403,14 @@ else
             .Where(row => row.Classification == LegacyImportClassifications.New)
             .Where(row => row.ApplyStatus != LegacyImportApplyStatuses.Applied)
             .Where(row => row.SourceTable != "tbl_fund")
+            .CountAsync();
+
+        fundValuationRefreshItemCount = await Db.LegacyImportRowStates.AsNoTracking()
+            .Where(row => row.LegacyImportRunId == selectedRunId)
+            .Where(row => row.SourceTable == "tbl_fund")
+            .Where(row => row.Classification == LegacyImportClassifications.New ||
+                          row.Classification == LegacyImportClassifications.Changed ||
+                          row.Classification == LegacyImportClassifications.MissingFromSource)
             .CountAsync();
 
         var query = Db.LegacyImportRowStates.AsNoTracking()
@@ -457,6 +483,16 @@ else
         }
 
         await StartJobAsync(async () => await ImportService.StartApplySingleNewRowJobAsync(selectedRun.Id, row.SourceTable, row.SourceId, selectedTableScope));
+    }
+
+    private async Task RefreshFundValuationsAsync()
+    {
+        if (selectedRun is null)
+        {
+            return;
+        }
+
+        await StartJobAsync(async () => await ImportService.StartRefreshFundValuationsJobAsync(selectedRun.Id));
     }
 
     private async Task RetainKcasAsync(LegacyImportRowState row)

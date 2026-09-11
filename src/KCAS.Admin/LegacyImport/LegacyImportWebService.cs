@@ -80,6 +80,23 @@ public sealed class LegacyImportWebService(
             cancellationToken);
     }
 
+    public async Task<LegacyImportJobSnapshot> StartRefreshFundValuationsJobAsync(long scanRunId, CancellationToken cancellationToken = default)
+    {
+        return await StartApplyJobAsync(
+            "Refresh monthly fund valuations",
+            async job =>
+            {
+                job.Update("Backing up KCAS before fund valuation refresh...", 10);
+                var result = await RefreshFundValuationsAsync(scanRunId, message =>
+                {
+                    job.Update(message, message.Contains("verification", StringComparison.OrdinalIgnoreCase) ? 85 : 45);
+                    return Task.CompletedTask;
+                }, CancellationToken.None, alreadyLocked: true);
+                job.Complete(result.Id, $"Monthly fund valuations were refreshed from scan #{scanRunId}.");
+            },
+            cancellationToken);
+    }
+
     private async Task<LegacyImportJobSnapshot> StartApplyJobAsync(
         string title,
         Func<LegacyImportJobState, Task> work,
@@ -311,6 +328,12 @@ public sealed class LegacyImportWebService(
         var approvedRows = new HashSet<(string Table, long Id)> { (sourceTable, sourceId) };
         var run = await ApplyApprovedRowsAsync(scanRunId, approvedRows, LegacyImportTableScopes.Normalize(tableScope), progress, cancellationToken);
         return new LegacyImportWebResult(run.Id, $"{sourceTable} #{sourceId} was applied from scan #{scanRunId}.");
+    }
+
+    public async Task<LegacyImportWebResult> RefreshFundValuationsAsync(long scanRunId, Func<string, Task>? progress = null, CancellationToken cancellationToken = default)
+    {
+        var run = await RefreshFundValuationsAsync(scanRunId, progress, cancellationToken, alreadyLocked: false);
+        return new LegacyImportWebResult(run.Id, $"Monthly fund valuations were refreshed from scan #{scanRunId}.");
     }
 
     public async Task RetainKcasForChangedRowAsync(long rowStateId, string reviewedBy, string? reason = null, CancellationToken cancellationToken = default)
@@ -765,6 +788,80 @@ public sealed class LegacyImportWebService(
         }
     }
 
+    private async Task<LegacyImportRun> RefreshFundValuationsAsync(
+        long scanRunId,
+        Func<string, Task>? progress,
+        CancellationToken cancellationToken,
+        bool alreadyLocked)
+    {
+        if (!alreadyLocked && !await ImportGate.WaitAsync(0, cancellationToken))
+        {
+            throw new InvalidOperationException("Another legacy import is already running. Wait for it to finish, then refresh the page.");
+        }
+
+        try
+        {
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var scan = await db.LegacyImportRuns
+                .AsNoTracking()
+                .SingleOrDefaultAsync(run => run.Id == scanRunId, cancellationToken);
+            if (scan is null)
+            {
+                throw new InvalidOperationException($"Scan run #{scanRunId} does not exist.");
+            }
+            if (scan.Mode != LegacyImportModes.Scan ||
+                scan.CompletedAtUtc is null ||
+                scan.Status is not (LegacyImportRunStatuses.Completed or LegacyImportRunStatuses.AwaitingReview))
+            {
+                throw new InvalidOperationException($"Scan run #{scanRunId} is not a completed scan.");
+            }
+
+            var stagedDatabase = scan.SourceLabel;
+            if (!IsStagedDatabaseName(stagedDatabase))
+            {
+                throw new InvalidOperationException($"Scan run #{scanRunId} does not point to a KCAS staging database.");
+            }
+
+            await ReportProgressAsync(progress, "Backing up KCAS before replacing fund valuations...");
+            await BackupTargetDatabaseAsync(cancellationToken);
+            await ReportProgressAsync(progress, "Deleting imported fund valuations and accepted tbl_fund snapshots...");
+            await DeleteImportedFundValuationDataAsync(db, cancellationToken);
+
+            var fundScope = LegacyImportTableScopes.Normalize(LegacyImportTableScopes.FundValuations);
+            await ReportProgressAsync(progress, "Importing all valid fund valuations from the staged snapshot...");
+            _ = await RunImportAsync(
+                LegacyImportModes.RefreshFundValuations,
+                stagedDatabase,
+                scan.SourceSnapshotSha256,
+                scan.SourceSnapshotFileName,
+                scanRunId,
+                null,
+                fundScope,
+                cancellationToken,
+                skipBackup: true,
+                autoApplySourceTables: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "tbl_fund" });
+
+            await ReportProgressAsync(progress, "Running the verification scan after fund valuation refresh...");
+            return await RunImportAsync(
+                LegacyImportModes.Scan,
+                stagedDatabase,
+                scan.SourceSnapshotSha256,
+                scan.SourceSnapshotFileName,
+                null,
+                null,
+                fundScope,
+                cancellationToken);
+        }
+        finally
+        {
+            if (!alreadyLocked)
+            {
+                ImportGate.Release();
+            }
+        }
+    }
+
     private async Task<LegacyImportRun> RunImportAsync(
         string mode,
         string stagedDatabase,
@@ -775,7 +872,8 @@ public sealed class LegacyImportWebService(
         IReadOnlySet<string> tableScopes,
         CancellationToken cancellationToken,
         bool skipBackup = false,
-        bool includeReviewOnlyNewRows = false)
+        bool includeReviewOnlyNewRows = false,
+        IReadOnlySet<string>? autoApplySourceTables = null)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -815,7 +913,7 @@ public sealed class LegacyImportWebService(
             sourceFileName,
             approvedScanRunId,
             cancellationToken);
-        var importer = new IncrementalLegacyImporter(db, legacyConnection, recorder, approvedNewRows, tableScopes);
+        var importer = new IncrementalLegacyImporter(db, legacyConnection, recorder, approvedNewRows, tableScopes, autoApplySourceTables);
 
         try
         {
@@ -1095,6 +1193,14 @@ public sealed class LegacyImportWebService(
         await db.Database.ExecuteSqlRawAsync("DELETE FROM `LegacyImportRowStates`;", cancellationToken);
         await db.Database.ExecuteSqlRawAsync("DELETE FROM `LegacySourceSnapshots`;", cancellationToken);
         await db.Database.ExecuteSqlRawAsync("DELETE FROM `LegacyImportRuns`;", cancellationToken);
+    }
+
+    internal static async Task DeleteImportedFundValuationDataAsync(ApplicationDbContext db, CancellationToken cancellationToken)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("DELETE FROM `ClientFundValuations`;", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("DELETE FROM `LegacySourceSnapshots` WHERE `SourceTable` = 'tbl_fund';", cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 
     private static IEnumerable<string> GetSourceTablesForScopes(IReadOnlySet<string> tableScopes)

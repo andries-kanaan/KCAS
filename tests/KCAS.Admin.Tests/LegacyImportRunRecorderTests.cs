@@ -191,6 +191,75 @@ public sealed class LegacyImportRunRecorderTests(KcasWebApplicationFactory facto
     }
 
     [Fact]
+    public async Task Delete_imported_fund_valuation_data_replaces_legacy_fund_set_and_tbl_fund_snapshots()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        db.ClientFundValuations.RemoveRange(db.ClientFundValuations.Where(item => item.LegacyFundId == 902101 || item.LegacyFundId == 902102));
+        db.LegacySourceSnapshots.RemoveRange(db.LegacySourceSnapshots.Where(item => item.SourceId == 902001 || item.SourceId == 902101));
+        db.Clients.RemoveRange(db.Clients.Where(item => item.LegacyClientId == 902001));
+        await db.SaveChangesAsync();
+
+        var client = new Client
+        {
+            LegacyClientId = 902001,
+            DisplayName = "Fund Refresh Client",
+            SurnameOrEntityName = "Fund Refresh Client",
+            ClientCategory = ClientCategories.NaturalPerson
+        };
+        db.Clients.Add(client);
+        db.ClientFundValuations.Add(new ClientFundValuation
+        {
+            Client = client,
+            LegacyFundId = 902101,
+            FundName = "Imported fund",
+            PayloadJson = "{}",
+            ImportedAtUtc = DateTime.UtcNow
+        });
+        db.ClientFundValuations.Add(new ClientFundValuation
+        {
+            Client = client,
+            LegacyFundId = 902102,
+            FundName = "Second imported fund",
+            PayloadJson = "{}",
+            ImportedAtUtc = DateTime.UtcNow
+        });
+        db.LegacySourceSnapshots.Add(new LegacySourceSnapshot
+        {
+            SourceTable = "tbl_fund",
+            SourceId = 902101,
+            PayloadJson = "{}",
+            Fingerprint = new string('1', 64),
+            AcceptedAtUtc = DateTime.UtcNow,
+            LastSeenAtUtc = DateTime.UtcNow
+        });
+        db.LegacySourceSnapshots.Add(new LegacySourceSnapshot
+        {
+            SourceTable = "tbl_client",
+            SourceId = 902001,
+            PayloadJson = "{}",
+            Fingerprint = new string('2', 64),
+            AcceptedAtUtc = DateTime.UtcNow,
+            LastSeenAtUtc = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        await LegacyImportWebService.DeleteImportedFundValuationDataAsync(db, CancellationToken.None);
+
+        Assert.False(await db.ClientFundValuations.AnyAsync(item => item.LegacyFundId == 902101));
+        Assert.False(await db.ClientFundValuations.AnyAsync(item => item.LegacyFundId == 902102));
+        Assert.False(await db.LegacySourceSnapshots.AnyAsync(item => item.SourceTable == "tbl_fund" && item.SourceId == 902101));
+        Assert.True(await db.LegacySourceSnapshots.AnyAsync(item => item.SourceTable == "tbl_client" && item.SourceId == 902001));
+
+        db.ChangeTracker.Clear();
+        db.ClientFundValuations.RemoveRange(db.ClientFundValuations.Where(item => item.ClientId == client.Id));
+        db.LegacySourceSnapshots.RemoveRange(db.LegacySourceSnapshots.Where(item => item.SourceId == 902001));
+        db.Clients.RemoveRange(db.Clients.Where(item => item.LegacyClientId == 902001));
+        await db.SaveChangesAsync();
+    }
+
+    [Fact]
     public async Task Existing_target_without_a_source_snapshot_is_changed_not_new()
     {
         using var scope = factory.Services.CreateScope();

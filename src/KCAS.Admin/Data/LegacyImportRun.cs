@@ -52,6 +52,7 @@ public static class LegacyImportModes
 {
     public const string Scan = "Scan";
     public const string ApplyNew = "ApplyNew";
+    public const string RefreshFundValuations = "RefreshFundValuations";
 }
 
 public static class LegacyImportRunStatuses
