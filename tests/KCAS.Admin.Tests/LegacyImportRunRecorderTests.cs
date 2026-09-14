@@ -376,6 +376,240 @@ public sealed class LegacyImportRunRecorderTests(KcasWebApplicationFactory facto
         Assert.DoesNotContain("Changed", snapshot.PayloadJson);
     }
 
+    [Fact]
+    public async Task Safe_changed_source_can_be_marked_ready_to_apply()
+    {
+        const string baseline = "{\"id\":\"7101\",\"email\":\"old@example.test\"}";
+        const string incoming = "{\"id\":\"7101\",\"email\":\"new@example.test\"}";
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var recorder = await LegacyImportRunRecorder.StartAsync(db, LegacyImportModes.Scan, "test-source", new string('a', 64));
+        var row = recorder.Stage(
+            "tbl_client",
+            7101,
+            incoming,
+            baseline,
+            nameof(Client),
+            7101,
+            readyToApplyChanged: true);
+        await recorder.CompleteAsync(0);
+
+        Assert.Equal(LegacyImportClassifications.Changed, row.Classification);
+        Assert.Equal(LegacyImportApplyStatuses.ReadyToApply, row.ApplyStatus);
+        Assert.Equal(LegacyImportRunStatuses.Completed, recorder.Run.Status);
+        Assert.Equal(1, recorder.Run.ChangedCount);
+        Assert.Equal(0, recorder.Run.AppliedCount);
+    }
+
+    [Fact]
+    public async Task Recommended_action_accepts_investment_metadata_without_overwriting_reviewed_surrender_date()
+    {
+        const int legacyClientId = 903001;
+        const int legacyAccountId = 903101;
+        const string baselinePayload = "{\"id\":\"903101\",\"client_id\":\"903001\",\"surrender_date\":null,\"date_updated\":\"05/08/2024 09:16:42\",\"updated_by\":\"Nonjabulo\",\"updated_by_id\":\"11\"}";
+        const string incomingPayload = "{\"id\":\"903101\",\"client_id\":\"903001\",\"surrender_date\":null,\"date_updated\":\"09/11/2026 09:14:03\",\"updated_by\":\"Johannes Delport\",\"updated_by_id\":\"9\"}";
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = scope.ServiceProvider.GetRequiredService<LegacyImportWebService>();
+
+        db.ClientInvestmentReconciliationReviews.RemoveRange(db.ClientInvestmentReconciliationReviews.Where(item => item.Client.LegacyClientId == legacyClientId));
+        db.ClientInvestmentAccounts.RemoveRange(db.ClientInvestmentAccounts.Where(item => item.LegacyInvestmentAccountId == legacyAccountId));
+        db.Clients.RemoveRange(db.Clients.Where(item => item.LegacyClientId == legacyClientId));
+        db.LegacyImportRuns.RemoveRange(db.LegacyImportRuns.Where(item => item.SourceLabel == "recommended-action-test"));
+        db.LegacySourceSnapshots.RemoveRange(db.LegacySourceSnapshots.Where(item => item.SourceTable == "tbl_investmentaccount" && item.SourceId == legacyAccountId));
+        await db.SaveChangesAsync();
+
+        var client = new Client
+        {
+            LegacyClientId = legacyClientId,
+            DisplayName = "Recommended Action Client",
+            SurnameOrEntityName = "Recommended Action Client",
+            ClientCategory = ClientCategories.NaturalPerson
+        };
+        var account = new ClientInvestmentAccount
+        {
+            Client = client,
+            LegacyInvestmentAccountId = legacyAccountId,
+            LegacyClientId = legacyClientId,
+            AccountNumber = "RA-REVIEWED",
+            SurrenderDate = new DateOnly(2024, 3, 15),
+            UpdatedBy = "codex@local",
+            PayloadJson = baselinePayload,
+            ImportedAtUtc = DateTime.UtcNow
+        };
+        db.Clients.Add(client);
+        db.ClientInvestmentAccounts.Add(account);
+        await db.SaveChangesAsync();
+
+        db.ClientInvestmentReconciliationReviews.Add(new ClientInvestmentReconciliationReview
+        {
+            ClientId = client.Id,
+            ClientInvestmentAccountId = account.Id,
+            Outcome = ClientInvestmentReconciliationOutcomes.HistoricalSurrendered,
+            AppliedSurrenderDate = account.SurrenderDate,
+            EvidenceReference = "KCAS assessment",
+            Reason = "Reviewed surrender date must be preserved.",
+            SnapshotSha256 = new string('3', 64),
+            ReviewedAtUtc = DateTime.UtcNow,
+            ReviewedBy = "codex@local"
+        });
+        var run = new LegacyImportRun
+        {
+            Mode = LegacyImportModes.Scan,
+            Status = LegacyImportRunStatuses.AwaitingReview,
+            SourceLabel = "recommended-action-test",
+            SourceSnapshotSha256 = new string('4', 64),
+            StartedAtUtc = DateTime.UtcNow,
+            CompletedAtUtc = DateTime.UtcNow,
+            ChangedCount = 1
+        };
+        var row = new LegacyImportRowState
+        {
+            LegacyImportRun = run,
+            SourceTable = "tbl_investmentaccount",
+            SourceId = legacyAccountId,
+            Classification = LegacyImportClassifications.Changed,
+            ApplyStatus = LegacyImportApplyStatuses.PendingReview,
+            TargetEntityType = nameof(ClientInvestmentAccount),
+            TargetEntityId = account.Id,
+            IncomingPayloadJson = incomingPayload,
+            IncomingFingerprint = LegacyImportReconciler.Fingerprint(LegacyImportReconciler.CanonicalizePayload(incomingPayload)),
+            BaselinePayloadJson = baselinePayload,
+            BaselineFingerprint = LegacyImportReconciler.Fingerprint(LegacyImportReconciler.CanonicalizePayload(baselinePayload))
+        };
+        row.Differences.Add(new LegacyImportDifference { FieldName = "date_updated", BaselineValue = "05/08/2024 09:16:42", IncomingValue = "09/11/2026 09:14:03" });
+        row.Differences.Add(new LegacyImportDifference { FieldName = "updated_by", BaselineValue = "Nonjabulo", IncomingValue = "Johannes Delport" });
+        row.Differences.Add(new LegacyImportDifference { FieldName = "updated_by_id", BaselineValue = "11", IncomingValue = "9" });
+        db.LegacyImportRowStates.Add(row);
+        await db.SaveChangesAsync();
+
+        await service.ApplyRecommendedActionAsync(row.Id, "reviewer@example.test");
+
+        db.ChangeTracker.Clear();
+        var updatedAccount = await db.ClientInvestmentAccounts.SingleAsync(item => item.LegacyInvestmentAccountId == legacyAccountId);
+        var updatedRow = await db.LegacyImportRowStates.Include(item => item.Differences).SingleAsync(item => item.Id == row.Id);
+        var snapshot = await db.LegacySourceSnapshots.SingleAsync(item => item.SourceTable == "tbl_investmentaccount" && item.SourceId == legacyAccountId);
+
+        Assert.Equal(new DateOnly(2024, 3, 15), updatedAccount.SurrenderDate);
+        Assert.Equal("Johannes Delport", updatedAccount.UpdatedBy);
+        Assert.Equal(9, updatedAccount.LegacyUpdatedByUserId);
+        Assert.Contains("Johannes Delport", updatedAccount.PayloadJson);
+        Assert.Equal(LegacyImportApplyStatuses.Applied, updatedRow.ApplyStatus);
+        Assert.All(updatedRow.Differences, difference => Assert.Equal(LegacyImportDecisionStatuses.AcceptLegacy, difference.Decision));
+        Assert.Contains("Johannes Delport", snapshot.PayloadJson);
+    }
+
+    [Fact]
+    public async Task Recommended_action_accepts_newer_kanaantrust_surrender_date()
+    {
+        const int legacyClientId = 903002;
+        const int legacyAccountId = 903102;
+        const string baselinePayload = "{\"id\":\"903102\",\"client_id\":\"903002\",\"surrender_date\":null,\"date_updated\":\"07/09/2026 09:15:04\",\"updated_by\":null,\"updated_by_id\":null}";
+        const string incomingPayload = "{\"id\":\"903102\",\"client_id\":\"903002\",\"surrender_date\":\"09/03/2026 00:00:00\",\"date_updated\":\"09/11/2026 09:14:03\",\"updated_by\":\"Johannes Delport\",\"updated_by_id\":\"9\"}";
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = scope.ServiceProvider.GetRequiredService<LegacyImportWebService>();
+
+        db.ClientInvestmentReconciliationReviews.RemoveRange(db.ClientInvestmentReconciliationReviews.Where(item => item.Client.LegacyClientId == legacyClientId));
+        db.ClientInvestmentAccounts.RemoveRange(db.ClientInvestmentAccounts.Where(item => item.LegacyInvestmentAccountId == legacyAccountId));
+        db.Clients.RemoveRange(db.Clients.Where(item => item.LegacyClientId == legacyClientId));
+        db.LegacyImportRuns.RemoveRange(db.LegacyImportRuns.Where(item => item.SourceLabel == "recommended-surrender-test"));
+        db.LegacySourceSnapshots.RemoveRange(db.LegacySourceSnapshots.Where(item => item.SourceTable == "tbl_investmentaccount" && item.SourceId == legacyAccountId));
+        await db.SaveChangesAsync();
+
+        var client = new Client
+        {
+            LegacyClientId = legacyClientId,
+            DisplayName = "Recommended Surrender Client",
+            SurnameOrEntityName = "Recommended Surrender Client",
+            ClientCategory = ClientCategories.NaturalPerson
+        };
+        var account = new ClientInvestmentAccount
+        {
+            Client = client,
+            LegacyInvestmentAccountId = legacyAccountId,
+            LegacyClientId = legacyClientId,
+            AccountNumber = "IA-CURRENT",
+            SurrenderDate = null,
+            UpdatedBy = "codex@local",
+            PayloadJson = baselinePayload,
+            ImportedAtUtc = DateTime.UtcNow
+        };
+        db.Clients.Add(client);
+        db.ClientInvestmentAccounts.Add(account);
+        await db.SaveChangesAsync();
+
+        db.ClientInvestmentReconciliationReviews.Add(new ClientInvestmentReconciliationReview
+        {
+            ClientId = client.Id,
+            ClientInvestmentAccountId = account.Id,
+            Outcome = ClientInvestmentReconciliationOutcomes.Current,
+            AppliedSurrenderDate = null,
+            EvidenceReference = "KCAS current valuation",
+            Reason = "Reviewed as current before the later KanaanTrust surrender update.",
+            SnapshotSha256 = new string('5', 64),
+            ReviewedAtUtc = DateTime.UtcNow,
+            ReviewedBy = "codex@local"
+        });
+        var run = new LegacyImportRun
+        {
+            Mode = LegacyImportModes.Scan,
+            Status = LegacyImportRunStatuses.AwaitingReview,
+            SourceLabel = "recommended-surrender-test",
+            SourceSnapshotSha256 = new string('6', 64),
+            StartedAtUtc = DateTime.UtcNow,
+            CompletedAtUtc = DateTime.UtcNow,
+            ChangedCount = 1
+        };
+        var row = new LegacyImportRowState
+        {
+            LegacyImportRun = run,
+            SourceTable = "tbl_investmentaccount",
+            SourceId = legacyAccountId,
+            Classification = LegacyImportClassifications.Changed,
+            ApplyStatus = LegacyImportApplyStatuses.PendingReview,
+            TargetEntityType = nameof(ClientInvestmentAccount),
+            TargetEntityId = account.Id,
+            IncomingPayloadJson = incomingPayload,
+            IncomingFingerprint = LegacyImportReconciler.Fingerprint(LegacyImportReconciler.CanonicalizePayload(incomingPayload)),
+            BaselinePayloadJson = baselinePayload,
+            BaselineFingerprint = LegacyImportReconciler.Fingerprint(LegacyImportReconciler.CanonicalizePayload(baselinePayload))
+        };
+        row.Differences.Add(new LegacyImportDifference { FieldName = "date_updated", BaselineValue = "07/09/2026 09:15:04", IncomingValue = "09/11/2026 09:14:03" });
+        row.Differences.Add(new LegacyImportDifference { FieldName = "surrender_date", BaselineValue = null, IncomingValue = "09/03/2026 00:00:00" });
+        row.Differences.Add(new LegacyImportDifference { FieldName = "updated_by", BaselineValue = null, IncomingValue = "Johannes Delport" });
+        row.Differences.Add(new LegacyImportDifference { FieldName = "updated_by_id", BaselineValue = null, IncomingValue = "9" });
+        db.LegacyImportRowStates.Add(row);
+        await db.SaveChangesAsync();
+
+        Assert.Contains("Accept the KanaanTrust surrender date", service.RecommendedActionDescription(row));
+
+        await service.ApplyRecommendedActionAsync(row.Id, "reviewer@example.test");
+
+        db.ChangeTracker.Clear();
+        var updatedAccount = await db.ClientInvestmentAccounts.SingleAsync(item => item.LegacyInvestmentAccountId == legacyAccountId);
+        var updatedRow = await db.LegacyImportRowStates.Include(item => item.Differences).SingleAsync(item => item.Id == row.Id);
+        var snapshot = await db.LegacySourceSnapshots.SingleAsync(item => item.SourceTable == "tbl_investmentaccount" && item.SourceId == legacyAccountId);
+        var latestReview = await db.ClientInvestmentReconciliationReviews
+            .Where(item => item.ClientInvestmentAccountId == updatedAccount.Id)
+            .OrderByDescending(item => item.ReviewedAtUtc)
+            .FirstAsync();
+
+        Assert.Equal(new DateOnly(2026, 9, 3), updatedAccount.SurrenderDate);
+        Assert.Equal("Johannes Delport", updatedAccount.UpdatedBy);
+        Assert.Equal(9, updatedAccount.LegacyUpdatedByUserId);
+        Assert.Contains("09/03/2026", updatedAccount.PayloadJson);
+        Assert.Equal(LegacyImportApplyStatuses.Applied, updatedRow.ApplyStatus);
+        Assert.All(updatedRow.Differences, difference => Assert.Equal(LegacyImportDecisionStatuses.AcceptLegacy, difference.Decision));
+        Assert.Contains("09/03/2026", snapshot.PayloadJson);
+        Assert.Equal(ClientInvestmentReconciliationOutcomes.HistoricalSurrendered, latestReview.Outcome);
+        Assert.Equal(new DateOnly(2026, 9, 3), latestReview.AppliedSurrenderDate);
+        Assert.Contains("KanaanTrust SQL import run", latestReview.EvidenceReference);
+    }
+
     private static async Task<LegacyImportRowState> SeedReviewRowAsync(
         ApplicationDbContext db,
         long sourceId,

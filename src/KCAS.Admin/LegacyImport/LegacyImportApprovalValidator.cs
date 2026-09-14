@@ -9,7 +9,7 @@ public static class LegacyImportApprovalValidator
         "tbl_fund"
     };
 
-    public static Dictionary<(string Table, long Id), string> GetApprovedNewRows(
+    public static Dictionary<(string Table, long Id), string> GetApprovedRows(
         LegacyImportRun approvedScan,
         string sourceLabel,
         string sourceSnapshotSha256,
@@ -29,7 +29,9 @@ public static class LegacyImportApprovalValidator
 
         var eligibleRows = approvedScan.Rows
             .Where(row =>
-                row.Classification == LegacyImportClassifications.New &&
+                row.ApplyStatus is LegacyImportApplyStatuses.PendingReview or LegacyImportApplyStatuses.ReadyToApply &&
+                (row.Classification == LegacyImportClassifications.New ||
+                 row.Classification == LegacyImportClassifications.Changed && row.ApplyStatus == LegacyImportApplyStatuses.ReadyToApply) &&
                 (includeReviewOnlyRows || !ReviewOnlySourceTables.Contains(row.SourceTable)))
             .ToDictionary(row => (row.SourceTable, row.SourceId), row => row.IncomingFingerprint);
 
@@ -50,4 +52,12 @@ public static class LegacyImportApprovalValidator
             .Where(row => approvedRows.Contains(row.Key))
             .ToDictionary(row => row.Key, row => row.Value);
     }
+
+    public static Dictionary<(string Table, long Id), string> GetApprovedNewRows(
+        LegacyImportRun approvedScan,
+        string sourceLabel,
+        string sourceSnapshotSha256,
+        IReadOnlySet<(string Table, long Id)>? approvedRows = null,
+        bool includeReviewOnlyRows = false)
+        => GetApprovedRows(approvedScan, sourceLabel, sourceSnapshotSha256, approvedRows, includeReviewOnlyRows);
 }

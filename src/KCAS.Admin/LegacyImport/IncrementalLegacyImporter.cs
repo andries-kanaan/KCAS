@@ -11,11 +11,11 @@ public sealed class IncrementalLegacyImporter(
     ApplicationDbContext db,
     MySqlConnection legacyConnection,
     LegacyImportRunRecorder recorder,
-    IReadOnlyDictionary<(string Table, long Id), string>? approvedNewRows = null,
+    IReadOnlyDictionary<(string Table, long Id), string>? approvedRows = null,
     IReadOnlySet<string>? tableScopes = null,
     IReadOnlySet<string>? autoApplySourceTables = null)
 {
-    private readonly IReadOnlyDictionary<(string Table, long Id), string> approvedNewRows = approvedNewRows
+    private readonly IReadOnlyDictionary<(string Table, long Id), string> approvedRows = approvedRows
         ?? new Dictionary<(string Table, long Id), string>();
     private readonly IReadOnlySet<string> tableScopes = tableScopes ?? LegacyImportTableScopes.Normalize(LegacyImportTableScopes.AllMapped);
     private readonly IReadOnlySet<string> autoApplySourceTables = autoApplySourceTables ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -24,6 +24,7 @@ public sealed class IncrementalLegacyImporter(
     private readonly HashSet<int> sourceClientIds = [];
     private readonly Dictionary<int, int?> accountTargets = [];
     private readonly HashSet<int> sourceAccountIds = [];
+    private readonly HashSet<int> reviewedInvestmentAccountIds = [];
     private long syntheticIssueId = -1;
 
     public async Task<int> ExecuteAsync()
@@ -38,7 +39,7 @@ public sealed class IncrementalLegacyImporter(
         if (!Includes(LegacyImportTableScopes.InvestmentAccounts) && Includes(LegacyImportTableScopes.InvestmentTransactions)) { await LoadExistingAccountTargetsAsync(); }
         if (Includes(LegacyImportTableScopes.InvestmentTransactions)) { failures += await ImportInvestmentTransactionsAsync(); }
         if (Includes(LegacyImportTableScopes.FundValuations)) { failures += await ImportFundValuationsAsync(); }
-        var missingApprovedRows = approvedNewRows.Keys.Except(observedApprovedRows).ToArray();
+        var missingApprovedRows = approvedRows.Keys.Except(observedApprovedRows).ToArray();
         if (missingApprovedRows.Length > 0)
         {
             throw new InvalidOperationException($"The approved scan contains {missingApprovedRows.Length} new row(s) that are absent from the staged snapshot.");
@@ -100,7 +101,7 @@ public sealed class IncrementalLegacyImporter(
             var mapped = new InvestmentProductTypeReference { LegacyCompanyProductId = id, Name = name };
             ApplyLegacyAudit(mapped, row);
             StageReference("tbl_companyproduct", id.Value, row, productTypes.GetValueOrDefault(id.Value), mapped,
-                item => db.InvestmentProductTypeReferences.Add(item), item => item.Id, nameof(InvestmentProductTypeReference));
+                item => db.InvestmentProductTypeReferences.Add(item), ApplyReferenceValues, item => item.Id, nameof(InvestmentProductTypeReference));
         }
 
         var administrators = await db.InvestmentAdministratorReferences
@@ -126,7 +127,7 @@ public sealed class IncrementalLegacyImporter(
             };
             ApplyLegacyAudit(mapped, row);
             StageReference("tbl_lispname", id.Value, row, administrators.GetValueOrDefault(id.Value), mapped,
-                item => db.InvestmentAdministratorReferences.Add(item), item => item.Id, nameof(InvestmentAdministratorReference));
+                item => db.InvestmentAdministratorReferences.Add(item), ApplyReferenceValues, item => item.Id, nameof(InvestmentAdministratorReference));
         }
 
         var mainClasses = await db.KycMainClassReferences
@@ -151,7 +152,7 @@ public sealed class IncrementalLegacyImporter(
             };
             ApplyLegacyAudit(mapped, row);
             StageReference("tbl_mainclass", id.Value, row, mainClasses.GetValueOrDefault(id.Value), mapped,
-                item => db.KycMainClassReferences.Add(item), item => item.Id, nameof(KycMainClassReference));
+                item => db.KycMainClassReferences.Add(item), ApplyReferenceValues, item => item.Id, nameof(KycMainClassReference));
             // Keep source-side parents in memory during scan as well as apply. This lets a new
             // subclass be reviewed in the same scan as its new parent; apply saves parents before
             // constructing their approved children.
@@ -190,7 +191,7 @@ public sealed class IncrementalLegacyImporter(
             };
             ApplyLegacyAudit(mapped, row);
             StageReference("tbl_subclass", id.Value, row, subClasses.GetValueOrDefault(id.Value), mapped,
-                item => db.KycSubClassReferences.Add(item), item => item.Id, nameof(KycSubClassReference));
+                item => db.KycSubClassReferences.Add(item), ApplyReferenceValues, item => item.Id, nameof(KycSubClassReference));
         }
 
         var funds = await db.InvestmentFundReferences
@@ -220,7 +221,7 @@ public sealed class IncrementalLegacyImporter(
             };
             ApplyLegacyAudit(mapped, row);
             StageReference("tbl_fundname", id.Value, row, funds.GetValueOrDefault(id.Value), mapped,
-                item => db.InvestmentFundReferences.Add(item), item => item.Id, nameof(InvestmentFundReference));
+                item => db.InvestmentFundReferences.Add(item), ApplyReferenceValues, item => item.Id, nameof(InvestmentFundReference));
         }
 
         var marketValues = await db.MarketReferenceValues
@@ -245,7 +246,7 @@ public sealed class IncrementalLegacyImporter(
             };
             ApplyLegacyAudit(mapped, row);
             StageReference("tbl_miscinfo", id.Value, row, marketValues.GetValueOrDefault(id.Value), mapped,
-                item => db.MarketReferenceValues.Add(item), item => item.Id, nameof(MarketReferenceValue));
+                item => db.MarketReferenceValues.Add(item), ApplyReferenceValues, item => item.Id, nameof(MarketReferenceValue));
         }
 
         await db.SaveChangesAsync();
@@ -259,22 +260,34 @@ public sealed class IncrementalLegacyImporter(
         T? current,
         T mapped,
         Action<T> add,
+        Action<T, T> applyUpdated,
         Func<T, int> targetId,
         string entityType)
         where T : class
     {
         var payload = Serialize(sourceRow);
-        var canApply = IsApprovedNew(table, sourceId, payload);
+        var approvedForApply = IsApprovedRow(table, sourceId, payload);
         if (current is not null)
         {
-            // Reference entities predate reconciliation snapshots. The first safe scan accepts the
-            // observed legacy row as their baseline without overwriting the existing KCAS record.
-            recorder.Stage(table, sourceId, payload, payload, entityType, targetId(current), ReadDateTime(sourceRow, "date_updated"));
+            var row = recorder.Stage(
+                table,
+                sourceId,
+                payload,
+                payload,
+                entityType,
+                targetId(current),
+                ReadDateTime(sourceRow, "date_updated"),
+                readyToApplyChanged: CanAutoApplyChanged(table, protectedKcasConflict: false),
+                appliedChanged: approvedForApply);
+            if (approvedForApply && row.Classification == LegacyImportClassifications.Changed)
+            {
+                applyUpdated(current, mapped);
+            }
             return;
         }
 
-        recorder.Stage(table, sourceId, payload, null, entityType, null, ReadDateTime(sourceRow, "date_updated"), canApply);
-        if (!canApply)
+        recorder.Stage(table, sourceId, payload, null, entityType, null, ReadDateTime(sourceRow, "date_updated"), approvedForApply);
+        if (!approvedForApply)
         {
             return;
         }
@@ -291,6 +304,11 @@ public sealed class IncrementalLegacyImporter(
         var failures = 0;
         var existing = await db.Clients
             .Include(client => client.LegacySnapshots)
+            .Include(client => client.PersonalProfile)
+            .Include(client => client.FinancialProfile)
+            .Include(client => client.ContactPoints)
+            .Include(client => client.Addresses)
+            .Include(client => client.Relationships)
             .Where(client => client.LegacyClientId.HasValue)
             .ToDictionaryAsync(client => client.LegacyClientId!.Value);
 
@@ -311,7 +329,7 @@ public sealed class IncrementalLegacyImporter(
             }
 
             sourceClientIds.Add(sourceId.Value);
-            var canApply = IsApprovedNew("tbl_client", sourceId.Value, payload);
+            var approvedForApply = IsApprovedRow("tbl_client", sourceId.Value, payload);
             Client mapped;
             try
             {
@@ -326,8 +344,8 @@ public sealed class IncrementalLegacyImporter(
 
             if (!existing.TryGetValue(sourceId.Value, out var current))
             {
-                var state = recorder.Stage("tbl_client", sourceId.Value, payload, null, nameof(Client), null, ReadDateTime(sourceRow, "date_updated"), canApply);
-                if (canApply)
+                var state = recorder.Stage("tbl_client", sourceId.Value, payload, null, nameof(Client), null, ReadDateTime(sourceRow, "date_updated"), approvedForApply);
+                if (approvedForApply)
                 {
                     mapped.LegacyReconciliationStatus = LegacyReconciliationStatuses.NewPendingReview;
                     db.Clients.Add(mapped);
@@ -347,8 +365,21 @@ public sealed class IncrementalLegacyImporter(
                 .OrderByDescending(snapshot => snapshot.ImportedAtUtc)
                 .Select(snapshot => snapshot.PayloadJson)
                 .FirstOrDefault();
-            var rowState = recorder.Stage("tbl_client", sourceId.Value, payload, baseline, nameof(Client), current.Id, ReadDateTime(sourceRow, "date_updated"));
-            current.LegacyReconciliationStatus = rowState.Classification == LegacyImportClassifications.Unchanged
+            var rowState = recorder.Stage(
+                "tbl_client",
+                sourceId.Value,
+                payload,
+                baseline,
+                nameof(Client),
+                current.Id,
+                ReadDateTime(sourceRow, "date_updated"),
+                readyToApplyChanged: CanAutoApplyChanged("tbl_client", protectedKcasConflict: false),
+                appliedChanged: approvedForApply);
+            if (approvedForApply && rowState.Classification == LegacyImportClassifications.Changed)
+            {
+                LegacyClientImportMapper.ApplyUpdatedGraph(current, mapped);
+            }
+            current.LegacyReconciliationStatus = rowState.Classification == LegacyImportClassifications.Unchanged || rowState.ApplyStatus == LegacyImportApplyStatuses.Applied
                 ? LegacyReconciliationStatuses.UnchangedReconciled
                 : LegacyReconciliationStatuses.ChangedPendingReview;
         }
@@ -397,6 +428,7 @@ public sealed class IncrementalLegacyImporter(
                 item => item.PayloadJson, nameof(ClientNote), mapped,
                 () => targetClientId.HasValue,
                 item => db.ClientNotes.Add(item),
+                LegacyClientNoteImportMapper.ApplyUpdatedValues,
                 item => item.Id,
                 ReadDateTime(sourceRow, "date_updated"));
         }
@@ -435,8 +467,8 @@ public sealed class IncrementalLegacyImporter(
             var targetClientId = clientTargets.GetValueOrDefault(parentId.Value);
             var mapped = LegacyKycImportMapper.Map(sourceRow, targetClientId ?? 0, mainClasses, subClasses, recorder.Run.StartedAtUtc);
             StageSimple("tbl_kyc", sourceId.Value, payload, existing.GetValueOrDefault(sourceId.Value), item => item.PayloadJson,
-                nameof(ClientKycPolicy), mapped, () => targetClientId.HasValue, item => db.ClientKycPolicies.Add(item), item => item.Id,
-                ReadDateTime(sourceRow, "date_updated"));
+                nameof(ClientKycPolicy), mapped, () => targetClientId.HasValue, item => db.ClientKycPolicies.Add(item),
+                LegacyKycImportMapper.ApplyUpdatedValues, item => item.Id, ReadDateTime(sourceRow, "date_updated"));
         }
 
         StageMissing(existing, seen, "tbl_kyc", item => item.PayloadJson, item => item.Id, nameof(ClientKycPolicy));
@@ -455,6 +487,14 @@ public sealed class IncrementalLegacyImporter(
         {
             accountTargets[item.LegacyInvestmentAccountId!.Value] = item.Id;
         }
+        reviewedInvestmentAccountIds.Clear();
+        foreach (var id in await db.ClientInvestmentReconciliationReviews
+            .Select(review => review.ClientInvestmentAccountId)
+            .Distinct()
+            .ToListAsync())
+        {
+            reviewedInvestmentAccountIds.Add(id);
+        }
 
         await foreach (var sourceRow in ReadRowsAsync("tbl_investmentaccount"))
         {
@@ -469,7 +509,7 @@ public sealed class IncrementalLegacyImporter(
             }
             seen.Add(sourceId.Value);
             sourceAccountIds.Add(sourceId.Value);
-            var canApply = IsApprovedNew("tbl_investmentaccount", sourceId.Value, payload);
+            var approvedForApply = IsApprovedRow("tbl_investmentaccount", sourceId.Value, payload);
             if (!sourceClientIds.Contains(parentId.Value))
             {
                 recorder.StageIssue("tbl_investmentaccount", sourceId.Value, payload, LegacyImportClassifications.Orphaned, $"Legacy client {parentId} is absent from tbl_client.");
@@ -480,7 +520,7 @@ public sealed class IncrementalLegacyImporter(
             var mapped = LegacyInvestmentAccountImportMapper.Map(sourceRow, targetClientId ?? 0, recorder.Run.StartedAtUtc);
             if (!existing.TryGetValue(sourceId.Value, out var current))
             {
-                var applyWithParent = canApply && targetClientId.HasValue;
+                var applyWithParent = approvedForApply && targetClientId.HasValue;
                 var state = recorder.Stage("tbl_investmentaccount", sourceId.Value, payload, null, nameof(ClientInvestmentAccount), null, ReadDateTime(sourceRow, "date_updated"), applyWithParent);
                 if (applyWithParent)
                 {
@@ -497,7 +537,21 @@ public sealed class IncrementalLegacyImporter(
                 continue;
             }
 
-            recorder.Stage("tbl_investmentaccount", sourceId.Value, payload, current.PayloadJson, nameof(ClientInvestmentAccount), current.Id, ReadDateTime(sourceRow, "date_updated"));
+            var protectedConflict = HasProtectedInvestmentAccountConflict(current, mapped);
+            var row = recorder.Stage(
+                "tbl_investmentaccount",
+                sourceId.Value,
+                payload,
+                current.PayloadJson,
+                nameof(ClientInvestmentAccount),
+                current.Id,
+                ReadDateTime(sourceRow, "date_updated"),
+                readyToApplyChanged: CanAutoApplyChanged("tbl_investmentaccount", protectedConflict),
+                appliedChanged: approvedForApply && !protectedConflict);
+            if (approvedForApply && !protectedConflict && row.Classification == LegacyImportClassifications.Changed)
+            {
+                LegacyInvestmentAccountImportMapper.ApplyUpdatedValues(current, mapped);
+            }
         }
 
         StageMissing(existing, seen, "tbl_investmentaccount", item => item.PayloadJson, item => item.Id, nameof(ClientInvestmentAccount));
@@ -535,7 +589,7 @@ public sealed class IncrementalLegacyImporter(
             var mapped = LegacyInvestmentTransactionImportMapper.Map(sourceRow, targetAccountId ?? 0, recorder.Run.StartedAtUtc);
             StageSimple("tbl_investmenthistory", sourceId.Value, payload, existing.GetValueOrDefault(sourceId.Value), item => item.PayloadJson,
                 nameof(ClientInvestmentTransaction), mapped, () => targetAccountId.HasValue,
-                item => db.ClientInvestmentTransactions.Add(item), item => item.Id, ReadDateTime(sourceRow, "date_updated"));
+                item => db.ClientInvestmentTransactions.Add(item), LegacyInvestmentTransactionImportMapper.ApplyUpdatedValues, item => item.Id, ReadDateTime(sourceRow, "date_updated"));
         }
 
         StageMissing(existing, seen, "tbl_investmenthistory", item => item.PayloadJson, item => item.Id, nameof(ClientInvestmentTransaction));
@@ -570,8 +624,8 @@ public sealed class IncrementalLegacyImporter(
             var targetClientId = clientTargets.GetValueOrDefault(parentId.Value);
             var mapped = LegacyFundValuationImportMapper.Map(sourceRow, targetClientId ?? 0, recorder.Run.StartedAtUtc);
             StageSimple("tbl_fund", sourceId.Value, payload, existing.GetValueOrDefault(sourceId.Value), item => item.PayloadJson,
-                nameof(ClientFundValuation), mapped, () => targetClientId.HasValue, item => db.ClientFundValuations.Add(item), item => item.Id,
-                ReadDateTime(sourceRow, "date_updated"));
+                nameof(ClientFundValuation), mapped, () => targetClientId.HasValue, item => db.ClientFundValuations.Add(item),
+                LegacyFundValuationImportMapper.ApplyUpdatedValues, item => item.Id, ReadDateTime(sourceRow, "date_updated"));
         }
 
         StageMissing(existing, seen, "tbl_fund", item => item.PayloadJson, item => item.Id, nameof(ClientFundValuation));
@@ -589,14 +643,28 @@ public sealed class IncrementalLegacyImporter(
         T mapped,
         Func<bool> parentAvailable,
         Action<T> add,
+        Action<T, T> applyUpdated,
         Func<T, int> targetId,
         DateTime? sourceUpdatedAt)
         where T : class
     {
-        var approvedForApply = autoApplySourceTables.Contains(table) || IsApprovedNew(table, sourceId, payload);
+        var approvedForApply = autoApplySourceTables.Contains(table) || IsApprovedRow(table, sourceId, payload);
         if (current is not null)
         {
-            recorder.Stage(table, sourceId, payload, baseline(current), entityType, targetId(current), sourceUpdatedAt);
+            var row = recorder.Stage(
+                table,
+                sourceId,
+                payload,
+                baseline(current),
+                entityType,
+                targetId(current),
+                sourceUpdatedAt,
+                readyToApplyChanged: CanAutoApplyChanged(table, protectedKcasConflict: false),
+                appliedChanged: approvedForApply);
+            if (approvedForApply && row.Classification == LegacyImportClassifications.Changed)
+            {
+                applyUpdated(current, mapped);
+            }
             return;
         }
 
@@ -610,10 +678,10 @@ public sealed class IncrementalLegacyImporter(
         add(mapped);
     }
 
-    private bool IsApprovedNew(string table, long sourceId, string payload)
+    private bool IsApprovedRow(string table, long sourceId, string payload)
     {
         var key = (table, sourceId);
-        if (!approvedNewRows.TryGetValue(key, out var approvedFingerprint))
+        if (!approvedRows.TryGetValue(key, out var approvedFingerprint))
         {
             return false;
         }
@@ -627,6 +695,74 @@ public sealed class IncrementalLegacyImporter(
 
         observedApprovedRows.Add(key);
         return true;
+    }
+
+    private static bool CanAutoApplyChanged(string table, bool protectedKcasConflict)
+        => !protectedKcasConflict &&
+           !LegacyImportApprovalValidator.ReviewOnlySourceTables.Contains(table);
+
+    private bool HasProtectedInvestmentAccountConflict(ClientInvestmentAccount current, ClientInvestmentAccount incoming)
+        => reviewedInvestmentAccountIds.Contains(current.Id) &&
+           current.SurrenderDate != incoming.SurrenderDate;
+
+    private static void ApplyReferenceValues<T>(T target, T source)
+        where T : class
+    {
+        switch (target, source)
+        {
+            case (InvestmentProductTypeReference targetValue, InvestmentProductTypeReference sourceValue):
+                targetValue.Name = sourceValue.Name;
+                targetValue.OpenedBy = sourceValue.OpenedBy;
+                targetValue.UpdatedBy = sourceValue.UpdatedBy;
+                targetValue.LegacyOpenedAt = sourceValue.LegacyOpenedAt;
+                targetValue.LegacyUpdatedAt = sourceValue.LegacyUpdatedAt;
+                break;
+            case (InvestmentAdministratorReference targetValue, InvestmentAdministratorReference sourceValue):
+                targetValue.Name = sourceValue.Name;
+                targetValue.ShortName = sourceValue.ShortName;
+                targetValue.IsCurrent = sourceValue.IsCurrent;
+                targetValue.MonthlyUpload = sourceValue.MonthlyUpload;
+                targetValue.OpenedBy = sourceValue.OpenedBy;
+                targetValue.UpdatedBy = sourceValue.UpdatedBy;
+                targetValue.LegacyOpenedAt = sourceValue.LegacyOpenedAt;
+                targetValue.LegacyUpdatedAt = sourceValue.LegacyUpdatedAt;
+                break;
+            case (KycMainClassReference targetValue, KycMainClassReference sourceValue):
+                targetValue.Name = sourceValue.Name;
+                targetValue.AfrikaansDescription = sourceValue.AfrikaansDescription;
+                targetValue.EnglishDescription = sourceValue.EnglishDescription;
+                break;
+            case (KycSubClassReference targetValue, KycSubClassReference sourceValue):
+                targetValue.LegacyMainClassId = sourceValue.LegacyMainClassId;
+                targetValue.KycMainClassReferenceId = sourceValue.KycMainClassReferenceId;
+                targetValue.Name = sourceValue.Name;
+                break;
+            case (InvestmentFundReference targetValue, InvestmentFundReference sourceValue):
+                targetValue.Name = sourceValue.Name;
+                targetValue.ShortName = sourceValue.ShortName;
+                targetValue.IsCurrent = sourceValue.IsCurrent;
+                targetValue.MonthlyUpload = sourceValue.MonthlyUpload;
+                targetValue.Currency = sourceValue.Currency;
+                targetValue.LegacyMainClassId = sourceValue.LegacyMainClassId;
+                targetValue.LegacySubClassId = sourceValue.LegacySubClassId;
+                targetValue.LegacyAdministratorId = sourceValue.LegacyAdministratorId;
+                targetValue.OpenedBy = sourceValue.OpenedBy;
+                targetValue.UpdatedBy = sourceValue.UpdatedBy;
+                targetValue.LegacyOpenedAt = sourceValue.LegacyOpenedAt;
+                targetValue.LegacyUpdatedAt = sourceValue.LegacyUpdatedAt;
+                break;
+            case (MarketReferenceValue targetValue, MarketReferenceValue sourceValue):
+                targetValue.Name = sourceValue.Name;
+                targetValue.PriceDate = sourceValue.PriceDate;
+                targetValue.Value = sourceValue.Value;
+                targetValue.OpenedBy = sourceValue.OpenedBy;
+                targetValue.UpdatedBy = sourceValue.UpdatedBy;
+                targetValue.LegacyOpenedAt = sourceValue.LegacyOpenedAt;
+                targetValue.LegacyUpdatedAt = sourceValue.LegacyUpdatedAt;
+                break;
+            default:
+                throw new InvalidOperationException($"Reference apply is not supported for '{typeof(T).Name}'.");
+        }
     }
 
     private void StageMissing<T>(
