@@ -338,6 +338,122 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
     }
 
     [Fact]
+    public async Task Preview_allows_current_valuation_account_to_be_created_when_live_account_row_is_missing()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = scope.ServiceProvider.GetRequiredService<ClientReviewTransferService>();
+        var readinessService = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var investmentService = new InvestmentReconciliationService(db);
+        await readinessService.LoadDashboardAsync();
+        var methodology = await db.RiskMethodologyVersions
+            .Include(item => item.Factors).ThenInclude(item => item.Options)
+            .Where(item =>
+                item.Status == ComplianceStatuses.Review ||
+                item.Status == ComplianceStatuses.Approved ||
+                item.Status == ComplianceStatuses.Active)
+            .OrderByDescending(item => item.Id)
+            .FirstAsync();
+        var identityRequirement = await db.ClientEvidenceRequirements
+            .FirstAsync(item => item.Status == ClientEvidenceRequirementStatuses.Active &&
+                item.EvidenceType == "Identity");
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var client = new Client
+        {
+            LegacyClientId = 99125,
+            KanaanId = "TRANSFER-MISSING-ACCOUNT",
+            DisplayName = "Missing Current Account Transfer",
+            SurnameOrEntityName = "Missing Current Account Transfer",
+            ClientCategory = ClientCategories.NaturalPerson,
+            LifecycleStatus = ClientLifecycleStatuses.Current,
+            LifecycleReason = "Current relationship confirmed for transfer missing-account test.",
+            LifecycleReviewedAtUtc = DateTime.UtcNow,
+            LifecycleReviewedBy = "reviewer@example.test",
+            IsActive = true
+        };
+        var evidence = new ClientEvidenceItem
+        {
+            Client = client,
+            ClientEvidenceRequirementId = identityRequirement.Id,
+            EvidenceType = "Identity",
+            Title = "Verified identity evidence",
+            FileName = "identity.pdf",
+            FileSha256 = new string('c', 64),
+            VerifiedDate = today,
+            Reviewer = "reviewer@example.test",
+            Status = ClientEvidenceStatuses.Verified,
+            OwnershipStatus = ClientEvidenceOwnershipStatuses.Confirmed,
+            SelectionStatus = ClientEvidenceSelectionStatuses.Current
+        };
+        var account = new ClientInvestmentAccount
+        {
+            Client = client,
+            AccountNumber = "RRA5057319",
+            Administrator = "AIMS, ABSA",
+            FundName = "Compulsory SA"
+        };
+        client.EvidenceItems.Add(evidence);
+        client.InvestmentAccounts.Add(account);
+        client.FundValuations.Add(new ClientFundValuation
+        {
+            LegacyFundId = 9912501,
+            InvestmentUniqueNumber = "RRA5057319",
+            Administrator = "AIMS, ABSA",
+            FundName = "Compulsory SA",
+            AmountZar = 8_916.93m,
+            ValuationDate = today
+        });
+        var assessment = new ClientRiskAssessment
+        {
+            Client = client,
+            MethodologyVersion = methodology,
+            Status = ClientRiskAssessmentStatuses.Finalised,
+            CalculatedScore = 0,
+            CalculatedRating = "Standard",
+            FinalRating = "Standard",
+            StandardControlsApplied = true,
+            Narrative = "Completed transfer missing-account test assessment.",
+            EffectiveDate = today,
+            NextReviewDate = today.AddYears(3),
+            PreparedBy = "reviewer@example.test",
+            FinalisedBy = "reviewer@example.test",
+            FinalisedAtUtc = DateTime.UtcNow
+        };
+        client.RiskAssessments.Add(assessment);
+        db.Clients.Add(client);
+        await db.SaveChangesAsync();
+
+        await investmentService.ReviewAccountAsync(client.Id, account.Id, new ClientInvestmentReconciliationReviewRequest
+        {
+            Outcome = ClientInvestmentReconciliationOutcomes.Current,
+            EvidenceReference = "Current valuation for RRA5057319",
+            Reason = "Current valuation and account match verified."
+        }, "reviewer@example.test");
+
+        var export = await service.ExportAsync(
+            client.Id,
+            "missing-account-passphrase",
+            "reviewer@example.test",
+            "Prepare package with valuation-derived current account.");
+        var encrypted = await File.ReadAllBytesAsync(export.StoragePath);
+
+        db.ClientRiskAssessments.Remove(assessment);
+        db.ClientInvestmentReconciliationReviews.RemoveRange(
+            await db.ClientInvestmentReconciliationReviews.Where(item => item.ClientId == client.Id).ToListAsync());
+        db.ClientInvestmentAccounts.Remove(account);
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        var preview = await service.PreviewAsync(encrypted, "missing-account-passphrase");
+
+        Assert.True(preview.CanApply, string.Join(" | ", preview.Conflicts));
+        Assert.Contains(preview.Warnings, warning =>
+            warning.Contains("will create the account row", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(preview.Conflicts, conflict =>
+            conflict.Contains("RRA5057319", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task Shared_kanaan_id_import_restores_trust_ownership_and_rejects_current_value_for_surrendered_account()
     {
         using var scope = factory.Services.CreateScope();
