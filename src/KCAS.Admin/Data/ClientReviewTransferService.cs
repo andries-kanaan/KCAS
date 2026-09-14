@@ -1391,18 +1391,24 @@ public sealed class ClientReviewTransferService(
                 .Select(account => new
                 {
                     Account = account,
-                    Snapshot = InvestmentReconciliationService.CalculateSnapshot(
-                        account,
-                        ClientInvestmentStatusClassifier.MatchingValuations(account, client.FundValuations)),
+                    Valuations = ClientInvestmentStatusClassifier.MatchingValuations(account, client.FundValuations),
                     Review = client.InvestmentReconciliationReviews
                         .Where(review => review.ClientInvestmentAccountId == account.Id)
                         .OrderByDescending(review => review.ReviewedAtUtc)
                         .ThenByDescending(review => review.Id)
                         .FirstOrDefault()
                 })
+                .Select(entry => new
+                {
+                    entry.Account,
+                    entry.Valuations,
+                    Snapshot = InvestmentReconciliationService.CalculateSnapshot(entry.Account, entry.Valuations),
+                    entry.Review
+                })
                 .Where(entry => entry.Review is not null &&
                     entry.Review.Outcome != ClientInvestmentReconciliationOutcomes.NeedsFollowUp &&
-                    string.Equals(entry.Review.SnapshotSha256, entry.Snapshot, StringComparison.OrdinalIgnoreCase))
+                    InvestmentReconciliationService.ReviewMatchesCurrentState(
+                        entry.Review, entry.Account, entry.Valuations, entry.Snapshot))
                 .Select(entry =>
                 {
                     var related = entry.Review!.RelatedClientInvestmentAccountId.HasValue
@@ -1417,8 +1423,7 @@ public sealed class ClientReviewTransferService(
                         Outcome = entry.Review.Outcome,
                         SurrenderDate = entry.Account.SurrenderDate,
                         PortableSnapshotSha256 = CalculatePortableInvestmentSnapshot(
-                            entry.Account,
-                            ClientInvestmentStatusClassifier.MatchingValuations(entry.Account, client.FundValuations)),
+                            entry.Account, entry.Valuations),
                         RelatedLegacyInvestmentAccountId = related?.LegacyInvestmentAccountId,
                         RelatedAccountNumber = related?.AccountNumber,
                         RelatedAdministrator = related?.Administrator,

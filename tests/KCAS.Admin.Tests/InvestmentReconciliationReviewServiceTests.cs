@@ -104,13 +104,30 @@ public sealed class InvestmentReconciliationReviewServiceTests(KcasWebApplicatio
             item.Action == "InvestmentReconciliationVerified" &&
             (item.EntityId == current.AccountId || item.EntityId == historical.AccountId)));
 
-        var currentAccount = await db.ClientInvestmentAccounts.SingleAsync(item => item.Id == current.AccountId);
-        currentAccount.ProductName = "Updated product description";
+        db.ClientFundValuations.Add(new ClientFundValuation
+        {
+            ClientId = client.Id,
+            LegacyFundId = 99802,
+            InvestmentUniqueNumber = "CURRENT998",
+            Administrator = "Test Platform",
+            FundName = "Current Fund",
+            AmountZar = 130_000m,
+            ValuationDate = DateOnly.FromDateTime(DateTime.Today).AddMonths(1)
+        });
+        await db.SaveChangesAsync();
+
+        var refreshedValuation = await service.LoadClientReviewAsync(client.Id);
+        Assert.True(refreshedValuation.IsComplete);
+        Assert.True(refreshedValuation.Accounts.Single(item => item.AccountId == current.AccountId).IsVerified);
+        Assert.False(refreshedValuation.Accounts.Single(item => item.AccountId == current.AccountId).ReviewIsStale);
+
+        var historicalAccount = await db.ClientInvestmentAccounts.SingleAsync(item => item.Id == historical.AccountId);
+        historicalAccount.ProductName = "Updated transferred product description";
         await db.SaveChangesAsync();
 
         var stale = await service.LoadClientReviewAsync(client.Id);
         Assert.False(stale.IsComplete);
-        Assert.True(stale.Accounts.Single(item => item.AccountId == current.AccountId).ReviewIsStale);
+        Assert.True(stale.Accounts.Single(item => item.AccountId == historical.AccountId).ReviewIsStale);
     }
 
     [Fact]
