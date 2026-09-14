@@ -247,6 +247,97 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
     }
 
     [Fact]
+    public async Task Export_normalises_stale_client_folder_from_confirmed_evidence_paths()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = scope.ServiceProvider.GetRequiredService<ClientReviewTransferService>();
+        var readinessService = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        await readinessService.LoadDashboardAsync();
+        var methodology = await db.RiskMethodologyVersions
+            .Include(item => item.Factors).ThenInclude(item => item.Options)
+            .Where(item =>
+                item.Status == ComplianceStatuses.Review ||
+                item.Status == ComplianceStatuses.Approved ||
+                item.Status == ComplianceStatuses.Active)
+            .OrderByDescending(item => item.Id)
+            .FirstAsync();
+        var identityRequirement = await db.ClientEvidenceRequirements
+            .FirstAsync(item => item.Status == ClientEvidenceRequirementStatuses.Active &&
+                item.EvidenceType == "Identity");
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var client = new Client
+        {
+            LegacyClientId = 99124,
+            KanaanId = "TRANSFER-FOLDER-99124",
+            DisplayName = "Wilna Folder Transfer",
+            SurnameOrEntityName = "Enslin",
+            ClientFolder = @"Z:\Kanaan Trust\Clients\Clients\Enslin W",
+            ClientCategory = ClientCategories.NaturalPerson,
+            LifecycleStatus = ClientLifecycleStatuses.Current,
+            LifecycleReason = "Current relationship confirmed for transfer folder test.",
+            LifecycleReviewedAtUtc = DateTime.UtcNow,
+            LifecycleReviewedBy = "reviewer@example.test",
+            IsActive = true
+        };
+        var evidence = new ClientEvidenceItem
+        {
+            Client = client,
+            ClientEvidenceRequirementId = identityRequirement.Id,
+            EvidenceType = "Identity",
+            Title = "Wilna identity evidence",
+            FileName = "identity.pdf",
+            SourcePath = @"C:\Download\_kanaan\ClientsKanaan\ENSLIN W\Storage Data\FICA\identity.pdf",
+            RelativePath = @"Storage Data\FICA\identity.pdf",
+            FileSha256 = new string('b', 64),
+            VerifiedDate = today,
+            Reviewer = "reviewer@example.test",
+            Status = ClientEvidenceStatuses.Verified,
+            OwnershipStatus = ClientEvidenceOwnershipStatuses.Confirmed,
+            SelectionStatus = ClientEvidenceSelectionStatuses.Current
+        };
+        client.EvidenceItems.Add(evidence);
+        client.RiskAssessments.Add(new ClientRiskAssessment
+        {
+            MethodologyVersion = methodology,
+            Status = ClientRiskAssessmentStatuses.Finalised,
+            CalculatedScore = 0,
+            CalculatedRating = "Standard",
+            FinalRating = "Standard",
+            StandardControlsApplied = true,
+            Narrative = "Completed transfer folder test assessment.",
+            EffectiveDate = today,
+            NextReviewDate = today.AddYears(3),
+            PreparedBy = "reviewer@example.test",
+            FinalisedBy = "reviewer@example.test",
+            FinalisedAtUtc = DateTime.UtcNow
+        });
+        db.ClientEvidenceScanRoots.Add(new ClientEvidenceScanRoot
+        {
+            RootPath = @"C:\Download\_kanaan\ClientsKanaan",
+            IsActive = true,
+            UpdatedBy = "reviewer@example.test"
+        });
+        db.Clients.Add(client);
+        await db.SaveChangesAsync();
+
+        var export = await service.ExportAsync(
+            client.Id,
+            "folder-transfer-passphrase",
+            "reviewer@example.test",
+            "Prepare package after confirmed evidence folder review.");
+
+        Assert.NotNull(export.PackageId);
+        db.ChangeTracker.Clear();
+        var reloaded = await db.Clients.AsNoTracking().SingleAsync(item => item.Id == client.Id);
+        Assert.Equal(@"C:\Download\_kanaan\ClientsKanaan\ENSLIN W", reloaded.ClientFolder);
+        Assert.True(await db.ComplianceAuditEvents.AsNoTracking().AnyAsync(item =>
+            item.EntityType == nameof(Client) &&
+            item.EntityId == client.Id &&
+            item.Action == "ClientFolderNormalisedForReviewExport"));
+    }
+
+    [Fact]
     public async Task Shared_kanaan_id_import_restores_trust_ownership_and_rejects_current_value_for_surrendered_account()
     {
         using var scope = factory.Services.CreateScope();
@@ -716,6 +807,16 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
             ClientReviewTransferService.MapClientFolderToLiveRoot(
                 @"E:\Userdata\Kanaan Trust\Clients\Family\BADENHORST PN",
                 @"Z:\Userdata\Kanaan Trust\Clients"));
+        Assert.Equal(
+            @"C:\Download\_kanaan\ClientsKanaan\Enslin W",
+            ClientReviewTransferService.MapClientFolderToLiveRoot(
+                @"Z:\Kanaan Trust\Clients\Clients\Enslin W",
+                @"C:\Download\_kanaan\ClientsKanaan"));
+        Assert.Equal(
+            @"E:\Userdata\Kanaan Trust\Clients\Enslin W",
+            ClientReviewTransferService.MapClientFolderToLiveRoot(
+                @"Z:\Kanaan Trust\Clients\Clients\Enslin W",
+                @"E:\Userdata\Kanaan Trust\Clients"));
         Assert.Null(ClientReviewTransferService.MapClientFolderToLiveRoot(
             @"C:\Download\_kanaan\ClientsKanaan-archive\BADENHORST PN",
             @"E:\Userdata\Kanaan Trust\Clients"));

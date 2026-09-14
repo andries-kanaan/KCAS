@@ -597,6 +597,36 @@ a, .btn-link {
     gap: 1rem;
 }
 
+.detail-grid > * {
+    min-width: 0;
+}
+
+.review-transfer-grid {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+}
+
+.review-transfer-grid .detail-panel,
+.review-transfer-grid .alert,
+.review-transfer-grid .table-responsive {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.review-transfer-grid .form-panel > *,
+.review-transfer-grid label,
+.review-transfer-grid .form-control,
+.review-transfer-grid textarea,
+.review-transfer-grid input {
+    max-width: 100%;
+    min-width: 0;
+}
+
+.review-transfer-grid .btn {
+    max-width: 100%;
+    white-space: normal;
+}
+
 .detail-panel h2 {
     margin: 0 0 .85rem;
     color: #131923;
