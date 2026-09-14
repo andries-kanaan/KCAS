@@ -370,7 +370,30 @@ public sealed class ClientReviewTransferService(
             ?? throw new InvalidOperationException(
                 "Only a finalised or approved client assessment can be transferred.");
 
-        var package = BuildPackage(client, assessment, user, reason);
+        var activeClientFolderRoot = await LoadActiveClientFolderRootAsync(cancellationToken);
+        var exportClientFolder = ResolveTransferClientFolder(client, activeClientFolderRoot)
+            ?? client.ClientFolder;
+        if (!string.Equals(client.ClientFolder, exportClientFolder, StringComparison.OrdinalIgnoreCase))
+        {
+            var oldClientFolder = client.ClientFolder;
+            await db.Clients
+                .Where(item => item.Id == client.Id)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(item => item.ClientFolder, exportClientFolder)
+                    .SetProperty(item => item.UpdatedAtUtc, DateTime.UtcNow), cancellationToken);
+            db.ComplianceAuditEvents.Add(new ComplianceAuditEvent
+            {
+                EntityType = nameof(Client),
+                EntityId = client.Id,
+                Action = "ClientFolderNormalisedForReviewExport",
+                OldValueJson = JsonSerializer.Serialize(new { ClientFolder = oldClientFolder }, JsonOptions),
+                NewValueJson = JsonSerializer.Serialize(new { ClientFolder = exportClientFolder }, JsonOptions),
+                UserName = user,
+                Reason = reason
+            });
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        var package = BuildPackage(client, assessment, user, reason, exportClientFolder);
         var plaintext = JsonSerializer.SerializeToUtf8Bytes(package, JsonOptions);
         var contentSha256 = Convert.ToHexString(SHA256.HashData(plaintext)).ToLowerInvariant();
         var encrypted = Encrypt(plaintext, passphrase);
@@ -1197,7 +1220,8 @@ public sealed class ClientReviewTransferService(
         Client client,
         ClientRiskAssessment assessment,
         string exportedBy,
-        string reason)
+        string reason,
+        string? clientFolderOverride = null)
     {
         var partyKeys = client.RelatedParties.ToDictionary(
             party => party.Id,
@@ -1274,7 +1298,7 @@ public sealed class ClientReviewTransferService(
                 LegacyClientId = client.LegacyClientId,
                 KanaanId = client.KanaanId,
                 DisplayName = client.DisplayName,
-                ClientFolder = client.ClientFolder,
+                ClientFolder = clientFolderOverride ?? client.ClientFolder,
                 ClientCategory = client.ClientCategory,
                 ClientCategorySource = client.ClientCategorySource,
                 ClientCategoryReason = client.ClientCategoryReason,
@@ -1720,6 +1744,10 @@ public sealed class ClientReviewTransferService(
             @"C:\Download\_kanaan\ClientsKanaan",
             @"E:\Userdata\Kanaan Trust\Clients",
             @"Z:\Userdata\Kanaan Trust\Clients",
+            @"E:\Kanaan Trust\Clients\Clients",
+            @"Z:\Kanaan Trust\Clients\Clients",
+            @"E:\Kanaan Trust\Clients",
+            @"Z:\Kanaan Trust\Clients",
             destinationRoot
         };
         foreach (var root in recognisedRoots
@@ -1743,6 +1771,44 @@ public sealed class ClientReviewTransferService(
                 : destinationRoot + "\\" + string.Join("\\", segments);
         }
         return null;
+    }
+
+    private static string? ResolveTransferClientFolder(Client client, string? activeClientFolderRoot)
+    {
+        var folderFromEvidence = InferClientFolderFromEvidence(client, activeClientFolderRoot);
+        if (folderFromEvidence is not null)
+        {
+            return folderFromEvidence;
+        }
+        return MapClientFolderToLiveRoot(client.ClientFolder, activeClientFolderRoot);
+    }
+
+    private static string? InferClientFolderFromEvidence(Client client, string? activeClientFolderRoot)
+    {
+        if (string.IsNullOrWhiteSpace(activeClientFolderRoot))
+        {
+            return null;
+        }
+        var root = NormalizeWindowsPath(activeClientFolderRoot).TrimEnd('\\');
+        var candidateFolders = client.EvidenceItems
+            .Where(item =>
+                item.Status == ClientEvidenceStatuses.Verified &&
+                item.OwnershipStatus == ClientEvidenceOwnershipStatuses.Confirmed &&
+                !string.IsNullOrWhiteSpace(item.SourcePath))
+            .Select(item => NormalizeWindowsPath(item.SourcePath!))
+            .Where(path => path.StartsWith(root + "\\", StringComparison.OrdinalIgnoreCase))
+            .Select(path =>
+            {
+                var relative = path[root.Length..].TrimStart('\\');
+                var segments = relative.Split('\\', StringSplitOptions.RemoveEmptyEntries);
+                return segments.Length == 0 || segments.Any(segment => segment is "." or "..")
+                    ? null
+                    : root + "\\" + segments[0];
+            })
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return candidateFolders.Count == 1 ? candidateFolders[0] : null;
     }
 
     private static string NormalizeWindowsPath(string path) =>
