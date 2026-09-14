@@ -111,7 +111,7 @@ public sealed class InvestmentReconciliationService(ApplicationDbContext db)
                     .ThenByDescending(review => review.Id)
                     .FirstOrDefault();
                 var currentReview = latestReview is not null &&
-                    string.Equals(latestReview.SnapshotSha256, snapshot, StringComparison.OrdinalIgnoreCase)
+                    ReviewMatchesCurrentState(latestReview, account, valuations, snapshot)
                         ? latestReview
                         : null;
                 var latestTransaction = account.Transactions
@@ -518,6 +518,26 @@ public sealed class InvestmentReconciliationService(ApplicationDbContext db)
             })
         });
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))).ToLowerInvariant();
+    }
+
+    internal static bool ReviewMatchesCurrentState(
+        ClientInvestmentReconciliationReview review,
+        ClientInvestmentAccount account,
+        IReadOnlyList<ClientFundValuation> valuations,
+        string currentSnapshot)
+    {
+        if (string.Equals(review.SnapshotSha256, currentSnapshot, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (review.Outcome != ClientInvestmentReconciliationOutcomes.Current)
+        {
+            return false;
+        }
+
+        var status = ClientInvestmentStatusClassifier.Evaluate(account, valuations);
+        return status.IsCurrent && valuations.Count > 0 && !account.SurrenderDate.HasValue;
     }
 
     internal static string? ValidateOutcome(
