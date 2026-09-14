@@ -48,7 +48,7 @@ public sealed class LegacyImportWebService(
     public async Task<LegacyImportJobSnapshot> StartApplyAllNewRowsJobAsync(long scanRunId, string tableScope = LegacyImportTableScopes.AllMapped, CancellationToken cancellationToken = default)
     {
         return await StartApplyJobAsync(
-            "Apply all eligible new rows",
+            "Apply all eligible KanaanTrust updates",
             async job =>
             {
                 job.Update("Backing up KCAS before apply...", 10);
@@ -57,7 +57,7 @@ public sealed class LegacyImportWebService(
                     job.Update(message, message.Contains("verification", StringComparison.OrdinalIgnoreCase) ? 80 : 30);
                     return Task.CompletedTask;
                 }, CancellationToken.None, alreadyLocked: true);
-                job.Complete(result.Id, $"Eligible new rows from scan #{scanRunId} were applied.");
+                job.Complete(result.Id, $"Eligible KanaanTrust updates from scan #{scanRunId} were applied.");
             },
             cancellationToken);
     }
@@ -410,6 +410,43 @@ public sealed class LegacyImportWebService(
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task ApplyRecommendedActionAsync(long rowStateId, string reviewedBy, CancellationToken cancellationToken = default)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var row = await LoadReviewRowAsync(db, rowStateId, cancellationToken);
+        if (!CanApplyRecommendedAction(row))
+        {
+            throw new InvalidOperationException("The selected row does not have a recommended action.");
+        }
+
+        await ApplyRecommendedActionCoreAsync(db, row, reviewedBy, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<int> ApplyRecommendedActionsForRunAsync(long runId, string reviewedBy, CancellationToken cancellationToken = default)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var rows = await db.LegacyImportRowStates
+            .Include(item => item.Differences)
+            .Where(item => item.LegacyImportRunId == runId)
+            .Where(item => item.SourceTable == "tbl_investmentaccount")
+            .Where(item => item.Classification == LegacyImportClassifications.Changed)
+            .Where(item => item.ApplyStatus == LegacyImportApplyStatuses.PendingReview)
+            .OrderBy(item => item.SourceId)
+            .ToListAsync(cancellationToken);
+        var recommendedRows = rows.Where(CanApplyRecommendedAction).ToList();
+        foreach (var row in recommendedRows)
+        {
+            await ApplyRecommendedActionCoreAsync(db, row, reviewedBy, cancellationToken);
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        return recommendedRows.Count;
+    }
+
+
     public async Task RecordManualResolutionAsync(long rowStateId, string reviewedBy, string resolvedValue, string reason, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(resolvedValue))
@@ -518,8 +555,8 @@ public sealed class LegacyImportWebService(
     }
 
     public bool IsEligibleForApply(LegacyImportRowState row)
-        => row.Classification == LegacyImportClassifications.New &&
-           row.ApplyStatus != LegacyImportApplyStatuses.Applied &&
+        => (row.Classification == LegacyImportClassifications.New && row.ApplyStatus == LegacyImportApplyStatuses.PendingReview ||
+            row.Classification == LegacyImportClassifications.Changed && row.ApplyStatus == LegacyImportApplyStatuses.ReadyToApply) &&
            !LegacyImportApprovalValidator.ReviewOnlySourceTables.Contains(row.SourceTable);
 
     public bool CanRetainKcas(LegacyImportRowState row)
@@ -534,6 +571,143 @@ public sealed class LegacyImportWebService(
     public bool CanResolveReview(LegacyImportRowState row)
         => row.Classification is LegacyImportClassifications.Changed or LegacyImportClassifications.MissingFromSource or LegacyImportClassifications.Invalid or LegacyImportClassifications.Orphaned &&
            row.ApplyStatus == LegacyImportApplyStatuses.PendingReview;
+
+    public bool CanApplyRecommendedAction(LegacyImportRowState row)
+        => GetRecommendedActionType(row) != RecommendedImportActionType.None;
+
+    public string RecommendedActionDescription(LegacyImportRowState row)
+        => GetRecommendedActionType(row) switch
+        {
+            RecommendedImportActionType.PreserveKcasInvestmentStatus =>
+                "Recommended: KanaanTrust only changed metadata on this investment account. Accept the metadata/source update, but keep the KCAS-reviewed surrender/status correction.",
+            RecommendedImportActionType.AcceptIncomingSurrenderDate =>
+                "Recommended: KanaanTrust now has a newer surrender date for an account KCAS previously treated as current. Accept the KanaanTrust surrender date and update the account to historical/surrendered.",
+            _ => string.Empty
+        };
+
+    private static readonly IReadOnlySet<string> RecommendedInvestmentMetadataFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "date_updated",
+        "updated_by",
+        "updated_by_id"
+    };
+
+    private static readonly IReadOnlySet<string> RecommendedIncomingSurrenderFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "date_updated",
+        "surrender_date",
+        "updated_by",
+        "updated_by_id"
+    };
+
+    private static async Task ApplyRecommendedActionCoreAsync(
+        ApplicationDbContext db,
+        LegacyImportRowState row,
+        string reviewedBy,
+        CancellationToken cancellationToken)
+    {
+        var actionType = GetRecommendedActionType(row);
+        if (actionType == RecommendedImportActionType.None)
+        {
+            throw new InvalidOperationException("The selected row does not have a recommended action.");
+        }
+
+        var values = DeserializePayload(row.IncomingPayloadJson);
+        var account = await db.ClientInvestmentAccounts
+            .Include(item => item.Transactions)
+            .SingleAsync(item => item.LegacyInvestmentAccountId == row.SourceId, cancellationToken);
+        var mapped = LegacyInvestmentAccountImportMapper.Map(values, account.ClientId, DateTime.UtcNow);
+        if (actionType == RecommendedImportActionType.AcceptIncomingSurrenderDate)
+        {
+            account.SurrenderDate = mapped.SurrenderDate;
+        }
+
+        account.UpdatedBy = mapped.UpdatedBy;
+        account.LegacyUpdatedByUserId = mapped.LegacyUpdatedByUserId;
+        account.LegacyUpdatedAt = mapped.LegacyUpdatedAt;
+        account.PayloadJson = mapped.PayloadJson;
+        account.ImportedAtUtc = mapped.ImportedAtUtc;
+
+        if (actionType == RecommendedImportActionType.AcceptIncomingSurrenderDate)
+        {
+            var matchedValuations = await db.ClientFundValuations.AsNoTracking()
+                .Where(item => item.ClientId == account.ClientId)
+                .ToListAsync(cancellationToken);
+            var reason = $"Newer KanaanTrust surrender date {account.SurrenderDate:yyyy-MM-dd} accepted from import run #{row.LegacyImportRunId}.";
+            var review = new ClientInvestmentReconciliationReview
+            {
+                ClientId = account.ClientId,
+                ClientInvestmentAccountId = account.Id,
+                Outcome = ClientInvestmentReconciliationOutcomes.HistoricalSurrendered,
+                AppliedSurrenderDate = account.SurrenderDate,
+                EvidenceReference = $"KanaanTrust SQL import run #{row.LegacyImportRunId}",
+                Reason = reason,
+                SnapshotSha256 = InvestmentReconciliationService.CalculateSnapshot(account, matchedValuations),
+                ReviewedBy = reviewedBy,
+                ReviewedAtUtc = DateTime.UtcNow
+            };
+            db.ClientInvestmentReconciliationReviews.Add(review);
+            db.ComplianceAuditEvents.Add(new ComplianceAuditEvent
+            {
+                EntityType = nameof(ClientInvestmentAccount),
+                EntityId = account.Id,
+                Action = "InvestmentReconciliationVerified",
+                OldValueJson = row.BaselinePayloadJson,
+                NewValueJson = row.IncomingPayloadJson,
+                UserName = reviewedBy,
+                Reason = reason
+            });
+        }
+
+        foreach (var difference in row.Differences)
+        {
+            difference.Decision = LegacyImportDecisionStatuses.AcceptLegacy;
+            difference.ResolvedValue = difference.IncomingValue;
+            difference.ReviewedBy = reviewedBy;
+            difference.ReviewedAtUtc = DateTime.UtcNow;
+            difference.ReviewReason = actionType == RecommendedImportActionType.AcceptIncomingSurrenderDate
+                ? "Recommended action: accepted the newer KanaanTrust surrender date and updated the investment account to historical/surrendered."
+                : "Recommended action: accepted KanaanTrust metadata/source update while preserving KCAS-reviewed investment status and surrender-date corrections.";
+        }
+
+        row.ApplyStatus = LegacyImportApplyStatuses.Applied;
+        await AcceptSourceSnapshotAsync(db, row, cancellationToken);
+        await RefreshRunReviewStatusAsync(db, row.LegacyImportRunId, cancellationToken);
+    }
+
+    private static RecommendedImportActionType GetRecommendedActionType(LegacyImportRowState row)
+    {
+        if (row.SourceTable != "tbl_investmentaccount" ||
+            row.Classification != LegacyImportClassifications.Changed ||
+            row.ApplyStatus != LegacyImportApplyStatuses.PendingReview ||
+            row.Differences.Count == 0)
+        {
+            return RecommendedImportActionType.None;
+        }
+
+        if (row.Differences.All(difference => RecommendedInvestmentMetadataFields.Contains(difference.FieldName)))
+        {
+            return RecommendedImportActionType.PreserveKcasInvestmentStatus;
+        }
+
+        var surrenderDifference = row.Differences.SingleOrDefault(difference =>
+            string.Equals(difference.FieldName, "surrender_date", StringComparison.OrdinalIgnoreCase));
+        if (surrenderDifference is not null &&
+            !string.IsNullOrWhiteSpace(surrenderDifference.IncomingValue) &&
+            row.Differences.All(difference => RecommendedIncomingSurrenderFields.Contains(difference.FieldName)))
+        {
+            return RecommendedImportActionType.AcceptIncomingSurrenderDate;
+        }
+
+        return RecommendedImportActionType.None;
+    }
+
+    private enum RecommendedImportActionType
+    {
+        None,
+        PreserveKcasInvestmentStatus,
+        AcceptIncomingSurrenderDate
+    }
 
     private static IReadOnlyDictionary<string, string?> DeserializePayload(string payloadJson)
     {
@@ -883,7 +1057,7 @@ public sealed class LegacyImportWebService(
             throw new InvalidOperationException("KCAS has pending database migrations. Deploy reviewed migrations before importing.");
         }
 
-        Dictionary<(string Table, long Id), string>? approvedNewRows = null;
+        Dictionary<(string Table, long Id), string>? approvedRowsForApply = null;
         if (mode == LegacyImportModes.ApplyNew)
         {
             if (!skipBackup)
@@ -894,7 +1068,7 @@ public sealed class LegacyImportWebService(
                 .AsNoTracking()
                 .Include(run => run.Rows)
                 .SingleAsync(run => run.Id == approvedScanRunId, cancellationToken);
-            approvedNewRows = LegacyImportApprovalValidator.GetApprovedNewRows(
+            approvedRowsForApply = LegacyImportApprovalValidator.GetApprovedRows(
                 approvedScan,
                 stagedDatabase,
                 snapshotSha256,
@@ -913,7 +1087,7 @@ public sealed class LegacyImportWebService(
             sourceFileName,
             approvedScanRunId,
             cancellationToken);
-        var importer = new IncrementalLegacyImporter(db, legacyConnection, recorder, approvedNewRows, tableScopes, autoApplySourceTables);
+        var importer = new IncrementalLegacyImporter(db, legacyConnection, recorder, approvedRowsForApply, tableScopes, autoApplySourceTables);
 
         try
         {

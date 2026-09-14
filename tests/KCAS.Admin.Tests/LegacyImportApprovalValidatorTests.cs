@@ -6,18 +6,20 @@ namespace KCAS.Admin.Tests;
 public sealed class LegacyImportApprovalValidatorTests
 {
     [Fact]
-    public void Returns_only_new_rows_from_matching_completed_scan()
+    public void Returns_new_and_ready_changed_rows_from_matching_completed_scan()
     {
         var run = Scan("stage", new string('a', 64));
         run.Rows.Add(Row("tbl_client", 1, LegacyImportClassifications.New, "one"));
-        run.Rows.Add(Row("tbl_client", 2, LegacyImportClassifications.Changed, "two"));
+        run.Rows.Add(Row("tbl_client", 2, LegacyImportClassifications.Changed, "two", LegacyImportApplyStatuses.ReadyToApply));
+        run.Rows.Add(Row("tbl_client", 5, LegacyImportClassifications.Changed, "review", LegacyImportApplyStatuses.PendingReview));
         run.Rows.Add(Row("tbl_fund", 3, LegacyImportClassifications.New, "unstable-id"));
         run.Rows.Add(Row("tbl_kyc", 4, LegacyImportClassifications.New, "replacement-policy"));
 
-        var approved = LegacyImportApprovalValidator.GetApprovedNewRows(run, "stage", new string('A', 64));
+        var approved = LegacyImportApprovalValidator.GetApprovedRows(run, "stage", new string('A', 64));
 
-        Assert.Equal(2, approved.Count);
+        Assert.Equal(3, approved.Count);
         Assert.Equal("one", approved[("tbl_client", 1)]);
+        Assert.Equal("two", approved[("tbl_client", 2)]);
         Assert.Equal("replacement-policy", approved[("tbl_kyc", 4)]);
     }
 
@@ -29,7 +31,7 @@ public sealed class LegacyImportApprovalValidatorTests
         run.Rows.Add(Row("tbl_fund", 2, LegacyImportClassifications.New, "fund"));
         run.Rows.Add(Row("tbl_kyc", 3, LegacyImportClassifications.New, "kyc"));
 
-        var approved = LegacyImportApprovalValidator.GetApprovedNewRows(
+        var approved = LegacyImportApprovalValidator.GetApprovedRows(
             run,
             "stage",
             new string('a', 64),
@@ -46,8 +48,8 @@ public sealed class LegacyImportApprovalValidatorTests
     {
         var run = Scan("stage", new string('a', 64));
 
-        Assert.Throws<InvalidOperationException>(() => LegacyImportApprovalValidator.GetApprovedNewRows(run, "other", new string('a', 64)));
-        Assert.Throws<InvalidOperationException>(() => LegacyImportApprovalValidator.GetApprovedNewRows(run, "stage", new string('b', 64)));
+        Assert.Throws<InvalidOperationException>(() => LegacyImportApprovalValidator.GetApprovedRows(run, "other", new string('a', 64)));
+        Assert.Throws<InvalidOperationException>(() => LegacyImportApprovalValidator.GetApprovedRows(run, "stage", new string('b', 64)));
     }
 
     [Fact]
@@ -56,7 +58,7 @@ public sealed class LegacyImportApprovalValidatorTests
         var run = Scan("stage", new string('a', 64));
         run.Mode = LegacyImportModes.ApplyNew;
 
-        Assert.Throws<InvalidOperationException>(() => LegacyImportApprovalValidator.GetApprovedNewRows(run, "stage", new string('a', 64)));
+        Assert.Throws<InvalidOperationException>(() => LegacyImportApprovalValidator.GetApprovedRows(run, "stage", new string('a', 64)));
     }
 
     [Fact]
@@ -66,7 +68,7 @@ public sealed class LegacyImportApprovalValidatorTests
         run.Rows.Add(Row("tbl_client", 1, LegacyImportClassifications.New, "one"));
         run.Rows.Add(Row("tbl_client", 2, LegacyImportClassifications.New, "two"));
 
-        var approved = LegacyImportApprovalValidator.GetApprovedNewRows(
+        var approved = LegacyImportApprovalValidator.GetApprovedRows(
             run,
             "stage",
             new string('a', 64),
@@ -84,7 +86,7 @@ public sealed class LegacyImportApprovalValidatorTests
         run.Rows.Add(Row("tbl_client", 1, LegacyImportClassifications.Changed, "one"));
         run.Rows.Add(Row("tbl_fund", 2, LegacyImportClassifications.New, "two"));
 
-        Assert.Throws<InvalidOperationException>(() => LegacyImportApprovalValidator.GetApprovedNewRows(
+        Assert.Throws<InvalidOperationException>(() => LegacyImportApprovalValidator.GetApprovedRows(
             run,
             "stage",
             new string('a', 64),
@@ -101,11 +103,17 @@ public sealed class LegacyImportApprovalValidatorTests
         SourceSnapshotSha256 = hash
     };
 
-    private static LegacyImportRowState Row(string table, long id, string classification, string fingerprint) => new()
+    private static LegacyImportRowState Row(
+        string table,
+        long id,
+        string classification,
+        string fingerprint,
+        string applyStatus = LegacyImportApplyStatuses.PendingReview) => new()
     {
         SourceTable = table,
         SourceId = id,
         Classification = classification,
+        ApplyStatus = applyStatus,
         IncomingFingerprint = fingerprint
     };
 }

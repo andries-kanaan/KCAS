@@ -55,7 +55,9 @@ public sealed class LegacyImportRunRecorder
         string? targetEntityType,
         long? targetEntityId,
         DateTime? sourceUpdatedAt = null,
-        bool appliedNew = false)
+        bool appliedNew = false,
+        bool readyToApplyChanged = false,
+        bool appliedChanged = false)
     {
         snapshots.TryGetValue((sourceTable, sourceId), out var acceptedSnapshot);
         var baseline = acceptedSnapshot?.PayloadJson ?? existingBaselinePayloadJson;
@@ -80,6 +82,15 @@ public sealed class LegacyImportRunRecorder
         {
             row.ApplyStatus = LegacyImportApplyStatuses.Applied;
             AcceptSnapshot(sourceTable, sourceId, row.IncomingPayloadJson, row.IncomingFingerprint);
+        }
+        else if (appliedChanged && row.Classification == LegacyImportClassifications.Changed)
+        {
+            row.ApplyStatus = LegacyImportApplyStatuses.Applied;
+            AcceptSnapshot(sourceTable, sourceId, row.IncomingPayloadJson, row.IncomingFingerprint);
+        }
+        else if (readyToApplyChanged && row.Classification == LegacyImportClassifications.Changed)
+        {
+            row.ApplyStatus = LegacyImportApplyStatuses.ReadyToApply;
         }
         else if (row.Classification == LegacyImportClassifications.Unchanged)
         {
@@ -157,7 +168,7 @@ public sealed class LegacyImportRunRecorder
         Run.CompletedAtUtc = DateTime.UtcNow;
         Run.Status = failedCount > 0
             ? LegacyImportRunStatuses.Failed
-            : Run.ChangedCount + Run.MissingCount + Run.InvalidCount + Run.OrphanedCount > 0
+            : Run.Rows.Any(row => row.ApplyStatus == LegacyImportApplyStatuses.PendingReview)
                 ? LegacyImportRunStatuses.AwaitingReview
                 : LegacyImportRunStatuses.Completed;
         await db.SaveChangesAsync(cancellationToken);
@@ -176,6 +187,16 @@ public sealed class LegacyImportRunRecorder
 
     private void AcceptSnapshot(string sourceTable, long sourceId, string payloadJson, string fingerprint)
     {
+        if (snapshots.TryGetValue((sourceTable, sourceId), out var existing))
+        {
+            existing.PayloadJson = payloadJson;
+            existing.Fingerprint = fingerprint;
+            existing.AcceptedAtUtc = DateTime.UtcNow;
+            existing.AcceptedFromRunId = Run.Id;
+            existing.LastSeenAtUtc = DateTime.UtcNow;
+            return;
+        }
+
         var snapshot = new LegacySourceSnapshot
         {
             SourceTable = sourceTable,

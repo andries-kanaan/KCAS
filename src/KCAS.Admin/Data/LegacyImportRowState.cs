@@ -56,6 +56,7 @@ public static class LegacyImportClassifications
 public static class LegacyImportApplyStatuses
 {
     public const string NotApplicable = "NotApplicable";
+    public const string ReadyToApply = "ReadyToApply";
     public const string PendingReview = "PendingReview";
     public const string Applied = "Applied";
     public const string Failed = "Failed";
