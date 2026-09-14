@@ -533,8 +533,15 @@ public sealed class ClientReviewTransferService(
                 var match = MatchInvestmentAccount(liveAccounts, source.LegacyInvestmentAccountId, source.AccountNumber, source.Administrator);
                 if (match is null)
                 {
-                    conflicts.Add($"Investment account '{source.AccountNumber ?? source.LegacyInvestmentAccountId?.ToString() ?? "unknown"}' could not be matched uniquely on live.");
-                    continue;
+                    var creatableValuations = FindCurrentAccountCreationValuations(source, liveAccounts, liveValuations);
+                    if (creatableValuations.Count == 0)
+                    {
+                        conflicts.Add($"Investment account '{source.AccountNumber ?? source.LegacyInvestmentAccountId?.ToString() ?? "unknown"}' could not be matched uniquely on live.");
+                        continue;
+                    }
+                    match = BuildCurrentAccountFromValuations(client.Id, source, creatableValuations, userName: null);
+                    warnings.Add(
+                        $"Investment {source.AccountNumber}: live has matching current valuation rows but no account row; KCAS will create the account row during import.");
                 }
                 if (match.SurrenderDate != source.SurrenderDate)
                 {
@@ -577,7 +584,7 @@ public sealed class ClientReviewTransferService(
                 }
                 var portableSnapshot = CalculatePortableInvestmentSnapshot(match, matchedValuations);
                 match.SurrenderDate = oldSurrenderDate;
-                if (!string.Equals(source.PortableSnapshotSha256, portableSnapshot, StringComparison.OrdinalIgnoreCase))
+                if (!InvestmentSnapshotMatchesOrCurrent(source, match, matchedValuations, portableSnapshot))
                 {
                     conflicts.Add(
                         $"Investment {match.AccountNumber}: the live account, transactions or valuations differ from the reviewed package snapshot.");
@@ -777,8 +784,19 @@ public sealed class ClientReviewTransferService(
 
         foreach (var source in package.InvestmentReconciliations)
         {
-            var account = MatchInvestmentAccount(client.InvestmentAccounts, source.LegacyInvestmentAccountId, source.AccountNumber, source.Administrator)
-                ?? throw new InvalidOperationException($"Investment account '{source.AccountNumber}' could not be matched uniquely on live.");
+            var account = MatchInvestmentAccount(client.InvestmentAccounts, source.LegacyInvestmentAccountId, source.AccountNumber, source.Administrator);
+            if (account is null)
+            {
+                var creatableValuations = FindCurrentAccountCreationValuations(source, client.InvestmentAccounts, client.FundValuations);
+                if (creatableValuations.Count == 0)
+                {
+                    throw new InvalidOperationException($"Investment account '{source.AccountNumber}' could not be matched uniquely on live.");
+                }
+                account = BuildCurrentAccountFromValuations(client.Id, source, creatableValuations, user);
+                client.InvestmentAccounts.Add(account);
+                db.ClientInvestmentAccounts.Add(account);
+                await db.SaveChangesAsync(cancellationToken);
+            }
             ClientInvestmentAccount? related = null;
             if (source.RelatedLegacyInvestmentAccountId.HasValue || !string.IsNullOrWhiteSpace(source.RelatedAccountNumber))
             {
@@ -812,7 +830,7 @@ public sealed class ClientReviewTransferService(
                 account.SurrenderDate = source.SurrenderDate;
             }
             var portableSnapshot = CalculatePortableInvestmentSnapshot(account, matchedValuations);
-            if (!string.Equals(source.PortableSnapshotSha256, portableSnapshot, StringComparison.OrdinalIgnoreCase))
+            if (!InvestmentSnapshotMatchesOrCurrent(source, account, matchedValuations, portableSnapshot))
             {
                 throw new InvalidOperationException(
                     $"Investment {account.AccountNumber}: the live account, transactions or valuations differ from the reviewed package snapshot.");
@@ -2118,6 +2136,96 @@ public sealed class ClientReviewTransferService(
                 })
         });
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))).ToLowerInvariant();
+    }
+
+    private static bool InvestmentSnapshotMatchesOrCurrent(
+        ClientReviewInvestmentReconciliationPackage source,
+        ClientInvestmentAccount account,
+        IReadOnlyList<ClientFundValuation> matchedValuations,
+        string portableSnapshot)
+    {
+        if (string.Equals(source.PortableSnapshotSha256, portableSnapshot, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (source.Outcome != ClientInvestmentReconciliationOutcomes.Current)
+        {
+            return false;
+        }
+
+        var status = ClientInvestmentStatusClassifier.Evaluate(account, matchedValuations);
+        return status.IsCurrent && matchedValuations.Count > 0 && !account.SurrenderDate.HasValue;
+    }
+
+    private static IReadOnlyList<ClientFundValuation> FindCurrentAccountCreationValuations(
+        ClientReviewInvestmentReconciliationPackage source,
+        IEnumerable<ClientInvestmentAccount> existingAccounts,
+        IEnumerable<ClientFundValuation> valuations)
+    {
+        if (source.Outcome != ClientInvestmentReconciliationOutcomes.Current)
+        {
+            return [];
+        }
+
+        var normalized = ClientInvestmentStatusClassifier.NormalizeAccountNumber(source.AccountNumber);
+        if (normalized is null)
+        {
+            return [];
+        }
+
+        if (existingAccounts.Any(account => string.Equals(
+                ClientInvestmentStatusClassifier.NormalizeAccountNumber(account.AccountNumber),
+                normalized,
+                StringComparison.OrdinalIgnoreCase)))
+        {
+            return [];
+        }
+
+        return valuations
+            .Where(valuation => string.Equals(
+                ClientInvestmentStatusClassifier.NormalizeAccountNumber(valuation.InvestmentUniqueNumber),
+                normalized,
+                StringComparison.OrdinalIgnoreCase))
+            .OrderBy(valuation => valuation.LegacyFundId)
+            .ThenBy(valuation => valuation.ValuationDate)
+            .ThenBy(valuation => valuation.FundName)
+            .ToList();
+    }
+
+    private static ClientInvestmentAccount BuildCurrentAccountFromValuations(
+        int clientId,
+        ClientReviewInvestmentReconciliationPackage source,
+        IReadOnlyList<ClientFundValuation> valuations,
+        string? userName)
+    {
+        var administrator = !string.IsNullOrWhiteSpace(source.Administrator)
+            ? source.Administrator.Trim()
+            : string.Join(", ", valuations
+                .Select(valuation => valuation.Administrator)
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Distinct(StringComparer.OrdinalIgnoreCase));
+        var fundName = string.Join(", ", valuations
+            .Select(valuation => valuation.FundName)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase));
+
+        return new ClientInvestmentAccount
+        {
+            ClientId = clientId,
+            AccountNumber = source.AccountNumber,
+            Administrator = string.IsNullOrWhiteSpace(administrator) ? null : administrator,
+            FundName = string.IsNullOrWhiteSpace(fundName) ? null : fundName,
+            SurrenderDate = null,
+            UpdatedBy = userName,
+            PayloadJson = JsonSerializer.Serialize(new
+            {
+                source = "Review transfer current valuation account creation",
+                source.AccountNumber,
+                source.Administrator,
+                ValuationIds = valuations.Select(valuation => valuation.Id).ToList()
+            }, JsonOptions)
+        };
     }
 
     private static ClientEvidenceRequirement? MatchRequirement(
