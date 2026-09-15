@@ -556,9 +556,7 @@ public sealed class ClientReviewTransferService(
                 if (source.RelatedLegacyInvestmentAccountId.HasValue || !string.IsNullOrWhiteSpace(source.RelatedAccountNumber))
                 {
                     related = MatchInvestmentAccount(
-                        source.Outcome == ClientInvestmentReconciliationOutcomes.WrongClientDuplicate
-                            ? liveAccounts.Concat(linkedLiveAccounts)
-                            : liveAccounts,
+                        RelatedInvestmentCandidates(source.Outcome, liveAccounts, linkedLiveAccounts),
                         source.RelatedLegacyInvestmentAccountId,
                         source.RelatedAccountNumber,
                         source.RelatedAdministrator);
@@ -827,9 +825,7 @@ public sealed class ClientReviewTransferService(
             if (source.RelatedLegacyInvestmentAccountId.HasValue || !string.IsNullOrWhiteSpace(source.RelatedAccountNumber))
             {
                 related = MatchInvestmentAccount(
-                    source.Outcome == ClientInvestmentReconciliationOutcomes.WrongClientDuplicate
-                        ? client.InvestmentAccounts.Concat(linkedInvestmentAccounts)
-                        : client.InvestmentAccounts,
+                    RelatedInvestmentCandidates(source.Outcome, client.InvestmentAccounts, linkedInvestmentAccounts),
                     source.RelatedLegacyInvestmentAccountId,
                     source.RelatedAccountNumber,
                     source.RelatedAdministrator)
@@ -1778,6 +1774,17 @@ public sealed class ClientReviewTransferService(
             query = query.AsNoTracking();
         }
         return await query.ToListAsync(cancellationToken);
+    }
+
+    private static IEnumerable<ClientInvestmentAccount> RelatedInvestmentCandidates(
+        string outcome,
+        IEnumerable<ClientInvestmentAccount> clientAccounts,
+        IEnumerable<ClientInvestmentAccount> linkedAccounts)
+    {
+        return outcome is ClientInvestmentReconciliationOutcomes.Transferred or
+            ClientInvestmentReconciliationOutcomes.WrongClientDuplicate
+            ? clientAccounts.Concat(linkedAccounts)
+            : clientAccounts;
     }
 
     internal static string? MapClientFolderToLiveRoot(string? sourceFolder, string? liveRoot)
