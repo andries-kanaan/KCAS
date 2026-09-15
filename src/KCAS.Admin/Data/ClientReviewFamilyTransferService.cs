@@ -250,12 +250,15 @@ public sealed class ClientReviewFamilyTransferService(
         {
             if (!member.CanApply)
             {
+                var conflictMessage = string.Join(" ", member.AllConflicts);
                 results.Add(new ClientReviewFamilyMemberImportResult
                 {
                     PackageId = member.Manifest.PackageId,
                     DisplayName = member.Manifest.DisplayName,
                     Status = member.ClientPreview?.AlreadyApplied == true ? "AlreadyApplied" : "Conflict",
-                    Message = string.Join(" ", member.AllConflicts)
+                    Message = string.IsNullOrWhiteSpace(conflictMessage)
+                        ? "This family member is not eligible to apply. Preview the family bundle to review the member conflict."
+                        : conflictMessage
                 });
                 continue;
             }

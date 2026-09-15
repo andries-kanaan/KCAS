@@ -818,9 +818,16 @@
                     .Where(member => member.Status == "Applied" && !string.IsNullOrWhiteSpace(member.Message))
                     .Select(member => $"{member.DisplayName}: {member.Message}")
                     .ToList();
+                var blockedMessages = result.Members
+                    .Where(member => member.Status != "Applied")
+                    .Select(member => string.IsNullOrWhiteSpace(member.Message)
+                        ? $"{member.DisplayName}: {member.Status}."
+                        : $"{member.DisplayName}: {member.Message}")
+                    .ToList();
                 statusMessage = $"Family bundle applied: {applied} client(s) imported" +
                     (notApplied > 0 ? $"; {notApplied} not applied." : ".") +
-                    (verificationMessages.Count == 0 ? "" : $" {string.Join(" ", verificationMessages)}");
+                    (verificationMessages.Count == 0 ? "" : $" {string.Join(" ", verificationMessages)}") +
+                    (blockedMessages.Count == 0 ? "" : $" Not applied: {string.Join(" ", blockedMessages)}");
             }
             else
             {
