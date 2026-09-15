@@ -151,8 +151,7 @@
         sortColumn == column ? sortDescending ? "down" : "up" : "";
 
     private static bool CanTransfer(ClientOperationalPortfolioItem item) =>
-        item.HasCompletedAssessment &&
-        item.LifecycleStatus == ClientLifecycleStatuses.Current;
+        item.HasCompletedAssessment;
 
     private static string LifecycleBadge(string status) => status switch
     {
