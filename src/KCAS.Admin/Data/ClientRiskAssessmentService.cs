@@ -69,7 +69,7 @@ public sealed class ClientRiskAssessmentService(
             ClientCategory = client.ClientCategory,
             IsReadyForRiskAssessment = readiness.IsReadyForRiskAssessment &&
                                        investmentReadiness.IsComplete &&
-                                       client.LifecycleStatus == ClientLifecycleStatuses.Current &&
+                                       IsAssessableLifecycle(client.LifecycleStatus) &&
                                        blockingVerificationCount == 0,
             BlockingEvidenceCount = readiness.BlockedCount,
             BlockingVerificationCount = blockingVerificationCount,
@@ -435,9 +435,9 @@ public sealed class ClientRiskAssessmentService(
             .Where(client => client.Id == assessment.ClientId)
             .Select(client => client.LifecycleStatus)
             .SingleAsync();
-        if (lifecycleStatus != ClientLifecycleStatuses.Current)
+        if (!IsAssessableLifecycle(lifecycleStatus))
         {
-            throw new InvalidOperationException("The assessment cannot be finalised until the client is lifecycle-classified as Current.");
+            throw new InvalidOperationException("The assessment cannot be finalised until the client has an assessable lifecycle classification.");
         }
         var blockingVerificationCount = await db.ClientVerificationItems.CountAsync(item =>
             item.ClientId == assessment.ClientId &&
@@ -909,7 +909,7 @@ public sealed class ClientRiskAssessmentService(
             item.IsBlocking);
         var canGenerateProposal = readiness.IsReadyForRiskAssessment &&
                                   investmentReadiness.IsComplete &&
-                                  client.LifecycleStatus == ClientLifecycleStatuses.Current &&
+                                  IsAssessableLifecycle(client.LifecycleStatus) &&
                                   blockingVerificationCount == 0;
         if (!canGenerateProposal)
         {
@@ -1072,6 +1072,9 @@ public sealed class ClientRiskAssessmentService(
                 ? ordered[ordered.Count / 2]
                 : ordered[0];
     }
+
+    private static bool IsAssessableLifecycle(string lifecycleStatus)
+        => lifecycleStatus is not (ClientLifecycleStatuses.Unreviewed or ClientLifecycleStatuses.Duplicate);
 
     private static ClientEvidenceItem? CurrentVerifiedEvidence(IEnumerable<ClientEvidenceItem> items, string evidenceType)
         => items
