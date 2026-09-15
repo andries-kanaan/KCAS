@@ -43,7 +43,22 @@
 <div class="table-responsive">
     <table class="table align-middle">
         <thead>
-            <tr><th>Kanaan ID</th><th>Client</th><th>Lifecycle</th><th>Review</th><th>Awaiting verification</th><th></th></tr>
+            <tr>
+                <th>
+                    <button class="sort-header" type="button" @onclick='() => SortBy("kanaanId")'>
+                        Kanaan ID @SortIndicator("kanaanId")
+                    </button>
+                </th>
+                <th>
+                    <button class="sort-header" type="button" @onclick='() => SortBy("client")'>
+                        Client @SortIndicator("client")
+                    </button>
+                </th>
+                <th>Lifecycle</th>
+                <th>Review</th>
+                <th>Awaiting verification</th>
+                <th></th>
+            </tr>
         </thead>
         <tbody>
             @foreach (var item in filteredItems)
@@ -88,6 +103,8 @@
     private List<ClientOperationalPortfolioItem> allItems = [];
     private List<ClientOperationalPortfolioItem> filteredItems = [];
     private string? lifecycleFilter;
+    private string sortColumn = "client";
+    private bool sortDescending;
 
     protected override async Task OnInitializedAsync()
     {
@@ -95,11 +112,43 @@
         ApplyFilter();
     }
 
-    private void ApplyFilter() => filteredItems = string.IsNullOrWhiteSpace(lifecycleFilter)
-        ? allItems
-        : allItems.Where(item => item.LifecycleStatus == lifecycleFilter).ToList();
+    private void ApplyFilter()
+    {
+        var items = string.IsNullOrWhiteSpace(lifecycleFilter)
+            ? allItems
+            : allItems.Where(item => item.LifecycleStatus == lifecycleFilter);
+        filteredItems = SortItems(items).ToList();
+    }
+
+    private void SortBy(string column)
+    {
+        if (sortColumn == column)
+        {
+            sortDescending = !sortDescending;
+        }
+        else
+        {
+            sortColumn = column;
+            sortDescending = false;
+        }
+        ApplyFilter();
+    }
+
+    private IEnumerable<ClientOperationalPortfolioItem> SortItems(IEnumerable<ClientOperationalPortfolioItem> items)
+    {
+        var sorted = sortColumn == "kanaanId"
+            ? items.OrderBy(item => string.IsNullOrWhiteSpace(item.KanaanId))
+                .ThenBy(item => item.KanaanId, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase)
+            : items.OrderBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.KanaanId, StringComparer.OrdinalIgnoreCase);
+        return sortDescending ? sorted.Reverse() : sorted;
+    }
 
     private int Count(string status) => allItems.Count(item => item.LifecycleStatus == status);
+
+    private string SortIndicator(string column) =>
+        sortColumn == column ? sortDescending ? "down" : "up" : "";
 
     private static bool CanTransfer(ClientOperationalPortfolioItem item) =>
         item.HasCompletedAssessment &&
