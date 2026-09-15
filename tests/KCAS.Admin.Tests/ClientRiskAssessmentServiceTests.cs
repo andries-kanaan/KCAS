@@ -78,6 +78,42 @@ public sealed class ClientRiskAssessmentServiceTests(KcasWebApplicationFactory f
     }
 
     [Fact]
+    public async Task Historical_ready_client_can_generate_and_finalise_assessment()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var compliance = scope.ServiceProvider.GetRequiredService<ComplianceService>();
+        var evidence = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var service = scope.ServiceProvider.GetRequiredService<ClientRiskAssessmentService>();
+        await ActivateMethodologyAsync(compliance, db, "Historical methodology");
+        var clientId = await CreateReadyClientAsync(db, evidence, "Historical Risk Client");
+        var client = await db.Clients.SingleAsync(item => item.Id == clientId);
+        client.LifecycleStatus = ClientLifecycleStatuses.Historical;
+        client.LifecycleReason = "No current investment remains; historical relationship retained for RMCP recordkeeping.";
+        client.IsActive = false;
+        await db.SaveChangesAsync();
+
+        var assessmentId = await service.CreateDraftAsync(clientId, "rep@example.test", "Start historical assessment.");
+        var generatedDraft = await db.ClientRiskAssessments.AsNoTracking()
+            .Include(item => item.Responses)
+            .SingleAsync(item => item.Id == assessmentId);
+        Assert.True(generatedDraft.StandardControlsApplied);
+        Assert.StartsWith("System-generated proposal", generatedDraft.Narrative);
+        Assert.All(generatedDraft.Responses, item => Assert.NotNull(item.RiskFactorOptionId));
+
+        var page = await service.LoadAsync(clientId);
+        Assert.True(page.IsReadyForRiskAssessment);
+        Assert.Equal(ClientLifecycleStatuses.Historical, page.LifecycleStatus);
+        await service.SaveDraftAsync(assessmentId, BuildEdit(page, useHighOption: false), "rep@example.test", "Complete historical assessment.");
+        await service.FinaliseAsync(assessmentId, "rep@example.test", "Finalise historical assessment.");
+
+        var assessment = await db.ClientRiskAssessments.AsNoTracking().SingleAsync(item => item.Id == assessmentId);
+        Assert.Equal(ClientRiskAssessmentStatuses.Finalised, assessment.Status);
+        Assert.Equal("Low", assessment.FinalRating);
+        Assert.NotNull(assessment.SnapshotJson);
+    }
+
+    [Fact]
     public async Task Elevated_assessment_requires_one_authorised_ki_approval()
     {
         using var scope = factory.Services.CreateScope();
