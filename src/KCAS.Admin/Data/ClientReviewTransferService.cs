@@ -528,6 +528,10 @@ public sealed class ClientReviewTransferService(
             var liveValuations = await db.ClientFundValuations.AsNoTracking()
                 .Where(item => item.ClientId == client.Id)
                 .ToListAsync(cancellationToken);
+            var liveReviews = await db.ClientInvestmentReconciliationReviews.AsNoTracking()
+                .Where(item => item.ClientId == client.Id)
+                .ToListAsync(cancellationToken);
+            var previewReviews = new List<PreviewInvestmentReconciliationReview>();
             foreach (var source in package.InvestmentReconciliations)
             {
                 var match = MatchInvestmentAccount(liveAccounts, source.LegacyInvestmentAccountId, source.AccountNumber, source.Administrator);
@@ -542,6 +546,7 @@ public sealed class ClientReviewTransferService(
                     match = BuildCurrentAccountFromValuations(client.Id, source, creatableValuations, userName: null);
                     warnings.Add(
                         $"Investment {source.AccountNumber}: live has matching current valuation rows but no account row; KCAS will create the account row during import.");
+                    liveAccounts.Add(match);
                 }
                 if (match.SurrenderDate != source.SurrenderDate)
                 {
@@ -583,13 +588,34 @@ public sealed class ClientReviewTransferService(
                     match.SurrenderDate = source.SurrenderDate;
                 }
                 var portableSnapshot = CalculatePortableInvestmentSnapshot(match, matchedValuations);
-                match.SurrenderDate = oldSurrenderDate;
                 if (!InvestmentSnapshotMatchesOrCurrent(source, match, matchedValuations, portableSnapshot))
                 {
                     conflicts.Add(
                         $"Investment {match.AccountNumber}: the live account, transactions or valuations differ from the reviewed package snapshot.");
                 }
+                previewReviews.Add(new PreviewInvestmentReconciliationReview(
+                    match,
+                    new ClientInvestmentReconciliationReview
+                    {
+                        ClientId = client.Id,
+                        ClientInvestmentAccountId = match.Id,
+                        Outcome = source.Outcome,
+                        RelatedClientInvestmentAccountId = related?.Id,
+                        AppliedSurrenderDate = match.SurrenderDate,
+                        EvidenceReference = source.EvidenceReference,
+                        Reason = source.Reason,
+                        SnapshotSha256 = InvestmentReconciliationService.CalculateSnapshot(match, matchedValuations),
+                        ReviewedAtUtc = source.ReviewedAtUtc,
+                        ReviewedBy = source.ReviewedBy
+                    }));
             }
+
+            conflicts.AddRange(ValidatePreviewInvestmentCompleteness(
+                client,
+                liveAccounts,
+                liveValuations,
+                liveReviews,
+                previewReviews));
         }
 
         if (methodology is not null)
@@ -2158,6 +2184,92 @@ public sealed class ClientReviewTransferService(
         return status.IsCurrent && matchedValuations.Count > 0 && !account.SurrenderDate.HasValue;
     }
 
+    private static List<string> ValidatePreviewInvestmentCompleteness(
+        Client client,
+        IReadOnlyCollection<ClientInvestmentAccount> accounts,
+        IReadOnlyCollection<ClientFundValuation> valuations,
+        IReadOnlyCollection<ClientInvestmentReconciliationReview> existingReviews,
+        IReadOnlyCollection<PreviewInvestmentReconciliationReview> packageReviews)
+    {
+        if (accounts.Count == 0 && valuations.Count == 0)
+        {
+            return [];
+        }
+
+        var simulatedClient = new Client
+        {
+            Id = client.Id,
+            LegacyClientId = client.LegacyClientId,
+            KanaanId = client.KanaanId,
+            DisplayName = client.DisplayName,
+            SurnameOrEntityName = client.SurnameOrEntityName
+        };
+        foreach (var account in accounts)
+        {
+            simulatedClient.InvestmentAccounts.Add(account);
+        }
+        foreach (var valuation in valuations)
+        {
+            simulatedClient.FundValuations.Add(valuation);
+        }
+
+        var issues = InvestmentReconciliationService.BuildIssues(simulatedClient);
+        var unmatchedIssues = issues.Where(issue => issue.AccountIds.Count == 0).ToList();
+        var unreconciledAccounts = new List<ClientInvestmentAccount>();
+
+        foreach (var account in accounts)
+        {
+            var matchedValuations = ClientInvestmentStatusClassifier.MatchingValuations(account, valuations);
+            var snapshot = InvestmentReconciliationService.CalculateSnapshot(account, matchedValuations);
+            var packageReview = packageReviews
+                .Where(item => ReferenceEquals(item.Account, account))
+                .OrderByDescending(item => item.Review.ReviewedAtUtc)
+                .FirstOrDefault()
+                ?.Review;
+            if (packageReview is not null &&
+                packageReview.Outcome != ClientInvestmentReconciliationOutcomes.NeedsFollowUp &&
+                InvestmentReconciliationService.ReviewMatchesCurrentState(packageReview, account, matchedValuations, snapshot))
+            {
+                continue;
+            }
+
+            var existingReview = account.Id == 0
+                ? null
+                : existingReviews
+                    .Where(review => review.ClientInvestmentAccountId == account.Id)
+                    .OrderByDescending(review => review.ReviewedAtUtc)
+                    .ThenByDescending(review => review.Id)
+                    .FirstOrDefault();
+            if (existingReview is not null &&
+                existingReview.Outcome != ClientInvestmentReconciliationOutcomes.NeedsFollowUp &&
+                InvestmentReconciliationService.ReviewMatchesCurrentState(existingReview, account, matchedValuations, snapshot))
+            {
+                continue;
+            }
+
+            unreconciledAccounts.Add(account);
+        }
+
+        var blockerCount = unreconciledAccounts.Count + unmatchedIssues.Count;
+        if (blockerCount == 0)
+        {
+            return [];
+        }
+
+        var details = unreconciledAccounts
+            .Select(account => string.IsNullOrWhiteSpace(account.AccountNumber)
+                ? $"account #{account.LegacyInvestmentAccountId?.ToString() ?? account.Id.ToString()}"
+                : account.AccountNumber!)
+            .Concat(unmatchedIssues.Select(issue => issue.IssueLabel))
+            .Take(6)
+            .ToList();
+        var suffix = details.Count == 0 ? "" : $" ({string.Join(", ", details)})";
+        return
+        [
+            $"{client.DisplayName}: package would leave investment reconciliation incomplete on live; {blockerCount} item(s) would remain{suffix}."
+        ];
+    }
+
     private static IReadOnlyList<ClientFundValuation> FindCurrentAccountCreationValuations(
         ClientReviewInvestmentReconciliationPackage source,
         IEnumerable<ClientInvestmentAccount> existingAccounts,
@@ -2419,6 +2531,10 @@ public sealed class ClientReviewTransferService(
         }
         return string.IsNullOrWhiteSpace(safe) ? "client" : safe;
     }
+
+    private sealed record PreviewInvestmentReconciliationReview(
+        ClientInvestmentAccount Account,
+        ClientInvestmentReconciliationReview Review);
 }
 
 public sealed class ClientReviewPackage
