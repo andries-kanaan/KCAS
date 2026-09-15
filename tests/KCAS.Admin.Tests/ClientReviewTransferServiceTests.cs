@@ -454,6 +454,175 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
     }
 
     [Fact]
+    public async Task Import_allows_transferred_investment_to_reference_linked_family_account()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = scope.ServiceProvider.GetRequiredService<ClientReviewTransferService>();
+        var readinessService = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var compliance = scope.ServiceProvider.GetRequiredService<ComplianceService>();
+        var investmentService = new InvestmentReconciliationService(db);
+        await readinessService.LoadDashboardAsync();
+        var methodology = await db.RiskMethodologyVersions
+            .Include(item => item.Factors).ThenInclude(item => item.Options)
+            .Where(item =>
+                item.Status == ComplianceStatuses.Review ||
+                item.Status == ComplianceStatuses.Approved ||
+                item.Status == ComplianceStatuses.Active)
+            .OrderByDescending(item => item.Id)
+            .FirstOrDefaultAsync();
+        if (methodology is null)
+        {
+            var methodologyId = await compliance.CreateKanaanStarterMethodologyAsync(
+                "reviewer@example.test",
+                "Create transfer test methodology.");
+            await compliance.SubmitMethodologyAsync(
+                methodologyId,
+                "reviewer@example.test",
+                "Make transfer test methodology available.");
+            methodology = await db.RiskMethodologyVersions
+                .Include(item => item.Factors).ThenInclude(item => item.Options)
+                .SingleAsync(item => item.Id == methodologyId);
+        }
+        var applicableRequirements = await db.ClientEvidenceRequirements
+            .Where(item => item.Status == ClientEvidenceRequirementStatuses.Active &&
+                (item.ClientCategory == "All" || item.ClientCategory == ClientCategories.NaturalPerson))
+            .ToListAsync();
+        var identityRequirement = applicableRequirements.Single(item => item.EvidenceType == "Identity");
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var client = new Client
+        {
+            LegacyClientId = 99126,
+            KanaanId = "TRANSFER-FAMILY-RELATED",
+            DisplayName = "Family Transfer Source",
+            SurnameOrEntityName = "Family Transfer Source",
+            ClientCategory = ClientCategories.NaturalPerson,
+            LifecycleStatus = ClientLifecycleStatuses.Current,
+            LifecycleReason = "Current relationship confirmed for linked transfer test.",
+            LifecycleReviewedAtUtc = DateTime.UtcNow,
+            LifecycleReviewedBy = "reviewer@example.test",
+            IsActive = true
+        };
+        var linkedClient = new Client
+        {
+            LegacyClientId = 99127,
+            KanaanId = client.KanaanId,
+            DisplayName = "Family Transfer Joint",
+            SurnameOrEntityName = "Family Transfer Joint",
+            ClientCategory = ClientCategories.NaturalPerson,
+            LifecycleStatus = ClientLifecycleStatuses.Current,
+            IsActive = true
+        };
+        var evidence = new ClientEvidenceItem
+        {
+            Client = client,
+            ClientEvidenceRequirementId = identityRequirement.Id,
+            EvidenceType = "Identity",
+            Title = "Verified identity evidence",
+            FileName = "identity.pdf",
+            FileSha256 = new string('d', 64),
+            VerifiedDate = today,
+            Reviewer = "reviewer@example.test",
+            Status = ClientEvidenceStatuses.Verified,
+            OwnershipStatus = ClientEvidenceOwnershipStatuses.Confirmed,
+            SelectionStatus = ClientEvidenceSelectionStatuses.Current
+        };
+        var sourceAccount = new ClientInvestmentAccount
+        {
+            Client = client,
+            LegacyInvestmentAccountId = 9912601,
+            LegacyClientId = client.LegacyClientId,
+            AccountNumber = "12307",
+            Administrator = "Sanne",
+            FundName = "Kanaan Hedge FoF"
+        };
+        var relatedAccount = new ClientInvestmentAccount
+        {
+            Client = linkedClient,
+            LegacyInvestmentAccountId = 9912701,
+            LegacyClientId = linkedClient.LegacyClientId,
+            AccountNumber = "IW70075",
+            Administrator = "International Assurance Limited PCC",
+            FundName = "Moriah Global"
+        };
+        client.EvidenceItems.Add(evidence);
+        client.InvestmentAccounts.Add(sourceAccount);
+        linkedClient.InvestmentAccounts.Add(relatedAccount);
+        foreach (var requirement in applicableRequirements.Where(item => item.Id != identityRequirement.Id))
+        {
+            client.EvidenceExceptions.Add(new ClientEvidenceException
+            {
+                Requirement = requirement,
+                Reason = $"Linked family transfer test exception for {requirement.EvidenceType}.",
+                ApprovedBy = "reviewer@example.test",
+                ReviewDate = today.AddYears(3)
+            });
+        }
+        var assessment = new ClientRiskAssessment
+        {
+            Client = client,
+            MethodologyVersion = methodology,
+            Status = ClientRiskAssessmentStatuses.Finalised,
+            CalculatedScore = 0,
+            CalculatedRating = "Standard",
+            FinalRating = "Standard",
+            StandardControlsApplied = true,
+            Narrative = "Completed linked family transfer assessment.",
+            EffectiveDate = today,
+            NextReviewDate = today.AddYears(3),
+            PreparedBy = "reviewer@example.test",
+            FinalisedBy = "reviewer@example.test",
+            FinalisedAtUtc = DateTime.UtcNow
+        };
+        client.RiskAssessments.Add(assessment);
+        db.Clients.AddRange(client, linkedClient);
+        await db.SaveChangesAsync();
+
+        await investmentService.ReviewAccountAsync(client.Id, sourceAccount.Id, new ClientInvestmentReconciliationReviewRequest
+        {
+            Outcome = ClientInvestmentReconciliationOutcomes.Transferred,
+            SurrenderDate = new DateOnly(2020, 1, 28),
+            RelatedAccountId = relatedAccount.Id,
+            EvidenceReference = "Redemption and transfer records into joint offshore investment.",
+            Reason = "The source investment was closed and proceeds moved to the linked family account."
+        }, "reviewer@example.test");
+
+        var export = await service.ExportAsync(
+            client.Id,
+            "family-related-passphrase",
+            "reviewer@example.test",
+            "Prepare package with linked family transfer.");
+        var encrypted = await File.ReadAllBytesAsync(export.StoragePath);
+
+        db.ClientRiskAssessments.Remove(assessment);
+        db.ClientInvestmentReconciliationReviews.RemoveRange(
+            await db.ClientInvestmentReconciliationReviews.Where(item => item.ClientId == client.Id).ToListAsync());
+        sourceAccount.SurrenderDate = null;
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        var preview = await service.PreviewAsync(encrypted, "family-related-passphrase");
+
+        Assert.True(preview.CanApply, string.Join(" | ", preview.Conflicts));
+
+        await service.ApplyAsync(
+            encrypted,
+            "family-related-passphrase",
+            "live-importer@example.test",
+            "Approved linked family transfer.");
+
+        var importedReview = await db.ClientInvestmentReconciliationReviews.AsNoTracking()
+            .Where(item => item.ClientId == client.Id)
+            .OrderByDescending(item => item.Id)
+            .FirstAsync();
+        Assert.Equal(relatedAccount.Id, importedReview.RelatedClientInvestmentAccountId);
+        Assert.Equal(new DateOnly(2020, 1, 28), await db.ClientInvestmentAccounts.AsNoTracking()
+            .Where(item => item.Id == sourceAccount.Id)
+            .Select(item => item.SurrenderDate)
+            .SingleAsync());
+    }
+
+    [Fact]
     public async Task Shared_kanaan_id_import_restores_trust_ownership_and_rejects_current_value_for_surrendered_account()
     {
         using var scope = factory.Services.CreateScope();
