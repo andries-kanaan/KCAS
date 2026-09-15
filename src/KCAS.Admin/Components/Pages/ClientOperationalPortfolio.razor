@@ -43,7 +43,7 @@
 <div class="table-responsive">
     <table class="table align-middle">
         <thead>
-            <tr><th>Kanaan ID</th><th>Client</th><th>Lifecycle</th><th>Awaiting verification</th><th></th></tr>
+            <tr><th>Kanaan ID</th><th>Client</th><th>Lifecycle</th><th>Review</th><th>Awaiting verification</th><th></th></tr>
         </thead>
         <tbody>
             @foreach (var item in filteredItems)
@@ -53,13 +53,31 @@
                     <td><a href="@($"/clients/{item.ClientId}")">@item.DisplayName</a></td>
                     <td><span class="@LifecycleBadge(item.LifecycleStatus)">@item.LifecycleStatus</span></td>
                     <td>
+                        @if (item.HasCompletedAssessment)
+                        {
+                            <span class="badge text-bg-success">Completed</span>
+                        }
+                        else
+                        {
+                            <span class="badge text-bg-warning">Incomplete</span>
+                        }
+                    </td>
+                    <td>
                         @item.PendingVerificationCount
                         @if (item.BlockingVerificationCount > 0)
                         {
                             <span class="badge text-bg-warning ms-1">@item.BlockingVerificationCount blocking</span>
                         }
                     </td>
-                    <td><a class="btn btn-sm btn-primary" href="@($"/clients/{item.ClientId}/compliance-review")">Start / continue review</a></td>
+                    <td>
+                        <div class="btn-group btn-group-sm" role="group" aria-label="@($"{item.DisplayName} actions")">
+                            <a class="btn btn-primary" href="@($"/clients/{item.ClientId}/compliance-review")">Start / continue review</a>
+                            @if (CanTransfer(item))
+                            {
+                                <a class="btn btn-outline-primary" href="@($"/compliance/review-transfers?clientId={item.ClientId}")">Transfer</a>
+                            }
+                        </div>
+                    </td>
                 </tr>
             }
         </tbody>
@@ -82,6 +100,10 @@
         : allItems.Where(item => item.LifecycleStatus == lifecycleFilter).ToList();
 
     private int Count(string status) => allItems.Count(item => item.LifecycleStatus == status);
+
+    private static bool CanTransfer(ClientOperationalPortfolioItem item) =>
+        item.HasCompletedAssessment &&
+        item.LifecycleStatus == ClientLifecycleStatuses.Current;
 
     private static string LifecycleBadge(string status) => status switch
     {

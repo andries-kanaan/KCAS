@@ -105,7 +105,8 @@ public sealed record ClientOperationalPortfolioItem(
     string DisplayName,
     string LifecycleStatus,
     int PendingVerificationCount,
-    int BlockingVerificationCount);
+    int BlockingVerificationCount,
+    bool HasCompletedAssessment);
 
 public sealed class ClientOperationalReviewModel
 {

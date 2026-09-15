@@ -23,7 +23,10 @@ public sealed class ClientOperationalVerificationService(ApplicationDbContext db
                 client.LifecycleStatus,
                 client.VerificationItems.Count(item => item.Status == ClientVerificationStatuses.Pending),
                 client.VerificationItems.Count(item =>
-                    item.Status == ClientVerificationStatuses.Pending && item.IsBlocking)))
+                    item.Status == ClientVerificationStatuses.Pending && item.IsBlocking),
+                client.RiskAssessments.Any(assessment =>
+                    assessment.Status == ClientRiskAssessmentStatuses.Finalised ||
+                    assessment.Status == ClientRiskAssessmentStatuses.Approved)))
             .ToListAsync();
     }
 

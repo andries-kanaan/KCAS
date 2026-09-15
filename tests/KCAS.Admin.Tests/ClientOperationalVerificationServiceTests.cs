@@ -100,6 +100,44 @@ public sealed class ClientOperationalVerificationServiceTests(KcasWebApplication
             (await db.ClientVerificationItems.AsNoTracking().SingleAsync(item => item.Id == itemId)).Status);
     }
 
+    [Fact]
+    public async Task Portfolio_marks_clients_with_completed_assessments_as_transfer_candidates()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = scope.ServiceProvider.GetRequiredService<ClientOperationalVerificationService>();
+        var completed = NewClient("Operational completed");
+        completed.LifecycleStatus = ClientLifecycleStatuses.Current;
+        var draftOnly = NewClient("Operational draft");
+        draftOnly.LifecycleStatus = ClientLifecycleStatuses.Current;
+        var methodology = new RiskMethodologyVersion
+        {
+            Name = $"Operational portfolio method {Guid.NewGuid():N}",
+            Status = ComplianceStatuses.Draft
+        };
+        db.AddRange(completed, draftOnly, methodology);
+        await db.SaveChangesAsync();
+        db.ClientRiskAssessments.AddRange(
+            new ClientRiskAssessment
+            {
+                ClientId = completed.Id,
+                RiskMethodologyVersionId = methodology.Id,
+                Status = ClientRiskAssessmentStatuses.Finalised
+            },
+            new ClientRiskAssessment
+            {
+                ClientId = draftOnly.Id,
+                RiskMethodologyVersionId = methodology.Id,
+                Status = ClientRiskAssessmentStatuses.Draft
+            });
+        await db.SaveChangesAsync();
+
+        var portfolio = await service.LoadPortfolioAsync(ClientLifecycleStatuses.Current);
+
+        Assert.True(portfolio.Single(item => item.ClientId == completed.Id).HasCompletedAssessment);
+        Assert.False(portfolio.Single(item => item.ClientId == draftOnly.Id).HasCompletedAssessment);
+    }
+
     private static Client NewClient(string name) => new()
     {
         KanaanId = $"VERIFY-{Guid.NewGuid():N}"[..22],
