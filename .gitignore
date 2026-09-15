@@ -22,6 +22,7 @@ backups/
 **/appsettings.Development.json
 **/appsettings.Local.json
 **/App_Data/DataProtectionKeys/
+docs/client-assessment-protocol.md
 *.db
 *.db-shm
 *.db-wal
