@@ -88,6 +88,7 @@ builder.Services.AddScoped<ComplianceWorkService>();
 builder.Services.AddScoped<InspectionService>();
 builder.Services.AddScoped<GoAmlDailyCheckService>();
 builder.Services.AddScoped<GoAmlTransferService>();
+builder.Services.AddScoped<ComplianceProgrammeTransferService>();
 builder.Services.AddSingleton<ClientEvidenceScanCoordinator>();
 builder.Services.AddScoped<LegacyImportWebService>();
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
@@ -197,6 +198,23 @@ app.MapGet("/compliance/goaml/transfers/{packageId}/download", async Task<IResul
         record.StoragePath,
         "application/vnd.kcas.goaml-transfer",
         record.FileName);
+}).RequireAuthorization(KcasPermissions.ComplianceManage);
+
+app.MapGet("/compliance/programme-transfers/{packageId}/download", async Task<IResult> (
+    string packageId,
+    ComplianceProgrammeTransferService transfers,
+    CancellationToken cancellationToken) =>
+{
+    var package = await transfers.OpenExportAsync(packageId, cancellationToken);
+    if (package is null)
+    {
+        return Results.NotFound();
+    }
+
+    return Results.File(
+        package.StoragePath,
+        "application/vnd.kcas.compliance-programme",
+        package.FileName);
 }).RequireAuthorization(KcasPermissions.ComplianceManage);
 
 app.MapGet("/investments/summary.csv", async Task<IResult> (
