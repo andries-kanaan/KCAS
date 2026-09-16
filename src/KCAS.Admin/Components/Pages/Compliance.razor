@@ -173,11 +173,8 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        var dashboardTask = ComplianceService.LoadDashboardAsync();
-        var goAmlTask = GoAml.LoadDashboardAsync();
-        await Task.WhenAll(dashboardTask, goAmlTask);
-        dashboard = await dashboardTask;
-        goAml = await goAmlTask;
+        dashboard = await ComplianceService.LoadDashboardAsync();
+        goAml = await GoAml.LoadDashboardAsync();
     }
 
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
