@@ -18,7 +18,7 @@
                 <a class="btn btn-primary" href="/clients/operational-review">Continue client reviews</a>
             </Authorized>
         </AuthorizeView>
-        <a class="btn btn-outline-primary" href="/compliance/goaml">Daily compliance</a>
+        <a class="btn btn-outline-primary" href="/compliance/goaml">goAML check</a>
         <AuthorizeView Policy="@KcasPermissions.ComplianceManage">
             <Authorized>
                 <a class="btn btn-outline-secondary" href="/compliance/profile">Settings</a>
@@ -44,9 +44,9 @@ else
             </Authorized>
         </AuthorizeView>
         <article class="summary-card">
-            <span>Daily compliance</span>
-            <strong>goAML and recurring checks</strong>
-            <a class="btn btn-sm btn-outline-primary mt-3" href="/compliance/goaml">Open daily work</a>
+            <span>goAML check</span>
+            <strong>Recordings and checks</strong>
+            <a class="btn btn-sm btn-outline-primary mt-3" href="/compliance/goaml">Open goAML check</a>
         </article>
         <article class="summary-card">
             <span>Programme and controls</span>
@@ -67,21 +67,21 @@ else
     <section class="work-area">
         @if (goAml is not null)
         {
-            <div class="alert @(goAml.IsOverdue ? "alert-danger" : goAml.IsTodayComplete ? "alert-success" : "alert-warning") mb-0">
-                <strong>goAML daily check:</strong>
+            <div class="alert @(goAml.IsTodayComplete ? "alert-success" : "alert-info") mb-0">
+                <strong>goAML check:</strong>
                 @if (goAml.IsOverdue)
                 {
-                    <span>@goAml.MissingDates.Count required check(s) are missing.</span>
+                    <span>Recordings and evidence need attention soon.</span>
                 }
                 else if (goAml.IsTodayComplete)
                 {
-                    <span>Today's check is complete.</span>
+                    <span>Current check is complete.</span>
                 }
                 else
                 {
-                    <span>Today's check has not been completed.</span>
+                    <span>Record the current check when ready.</span>
                 }
-                <a class="alert-link ms-2" href="/compliance/goaml">Open goAML register</a>
+                <a class="alert-link ms-2" href="/compliance/goaml">Open goAML check</a>
             </div>
         }
     </section>
