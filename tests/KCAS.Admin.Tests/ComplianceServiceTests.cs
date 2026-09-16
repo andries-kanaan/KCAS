@@ -177,6 +177,64 @@ public sealed class ComplianceServiceTests(KcasWebApplicationFactory factory)
     }
 
     [Fact]
+    public async Task Dashboard_surfaces_signed_final_pack_documents_and_evidence_with_notes()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ComplianceService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var suffix = Guid.NewGuid().ToString("N");
+        var packPath = $@"C:\Download\_kanaan\Compliance\FSCA inspections\2026\RMCP and Policy Approval\06 Signed final\{suffix}.pdf";
+
+        db.ControlledDocuments.AddRange(
+            new ControlledDocument
+            {
+                DocumentType = "RMCP",
+                Title = $"Signed final document {suffix}",
+                Status = ComplianceStatuses.Active,
+                Location = packPath,
+                Notes = "Specific signed-final document note.",
+                NextReviewDate = DateOnly.FromDateTime(DateTime.Today.AddDays(30))
+            },
+            new ControlledDocument
+            {
+                DocumentType = "Other",
+                Title = $"Unrelated document {suffix}",
+                Status = ComplianceStatuses.Active,
+                Location = $@"C:\Other\{suffix}.pdf",
+                Notes = "This should not appear in the signed-final pack."
+            });
+        db.ComplianceEvidence.AddRange(
+            new ComplianceEvidence
+            {
+                EvidenceType = "RMCP approval",
+                Title = $"Signed final evidence {suffix}",
+                Source = "Signed final FSCA submission pack",
+                Location = packPath,
+                VerifiedDate = DateOnly.FromDateTime(DateTime.Today),
+                Notes = "Specific signed-final evidence note."
+            },
+            new ComplianceEvidence
+            {
+                EvidenceType = "Other",
+                Title = $"Unrelated evidence {suffix}",
+                Location = $@"C:\Other\{suffix}.pdf",
+                Notes = "This should not appear in the signed-final pack."
+            });
+        await db.SaveChangesAsync();
+
+        var dashboard = await service.LoadDashboardAsync();
+
+        var document = Assert.Single(dashboard.SignedFinalDocuments,
+            item => item.Title == $"Signed final document {suffix}");
+        Assert.Equal("Specific signed-final document note.", document.Notes);
+        var evidence = Assert.Single(dashboard.SignedFinalEvidence,
+            item => item.Title == $"Signed final evidence {suffix}");
+        Assert.Equal("Specific signed-final evidence note.", evidence.Notes);
+        Assert.DoesNotContain(dashboard.SignedFinalDocuments, item => item.Title == $"Unrelated document {suffix}");
+        Assert.DoesNotContain(dashboard.SignedFinalEvidence, item => item.Title == $"Unrelated evidence {suffix}");
+    }
+
+    [Fact]
     public async Task Legacy_task_editor_cannot_bypass_evidence_gated_closure()
     {
         using var scope = factory.Services.CreateScope();

@@ -149,13 +149,15 @@ public sealed class ComplianceProgrammeTransferServiceTests(KcasWebApplicationFa
                 "Transfer signed programme bundle.");
             outgoingPath = exported.StoragePath;
             Assert.Matches(@"^KCAS-programme-2026-[a-f0-9]{12}\.kcas-programme$", exported.FileName);
-            Assert.Equal(1, exported.ControlledDocumentCount);
-            Assert.Equal(1, exported.EvidenceCount);
+            Assert.True(exported.ControlledDocumentCount >= 1);
+            Assert.True(exported.EvidenceCount >= 1);
 
             var encrypted = await File.ReadAllBytesAsync(exported.StoragePath);
             var preview = await transfers.PreviewAsync(encrypted, passphrase);
             Assert.True(preview.CanApply);
             Assert.Equal(ComplianceProgrammeTransferService.DefaultLiveSignedFinalRoot, preview.MappedLiveRoot);
+            Assert.Contains(preview.Package.ControlledDocuments, item => item.Title == $"Signed RMCP {suffix}");
+            Assert.Contains(preview.Package.Evidence, item => item.Title == $"Signed evidence {suffix}");
 
             db.ComplianceApprovals.RemoveRange(await db.ComplianceApprovals
                 .Where(item => item.TargetEntityType == nameof(RmcpVersion) && item.TargetEntityId == rmcp.Id)
@@ -174,8 +176,8 @@ public sealed class ComplianceProgrammeTransferServiceTests(KcasWebApplicationFa
             var imported = await transfers.ApplyAsync(encrypted, passphrase, "importer@example.test",
                 "Approved programme import.");
             incomingPath = imported.StoragePath;
-            Assert.Equal(1, imported.ControlledDocumentCount);
-            Assert.Equal(1, imported.EvidenceCount);
+            Assert.Equal(exported.ControlledDocumentCount, imported.ControlledDocumentCount);
+            Assert.Equal(exported.EvidenceCount, imported.EvidenceCount);
 
             var liveRmcp = await db.RmcpVersions.AsNoTracking()
                 .SingleAsync(item => item.VersionReference == rmcp.VersionReference);

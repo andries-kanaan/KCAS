@@ -137,6 +137,77 @@ else
         </div>
     </section>
 
+    @if (dashboard.SignedFinalDocuments.Count > 0 || dashboard.SignedFinalEvidence.Count > 0)
+    {
+        <section class="work-area">
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+                <div>
+                    <h2 class="mb-1">Signed-final FSCA pack</h2>
+                    <p class="text-muted mb-0">Controlled documents and evidence records captured from the submitted RMCP/BRA pack.</p>
+                </div>
+                <a class="btn btn-sm btn-outline-primary" href="/compliance/programme-transfers">Transfer programme pack</a>
+            </div>
+
+            <h3>Documents</h3>
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead>
+                        <tr>
+                            <th>Document</th>
+                            <th>Status</th>
+                            <th>Review date</th>
+                            <th>Evidence note</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var document in dashboard.SignedFinalDocuments)
+                        {
+                            <tr>
+                                <td>
+                                    <strong>@document.Title</strong>
+                                    <div class="text-muted small">@document.DocumentType</div>
+                                    <div class="text-muted small">@Display(document.Location)</div>
+                                </td>
+                                <td>@document.Status</td>
+                                <td>@Date(document.NextReviewDate)</td>
+                                <td>@Display(document.Notes)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <h3>Evidence</h3>
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead>
+                        <tr>
+                            <th>Evidence</th>
+                            <th>Verified</th>
+                            <th>Expiry</th>
+                            <th>Evidence note</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var evidence in dashboard.SignedFinalEvidence)
+                        {
+                            <tr>
+                                <td>
+                                    <strong>@evidence.Title</strong>
+                                    <div class="text-muted small">@evidence.EvidenceType</div>
+                                    <div class="text-muted small">@Display(evidence.Location)</div>
+                                </td>
+                                <td>@Date(evidence.VerifiedDate)</td>
+                                <td>@Date(evidence.ExpiryDate)</td>
+                                <td>@Display(evidence.Notes)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    }
+
     <section class="work-area">
         <h2>Recent audit</h2>
         <div class="table-responsive">
