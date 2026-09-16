@@ -28,12 +28,34 @@ public sealed class ComplianceService(ApplicationDbContext db)
             .OrderBy(document => document.NextReviewDate)
             .Take(8)
             .ToListAsync();
+        var signedFinalDocuments = (await db.ControlledDocuments.AsNoTracking()
+                .Where(document => document.Location != null && document.Location != "")
+                .OrderBy(document => document.DocumentType)
+                .ThenBy(document => document.Title)
+                .ToListAsync())
+            .Where(document => IsSignedFinalPackLocation(document.Location))
+            .ToList();
+        var signedFinalEvidence = (await db.ComplianceEvidence.AsNoTracking()
+                .Where(evidence => evidence.Location != null && evidence.Location != "")
+                .OrderBy(evidence => evidence.EvidenceType)
+                .ThenBy(evidence => evidence.Title)
+                .ToListAsync())
+            .Where(evidence => IsSignedFinalPackLocation(evidence.Location))
+            .ToList();
         var recentAudit = await db.ComplianceAuditEvents.AsNoTracking()
             .OrderByDescending(audit => audit.TimestampUtc)
             .Take(12)
             .ToListAsync();
 
-        return new ComplianceDashboardModel(profile, activeMethodology, pendingApprovals, openTasks, upcomingDocuments, recentAudit);
+        return new ComplianceDashboardModel(
+            profile,
+            activeMethodology,
+            pendingApprovals,
+            openTasks,
+            upcomingDocuments,
+            signedFinalDocuments,
+            signedFinalEvidence,
+            recentAudit);
     }
 
     public async Task<ComplianceManageModel> LoadManageModelAsync()
@@ -597,6 +619,10 @@ public sealed class ComplianceService(ApplicationDbContext db)
 
     private static string Snapshot(object value) => JsonSerializer.Serialize(value, JsonOptions);
     private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    private static bool IsSignedFinalPackLocation(string? location) =>
+        !string.IsNullOrWhiteSpace(location) &&
+        location.Contains("RMCP and Policy Approval", StringComparison.OrdinalIgnoreCase) &&
+        location.Contains("06 Signed final", StringComparison.OrdinalIgnoreCase);
 
     private static string? SuggestFinalVersionLabel(string? currentLabel)
     {
@@ -651,6 +677,8 @@ public sealed record ComplianceDashboardModel(
     int PendingApprovals,
     int OpenTasks,
     IReadOnlyList<ControlledDocument> UpcomingDocuments,
+    IReadOnlyList<ControlledDocument> SignedFinalDocuments,
+    IReadOnlyList<ComplianceEvidence> SignedFinalEvidence,
     IReadOnlyList<ComplianceAuditEvent> RecentAudit);
 
 public sealed class ComplianceManageModel
