@@ -71,6 +71,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<GoAmlSettings> GoAmlSettings => Set<GoAmlSettings>();
     public DbSet<GoAmlDailyCheck> GoAmlDailyChecks => Set<GoAmlDailyCheck>();
     public DbSet<GoAmlTransferRecord> GoAmlTransferRecords => Set<GoAmlTransferRecord>();
+    public DbSet<ComplianceProgrammeTransferRecord> ComplianceProgrammeTransferRecords => Set<ComplianceProgrammeTransferRecord>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -245,6 +246,14 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.HasIndex(item => new { item.Direction, item.PackageId }).IsUnique();
             entity.HasIndex(item => new { item.Direction, item.ContentSha256 });
             entity.HasIndex(item => new { item.Direction, item.CreatedAtUtc });
+        });
+
+        builder.Entity<ComplianceProgrammeTransferRecord>(entity =>
+        {
+            entity.HasIndex(item => new { item.Direction, item.PackageId }).IsUnique();
+            entity.HasIndex(item => new { item.Direction, item.ContentSha256 });
+            entity.HasIndex(item => new { item.Direction, item.CreatedAtUtc });
+            entity.HasIndex(item => new { item.BusinessRiskAssessmentId, item.RmcpVersionId });
         });
 
         builder.Entity<IdentityRole>(entity =>
