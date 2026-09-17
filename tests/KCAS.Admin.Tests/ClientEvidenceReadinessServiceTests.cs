@@ -220,6 +220,78 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
     }
 
     [Fact]
+    public async Task Source_of_funds_coverage_requires_every_current_investment_once_assignment_starts()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var clientId = await CreateClientAsync(db, "Investment Coverage Client", "SOF-COVER", @"z:\Kanaan Trust\Clients\Investment Coverage");
+        var initial = await service.LoadClientReadinessAsync(clientId);
+        var requirement = initial.Requirements.Single(item => item.EvidenceType == "SourceOfFunds");
+        var evidence = new ClientEvidenceItem
+        {
+            ClientId = clientId,
+            ClientEvidenceRequirementId = requirement.RequirementId,
+            EvidenceType = "SourceOfFunds",
+            Title = "Verified source declaration",
+            Status = ClientEvidenceStatuses.Verified,
+            VerifiedDate = DateOnly.FromDateTime(DateTime.Today),
+            SelectionStatus = ClientEvidenceSelectionStatuses.Current
+        };
+        var first = new ClientInvestmentAccount { ClientId = clientId, AccountNumber = "CURRENT-1", PayloadJson = "{}" };
+        var second = new ClientInvestmentAccount { ClientId = clientId, AccountNumber = "CURRENT-2", PayloadJson = "{}" };
+        db.AddRange(evidence, first, second);
+        await db.SaveChangesAsync();
+        db.ClientInvestmentReconciliationReviews.AddRange(
+            new ClientInvestmentReconciliationReview
+            {
+                ClientId = clientId,
+                ClientInvestmentAccountId = first.Id,
+                Outcome = ClientInvestmentReconciliationOutcomes.Current,
+                EvidenceReference = "test",
+                Reason = "Current account.",
+                SnapshotSha256 = new string('a', 64),
+                ReviewedBy = "reviewer@example.test"
+            },
+            new ClientInvestmentReconciliationReview
+            {
+                ClientId = clientId,
+                ClientInvestmentAccountId = second.Id,
+                Outcome = ClientInvestmentReconciliationOutcomes.Current,
+                EvidenceReference = "test",
+                Reason = "Current account.",
+                SnapshotSha256 = new string('b', 64),
+                ReviewedBy = "reviewer@example.test"
+            });
+        await db.SaveChangesAsync();
+
+        var legacyCoverage = (await service.LoadClientReadinessAsync(clientId)).Requirements
+            .Single(item => item.EvidenceType == "SourceOfFunds");
+        Assert.True(legacyCoverage.IsComplete);
+        Assert.False(legacyCoverage.UsesInvestmentCoverage);
+        Assert.Equal(2, legacyCoverage.CurrentInvestmentCount);
+
+        await service.UpdateSourceOfFundsCoverageAsync(
+            clientId, evidence.Id, [first.Id], "reviewer@example.test", "Assign first investment source.");
+        var partial = (await service.LoadClientReadinessAsync(clientId)).Requirements
+            .Single(item => item.EvidenceType == "SourceOfFunds");
+        Assert.False(partial.IsComplete);
+        Assert.True(partial.UsesInvestmentCoverage);
+        Assert.Equal(1, partial.CoveredInvestmentCount);
+
+        await service.UpdateSourceOfFundsCoverageAsync(
+            clientId, evidence.Id, [first.Id, second.Id], "reviewer@example.test", "Assign both investment sources.");
+        var complete = (await service.LoadClientReadinessAsync(clientId)).Requirements
+            .Single(item => item.EvidenceType == "SourceOfFunds");
+        Assert.True(complete.IsComplete);
+        Assert.Equal(2, complete.CoveredInvestmentCount);
+        Assert.True(await db.ComplianceAuditEvents.AnyAsync(item =>
+            item.EntityType == "ClientEvidenceItem" &&
+            item.EntityId == evidence.Id &&
+            item.Action == "UpdateSourceOfFundsCoverage"));
+    }
+
+    [Fact]
     public async Task Scan_links_matching_files_and_is_idempotent()
     {
         using var scope = factory.Services.CreateScope();

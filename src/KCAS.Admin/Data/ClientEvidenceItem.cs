@@ -117,6 +117,8 @@ public sealed class ClientEvidenceItem
 
     public ICollection<ClientRelatedPartyEvidenceLink> RelatedPartyEvidenceLinks { get; } = [];
 
+    public ICollection<ClientEvidenceInvestmentLink> InvestmentLinks { get; } = [];
+
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 
     public DateTime? UpdatedAtUtc { get; set; }

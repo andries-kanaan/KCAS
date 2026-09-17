@@ -342,6 +342,7 @@ public sealed class ClientReviewTransferService(
             .Include(item => item.InvestmentReconciliationReviews).ThenInclude(item => item.RelatedInvestmentAccount).ThenInclude(item => item!.Client)
             .Include(item => item.FundValuations)
             .Include(item => item.EvidenceItems).ThenInclude(item => item.Requirement)
+            .Include(item => item.EvidenceItems).ThenInclude(item => item.InvestmentLinks).ThenInclude(link => link.InvestmentAccount)
             .Include(item => item.EvidenceExceptions).ThenInclude(item => item.Requirement)
             .Include(item => item.VerificationItems)
             .Include(item => item.RiskAssessments)
@@ -606,6 +607,19 @@ public sealed class ClientReviewTransferService(
                         ReviewedAtUtc = source.ReviewedAtUtc,
                         ReviewedBy = source.ReviewedBy
                     }));
+            }
+
+            foreach (var coverage in package.Evidence.SelectMany(item => item.CoveredInvestments))
+            {
+                if (MatchInvestmentAccount(
+                        liveAccounts,
+                        coverage.LegacyInvestmentAccountId,
+                        coverage.AccountNumber,
+                        coverage.Administrator) is null)
+                {
+                    conflicts.Add(
+                        $"Source-of-funds investment '{coverage.AccountNumber ?? coverage.LegacyInvestmentAccountId?.ToString() ?? "unknown"}' could not be matched uniquely on live.");
+                }
             }
 
             conflicts.AddRange(ValidatePreviewInvestmentCompleteness(
@@ -994,6 +1008,37 @@ public sealed class ClientReviewTransferService(
         }
         await db.SaveChangesAsync(cancellationToken);
 
+        foreach (var source in package.Evidence.Where(item => item.CoveredInvestments.Count > 0))
+        {
+            if (!evidenceByKey.TryGetValue(source.EvidenceKey, out var evidenceItem))
+            {
+                continue;
+            }
+
+            var existingLinks = await db.ClientEvidenceInvestmentLinks
+                .Where(link => link.ClientEvidenceItemId == evidenceItem.Id)
+                .ToListAsync(cancellationToken);
+            db.ClientEvidenceInvestmentLinks.RemoveRange(existingLinks);
+            foreach (var accountReference in source.CoveredInvestments)
+            {
+                var account = MatchInvestmentAccount(
+                    client.InvestmentAccounts,
+                    accountReference.LegacyInvestmentAccountId,
+                    accountReference.AccountNumber,
+                    accountReference.Administrator)
+                    ?? throw new InvalidOperationException(
+                        $"Source-of-funds investment '{accountReference.AccountNumber ?? accountReference.LegacyInvestmentAccountId?.ToString() ?? "unknown"}' could not be matched uniquely on live.");
+                db.ClientEvidenceInvestmentLinks.Add(new ClientEvidenceInvestmentLink
+                {
+                    ClientEvidenceItemId = evidenceItem.Id,
+                    ClientInvestmentAccountId = account.Id,
+                    LinkedAtUtc = DateTime.UtcNow,
+                    LinkedBy = user
+                });
+            }
+        }
+        await db.SaveChangesAsync(cancellationToken);
+
         foreach (var sourceParty in package.RelatedParties)
         {
             var party = partyByKey[sourceParty.PartyKey];
@@ -1304,6 +1349,7 @@ public sealed class ClientReviewTransferService(
                 item.Status == ClientEvidenceStatuses.Verified &&
                 item.OwnershipStatus == ClientEvidenceOwnershipStatuses.Confirmed &&
                 (item.SelectionStatus == ClientEvidenceSelectionStatuses.Current ||
+                 item.InvestmentLinks.Count > 0 ||
                  item.ClientRelatedPartyId.HasValue ||
                  relatedPartyEvidenceIds.Contains(item.Id) ||
                  item.EvidenceType is "PepPip" or "SanctionsTfs" or "AdverseInformation"))
@@ -1352,7 +1398,13 @@ public sealed class ClientReviewTransferService(
                 SelectedBy = item.SelectedBy,
                 VerificationPolicy = item.VerificationPolicy,
                 Notes = item.Notes,
-                CreatedAtUtc = item.CreatedAtUtc
+                CreatedAtUtc = item.CreatedAtUtc,
+                CoveredInvestments = item.InvestmentLinks.Select(link => new ClientReviewEvidenceInvestmentPackage
+                {
+                    LegacyInvestmentAccountId = link.InvestmentAccount.LegacyInvestmentAccountId,
+                    AccountNumber = link.InvestmentAccount.AccountNumber,
+                    Administrator = link.InvestmentAccount.Administrator
+                }).ToList()
             })
             .ToList();
 
@@ -2697,6 +2749,14 @@ public sealed class ClientReviewEvidencePackage
     public string VerificationPolicy { get; set; } = "";
     public string? Notes { get; set; }
     public DateTime CreatedAtUtc { get; set; }
+    public List<ClientReviewEvidenceInvestmentPackage> CoveredInvestments { get; set; } = [];
+}
+
+public sealed class ClientReviewEvidenceInvestmentPackage
+{
+    public int? LegacyInvestmentAccountId { get; set; }
+    public string? AccountNumber { get; set; }
+    public string? Administrator { get; set; }
 }
 
 public sealed class ClientReviewExceptionPackage
