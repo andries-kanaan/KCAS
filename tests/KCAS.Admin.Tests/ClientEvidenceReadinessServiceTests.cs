@@ -195,6 +195,31 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
     }
 
     [Fact]
+    public async Task Recommended_exception_is_limited_to_natural_person_beneficial_ownership()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var clientId = await CreateClientAsync(db, "Natural Owner", "NAT-OWNER", @"z:\Kanaan Trust\Clients\Natural Owner");
+        var readiness = await service.LoadClientReadinessAsync(clientId);
+        var ownership = readiness.Requirements.Single(item => item.EvidenceType == "BeneficialOwnership");
+        var identity = readiness.Requirements.Single(item => item.EvidenceType == "Identity");
+
+        Assert.True(ownership.CanApplyRecommendedException);
+        Assert.False(identity.CanApplyRecommendedException);
+
+        await service.CreateRecommendedExceptionAsync(clientId, ownership.RequirementId, "approver@example.test");
+
+        var saved = await db.ClientEvidenceExceptions.SingleAsync(item =>
+            item.ClientId == clientId && item.ClientEvidenceRequirementId == ownership.RequirementId && item.IsActive);
+        Assert.Equal("approver@example.test", saved.ApprovedBy);
+        Assert.Contains("Natural-person client", saved.Reason);
+        Assert.True(saved.ReviewDate >= DateOnly.FromDateTime(DateTime.Today));
+        await Assert.ThrowsAsync<ValidationException>(() =>
+            service.CreateRecommendedExceptionAsync(clientId, identity.RequirementId, "approver@example.test"));
+    }
+
+    [Fact]
     public async Task Scan_links_matching_files_and_is_idempotent()
     {
         using var scope = factory.Services.CreateScope();
