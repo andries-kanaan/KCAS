@@ -2461,6 +2461,7 @@ public sealed class ClientEvidenceItemModel
     public string Status { get; set; } = "";
     public string OwnershipStatus { get; set; } = "";
     public string? OwnershipReason { get; set; }
+    public string? Notes { get; set; }
     public string SelectionStatus { get; set; } = "";
     public int? SelectionConfidence { get; set; }
     public string? SelectionReason { get; set; }
@@ -2495,6 +2496,7 @@ public sealed class ClientEvidenceItemModel
         Status = item.Status,
         OwnershipStatus = item.OwnershipStatus,
         OwnershipReason = item.OwnershipReason,
+        Notes = item.Notes,
         SelectionStatus = item.SelectionStatus,
         SelectionConfidence = item.SelectionConfidence,
         SelectionReason = item.SelectionReason,

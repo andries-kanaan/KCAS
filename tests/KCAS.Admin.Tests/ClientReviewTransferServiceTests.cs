@@ -147,7 +147,28 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
             export.FileName);
         var encrypted = await File.ReadAllBytesAsync(export.StoragePath);
 
+        // Simulate the separate live environment before validating methodology compatibility.
         db.ClientRiskAssessments.Remove(assessment);
+        await db.SaveChangesAsync();
+
+        var originalMethodologyLabel = methodology.VersionLabel;
+        var originalMethodologyStatus = methodology.Status;
+        methodology.VersionLabel = "Working draft live label";
+        methodology.Status = ComplianceStatuses.Draft;
+        var changedOption = assessment.Responses.First().SelectedOption!;
+        var originalOptionScore = changedOption.Score;
+        changedOption.Score++;
+        await db.SaveChangesAsync();
+
+        var incompatibleMethodologyPreview = await service.PreviewAsync(encrypted, passphrase);
+        Assert.False(incompatibleMethodologyPreview.CanApply);
+        Assert.Contains(incompatibleMethodologyPreview.Conflicts, conflict =>
+            conflict.Contains("not compatible", StringComparison.OrdinalIgnoreCase) &&
+            conflict.Contains("score differs", StringComparison.OrdinalIgnoreCase));
+
+        changedOption.Score = originalOptionScore;
+        await db.SaveChangesAsync();
+
         db.ClientEvidenceItems.RemoveRange(evidence, sharedDocumentEvidence);
         db.ClientEvidenceExceptions.RemoveRange(client.EvidenceExceptions);
         client.LifecycleStatus = ClientLifecycleStatuses.Unreviewed;
@@ -165,6 +186,9 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         Assert.Equal(@"E:\Userdata\Kanaan Trust\Clients\TRANSFER PILOT", preview.TargetClientFolder);
         Assert.Contains(preview.Warnings, warning =>
             warning.Contains("Client folder will map", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(preview.Warnings, warning =>
+            warning.Contains("Methodology matched by compatible structure", StringComparison.OrdinalIgnoreCase) &&
+            warning.Contains("Working draft live label", StringComparison.OrdinalIgnoreCase));
 
         var imported = await service.ApplyAsync(
             encrypted,
@@ -172,6 +196,11 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
             "live-importer@example.test",
             "Approved after matching the client and methodology.");
         Assert.Equal(client.Id, imported.ClientId);
+
+        var importedMethodology = await db.RiskMethodologyVersions.SingleAsync(item => item.Id == methodology.Id);
+        importedMethodology.VersionLabel = originalMethodologyLabel;
+        importedMethodology.Status = originalMethodologyStatus;
+        await db.SaveChangesAsync();
 
         var restoredClient = await db.Clients.AsNoTracking().SingleAsync(item => item.Id == client.Id);
         Assert.Equal(ClientLifecycleStatuses.Current, restoredClient.LifecycleStatus);
@@ -204,7 +233,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
             client.Id, passphrase, "reviewer@example.test", "Export a more complete reviewed package.");
         var newerEncrypted = await File.ReadAllBytesAsync(newerExport.StoragePath);
         var reconciliationPreview = await service.PreviewAsync(newerEncrypted, passphrase);
-        Assert.True(reconciliationPreview.CanApply);
+        Assert.True(reconciliationPreview.CanApply, string.Join(" | ", reconciliationPreview.Conflicts));
         Assert.Equal(imported.AssessmentId, reconciliationPreview.SupersededAssessmentId);
         Assert.Contains(reconciliationPreview.Warnings, warning =>
             warning.Contains("superseded", StringComparison.OrdinalIgnoreCase));

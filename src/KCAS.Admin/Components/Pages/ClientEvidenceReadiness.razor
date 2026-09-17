@@ -231,6 +231,10 @@ else
                                                 {
                                                     <div class="small evidence-selection-reason">@item.SelectionReason</div>
                                                 }
+                                                @if (!string.IsNullOrWhiteSpace(item.Notes))
+                                                {
+                                                    <div class="small"><strong>Evidence finding:</strong> @item.Notes</div>
+                                                }
                                                 @if (item.EvidenceType == "SourceOfFunds")
                                                 {
                                                     <div class="text-muted small">
@@ -298,6 +302,10 @@ else
                                                             @if (!string.IsNullOrWhiteSpace(item.SelectionReason))
                                                             {
                                                                 <div class="small evidence-selection-reason">@item.SelectionReason</div>
+                                                            }
+                                                            @if (!string.IsNullOrWhiteSpace(item.Notes))
+                                                            {
+                                                                <div class="small"><strong>Evidence finding:</strong> @item.Notes</div>
                                                             }
                                                             <div class="text-muted small">Verified: @Date(item.VerifiedDate), expires: @Date(item.ExpiryDate)</div>
                                                             @if (item.CanOpen)
