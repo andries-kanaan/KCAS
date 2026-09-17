@@ -62,7 +62,8 @@ else
                                 <td>@item.BusinessRiskAssessment?.Name</td>
                                 <td>@item.Status</td>
                                 <td>@(item.EffectiveDate?.ToString("yyyy-MM-dd") ?? "-")</td>
-                                <td>@(item.NextReviewDate?.ToString("yyyy-MM-dd") ?? "-")</td>
+                                @{ var dueDate = ComplianceReviewSchedule.RmcpDueDate(item); var dueStatus = ComplianceReviewSchedule.Status(dueDate, today); }
+                                <td>@dueDate.ToString("yyyy-MM-dd") <span class="@ComplianceReviewSchedule.BadgeClass(dueStatus)">@dueStatus</span></td>
                                 <td class="text-end"><a class="btn btn-sm btn-outline-primary" href="@($"/compliance/rmcp/{item.Id}")">Open</a></td>
                             </tr>
                         }
@@ -80,6 +81,7 @@ else
     private string? currentUser;
     private string? message;
     private bool canManage;
+    private readonly DateOnly today = DateOnly.FromDateTime(DateTime.Today);
 
     protected override async Task OnInitializedAsync()
     {

@@ -82,6 +82,7 @@ builder.Services.AddScoped<ClientEntityOwnershipService>();
 builder.Services.AddScoped<ClientRiskAssessmentService>();
 builder.Services.AddScoped<ClientOperationalVerificationService>();
 builder.Services.AddScoped<ClientComplianceReviewService>();
+builder.Services.AddSingleton<DocumentPathDisplayService>();
 builder.Services.AddScoped<BusinessRiskAssessmentService>();
 builder.Services.AddScoped<RmcpService>();
 builder.Services.AddScoped<ComplianceWorkService>();
@@ -118,6 +119,8 @@ if (app.Configuration.GetValue("Database:MigrateOnStartup", false))
 }
 
 await KcasSecuritySeeder.SeedAsync(app.Services);
+await ComplianceFoundationSeeder.SeedAsync(app.Services);
+await FscaInspectionSeeder.SeedAsync(app.Services);
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
@@ -166,6 +169,23 @@ app.MapGet("/client-evidence/items/{id:int}/file", async Task<IResult> (int id, 
     }
 
     return Results.File(File.OpenRead(item.SourcePath), contentType, enableRangeProcessing: true);
+}).RequireAuthorization(KcasPermissions.ComplianceView);
+
+app.MapGet("/compliance/evidence/{id:int}/file", async Task<IResult> (int id, ApplicationDbContext db, CancellationToken cancellationToken) =>
+{
+    var evidence = await db.ComplianceEvidence.AsNoTracking().SingleOrDefaultAsync(item => item.Id == id, cancellationToken);
+    if (evidence is null || string.IsNullOrWhiteSpace(evidence.Location) || !File.Exists(evidence.Location))
+    {
+        return Results.NotFound();
+    }
+
+    var contentTypeProvider = new FileExtensionContentTypeProvider();
+    if (!contentTypeProvider.TryGetContentType(evidence.Location, out var contentType))
+    {
+        contentType = "application/octet-stream";
+    }
+
+    return Results.File(File.OpenRead(evidence.Location), contentType, enableRangeProcessing: true);
 }).RequireAuthorization(KcasPermissions.ComplianceView);
 
 app.MapGet("/compliance/goaml/checks/{id:int}/evidence", async Task<IResult> (

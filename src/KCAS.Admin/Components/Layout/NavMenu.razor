@@ -77,23 +77,47 @@
                         <span class="nav-group-chevron" aria-hidden="true">›</span>
                     </summary>
                     <div class="nav-group-items">
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="compliance">Compliance overview</NavLink>
+                        </div>
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="compliance/methodologies">1. Risk methodology</NavLink>
+                        </div>
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="compliance/business-risk">2. Business risk assessment</NavLink>
+                        </div>
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="compliance/rmcp">3. RMCP and controls</NavLink>
+                        </div>
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="compliance/organisation">4. Organisation and governance</NavLink>
+                        </div>
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="compliance/references">5. Regulatory references</NavLink>
+                        </div>
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="compliance/evidence">6. Evidence register</NavLink>
+                        </div>
                         <AuthorizeView Policy="@KcasPermissions.ClientsView">
                             <Authorized Context="clientReviewContext">
                                 <div class="nav-item px-3">
-                                    <NavLink class="nav-link" href="clients/operational-review">Client reviews</NavLink>
+                                    <NavLink class="nav-link" href="clients/operational-review">7. Client risk assessments</NavLink>
                                 </div>
                             </Authorized>
                         </AuthorizeView>
                         <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="compliance/client-evidence">Client evidence readiness</NavLink>
+                            <NavLink class="nav-link" href="compliance/client-evidence">8. Client evidence readiness</NavLink>
                         </div>
                         <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="compliance/programme">Programme and controls</NavLink>
+                            <NavLink class="nav-link" href="compliance/tasks">9. Monitoring and tasks</NavLink>
+                        </div>
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="compliance/audit">10. Audit trail</NavLink>
                         </div>
                         <AuthorizeView Policy="@KcasPermissions.InspectionsView">
                             <Authorized Context="inspectionContext">
                                 <div class="nav-item px-3">
-                                    <NavLink class="nav-link" href="compliance/inspections">Inspection readiness</NavLink>
+                                    <NavLink class="nav-link" href="compliance/inspections">11. Inspection response</NavLink>
                                 </div>
                             </Authorized>
                         </AuthorizeView>

@@ -4,6 +4,7 @@
 @using KCAS.Admin.Data
 @inject RmcpService RmcpService
 @inject AuthenticationStateProvider AuthenticationStateProvider
+@inject DocumentPathDisplayService PathDisplay
 
 <PageTitle>RMCP version</PageTitle>
 
@@ -39,14 +40,16 @@ else
             <input class="form-control" @bind="edit.Title" disabled="@(!CanEdit)" placeholder="Title" />
             <input class="form-control" @bind="edit.VersionReference" disabled="@(!CanEdit)" placeholder="Version/reference" />
             <input class="form-control" @bind="edit.Owner" disabled="@(!CanEdit)" placeholder="Owner" />
-            <label>Review cycle (months)<InputNumber class="form-control" @bind-Value="edit.ReviewMonths" disabled="@(!CanEdit)" /></label>
+            <label>Review cycle<input class="form-control" value="Annual (12 months)" disabled /></label>
         </div>
         <label class="form-label mt-3">Scope</label>
         <textarea class="form-control" rows="2" @bind="edit.Scope" disabled="@(!CanEdit)"></textarea>
         <label class="form-label mt-3">Signed Word/PDF source location</label>
         <input class="form-control" @bind="edit.SignedDocumentLocation" disabled="@(!CanEdit)" />
+        @if (!CanEdit) { <div class="form-text">Workstation path: @PathDisplay.ForWorkstation(edit.SignedDocumentLocation)</div> }
         <label class="form-label mt-3">Signed approval resolution location</label>
         <input class="form-control" @bind="edit.ApprovalResolutionLocation" disabled="@(!CanEdit)" />
+        @if (!CanEdit) { <div class="form-text">Workstation path: @PathDisplay.ForWorkstation(edit.ApprovalResolutionLocation)</div> }
         <label class="form-label mt-3">Change summary</label>
         <textarea class="form-control" rows="2" @bind="edit.ChangeSummary" disabled="@(!CanEdit)"></textarea>
         <p class="mt-3 mb-0"><strong>Linked BRA:</strong> @model.Version.BusinessRiskAssessment?.Name, as at @model.Version.BusinessRiskAssessment?.AsAtDate.ToString("yyyy-MM-dd")</p>

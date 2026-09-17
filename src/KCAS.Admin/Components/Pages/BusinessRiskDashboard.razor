@@ -46,13 +46,15 @@
     {
         <div class="table-responsive">
             <table class="table align-middle">
-                <thead><tr><th>Assessment</th><th>As at</th><th>Status</th><th>KI approvals</th><th></th></tr></thead>
+                <thead><tr><th>Assessment</th><th>As at</th><th>Review due</th><th>Status</th><th>KI approvals</th><th></th></tr></thead>
                 <tbody>
                     @foreach (var item in items)
                     {
                         <tr>
                             <td>@item.Name</td>
                             <td>@item.AsAtDate.ToString("yyyy-MM-dd")</td>
+                            @{ var dueDate = ComplianceReviewSchedule.BraDueDate(item); var dueStatus = ComplianceReviewSchedule.Status(dueDate, today); }
+                            <td>@dueDate.ToString("yyyy-MM-dd") <span class="@ComplianceReviewSchedule.BadgeClass(dueStatus)">@dueStatus</span></td>
                             <td>@item.Status</td>
                             <td>@item.Approvals.Count / 2</td>
                             <td class="text-end"><a class="btn btn-sm btn-outline-primary" href="@($"/compliance/business-risk/{item.Id}")">Open</a></td>
@@ -72,6 +74,7 @@
     private string? currentUser;
     private string? message;
     private bool canManage;
+    private readonly DateOnly today = DateOnly.FromDateTime(DateTime.Today);
 
     protected override async Task OnInitializedAsync()
     {

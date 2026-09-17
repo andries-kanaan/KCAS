@@ -6,6 +6,7 @@
 @inject ApplicationDbContext Db
 @inject ClientOperationsService ClientOperations
 @inject AuthenticationStateProvider AuthenticationStateProvider
+@inject DocumentPathDisplayService PathDisplay
 
 <PageTitle>@(client is null ? "Client" : ClientNameFormatter.FullNameAndSurname(client))</PageTitle>
 
@@ -81,7 +82,7 @@ else
                 <dt>Language</dt>
                 <dd>@Display(client.Language)</dd>
                 <dt>Client folder</dt>
-                <dd>@Display(client.ClientFolder)</dd>
+                <dd>@Display(PathDisplay.ForWorkstation(client.ClientFolder))</dd>
                 <dt>Client category</dt>
                 <dd>@Display(client.ClientCategory)</dd>
                 <dt>Category source</dt>

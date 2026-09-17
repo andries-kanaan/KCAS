@@ -1203,6 +1203,9 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             Outcome = ClientEvidenceScreeningOutcomes.NoMatch,
             RiskSignal = ClientEvidenceRiskSignals.Low,
             ReviewDate = DateOnly.FromDateTime(DateTime.Today),
+            ReviewedAtUtc = DateTime.UtcNow,
+            PerformedBy = ClientEvidenceScreeningPerformers.HumanReviewer,
+            Sources = "Reviewer-recorded screening sources; see review notes.",
             Notes = reason
         }, userName, reason);
 
@@ -1224,6 +1227,12 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         var outcome = Normalize(request.Outcome) ?? throw new ValidationException("Screening outcome is required.");
         var riskSignal = Normalize(request.RiskSignal) ?? throw new ValidationException("Risk signal is required.");
         var notes = Normalize(request.Notes);
+        var screeningSources = Normalize(request.Sources) ?? throw new ValidationException("Screening sources are required.");
+        var performedBy = Normalize(request.PerformedBy) ?? ClientEvidenceScreeningPerformers.HumanReviewer;
+        if (!ClientEvidenceScreeningPerformers.All.Contains(performedBy, StringComparer.Ordinal))
+        {
+            throw new ValidationException("Select a valid screening performer.");
+        }
         ClientRelatedParty? relatedParty = null;
         if (request.ClientRelatedPartyId is not null)
         {
@@ -1248,6 +1257,9 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             Reviewer = userName,
             Status = ClientEvidenceStatuses.Verified,
             ScreeningReviewDate = reviewDate,
+            ScreeningReviewedAtUtc = request.ReviewedAtUtc ?? DateTime.UtcNow,
+            ScreeningPerformedBy = performedBy,
+            ScreeningSources = screeningSources,
             ScreeningSubjectType = subjectType,
             ScreeningSubjectName = subjectName,
             ClientRelatedPartyId = relatedParty?.Id,
@@ -1271,6 +1283,9 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             item.Reviewer,
             item.ScreeningSubjectType,
             item.ScreeningSubjectName,
+            item.ScreeningReviewedAtUtc,
+            item.ScreeningPerformedBy,
+            item.ScreeningSources,
             item.ScreeningOutcome,
             item.ScreeningRiskSignal,
             item.EscalationRequired,
@@ -2299,6 +2314,9 @@ public sealed class ClientEvidenceItemModel
     public DateOnly? ExpiryDate { get; set; }
     public string? Reviewer { get; set; }
     public DateOnly? ScreeningReviewDate { get; set; }
+    public DateTime? ScreeningReviewedAtUtc { get; set; }
+    public string? ScreeningPerformedBy { get; set; }
+    public string? ScreeningSources { get; set; }
     public string? ScreeningSubjectType { get; set; }
     public string? ScreeningSubjectName { get; set; }
     public string? ScreeningOutcome { get; set; }
@@ -2329,6 +2347,9 @@ public sealed class ClientEvidenceItemModel
         ExpiryDate = item.ExpiryDate,
         Reviewer = item.Reviewer,
         ScreeningReviewDate = item.ScreeningReviewDate,
+        ScreeningReviewedAtUtc = item.ScreeningReviewedAtUtc,
+        ScreeningPerformedBy = item.ScreeningPerformedBy,
+        ScreeningSources = item.ScreeningSources,
         ScreeningSubjectType = item.ScreeningSubjectType,
         ScreeningSubjectName = item.ScreeningSubjectName,
         ScreeningOutcome = item.ScreeningOutcome,
@@ -2373,7 +2394,17 @@ public sealed class ClientEvidenceScreeningReviewRequest
     public string? Outcome { get; set; }
     public string? RiskSignal { get; set; }
     public DateOnly? ReviewDate { get; set; }
+    public DateTime? ReviewedAtUtc { get; set; }
+    public string? PerformedBy { get; set; }
+    public string? Sources { get; set; }
     public string? Notes { get; set; }
+}
+
+public static class ClientEvidenceScreeningPerformers
+{
+    public const string HumanReviewer = "Human reviewer";
+    public const string Codex = "Codex";
+    public static readonly string[] All = [HumanReviewer, Codex];
 }
 
 public static class ClientEvidenceScreeningSubjectTypes

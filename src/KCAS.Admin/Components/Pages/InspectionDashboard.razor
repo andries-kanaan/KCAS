@@ -6,36 +6,38 @@
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject NavigationManager NavigationManager
 
-<PageTitle>Inspection readiness</PageTitle>
+<PageTitle>Inspection response workspace</PageTitle>
 
 <div class="page-header">
     <div>
         <p class="eyebrow">Compliance</p>
-        <h1>Inspection readiness</h1>
-        <p class="lede">A controlled workspace for inspection requests, evidence indexing and Kanaan readiness checks.</p>
+        <h1>Inspection response workspace</h1>
+        <p class="lede">The forthcoming FSCA inspection, its submitted information request and the remaining evidenced readiness checks.</p>
     </div>
     <a class="btn btn-outline-secondary" href="/compliance">Compliance dashboard</a>
 </div>
 
 @if (!string.IsNullOrWhiteSpace(message)) { <div class="alert alert-info">@message</div> }
 
-@if (canManage)
+@if (CurrentFscaInspection is not null)
 {
     <section class="work-area">
-        <h2>Start inspection workspace</h2>
-        <div class="workspace-grid">
-            <input class="form-control" @bind="edit.Reference" placeholder="Reference" />
-            <input class="form-control" @bind="edit.Title" placeholder="Title" />
-            <input class="form-control" @bind="edit.RequestingAuthority" placeholder="Requesting authority" />
-            <input class="form-control" @bind="edit.Coordinator" placeholder="Coordinator" />
-            <label>As-at date<InputDate class="form-control" @bind-Value="edit.AsAtDate" /></label>
-            <label>Request date<InputDate class="form-control" @bind-Value="edit.RequestDate" /></label>
-            <label>Due date<InputDate class="form-control" @bind-Value="edit.DueDate" /></label>
+        <div class="d-flex flex-wrap align-items-start justify-content-between gap-3">
+            <div>
+                <p class="eyebrow">Confirmed inspection</p>
+                <h2>@CurrentFscaInspection.Title</h2>
+                <p class="mb-1"><strong>22 September 2026 at 09:00</strong> · Kanaan Trust offices, Salt Rock</p>
+                <p class="text-muted mb-0">Notice dated 20 July 2026 · FSP 528 · Coordinator: @CurrentFscaInspection.Coordinator</p>
+            </div>
+            <a class="btn btn-primary" href="@($"/compliance/inspections/{CurrentFscaInspection.Id}")">Open inspection readiness</a>
         </div>
-        <textarea class="form-control mt-2" rows="2" @bind="edit.Scope" placeholder="Scope"></textarea>
-        <textarea class="form-control mt-2" rows="2" @bind="edit.Notes" placeholder="Notes"></textarea>
-        <input class="form-control mt-2" @bind="reason" placeholder="Reason for creating this workspace" />
-        <button class="btn btn-primary mt-2" @onclick="CreateAsync">Create workspace</button>
+        <hr />
+        <p>@CurrentFscaInspection.Scope</p>
+        <div class="investment-summary">
+            <div><span>Submitted request items</span><strong>@CurrentFscaInspection.Items.Count(item => item.Status == InspectionItemStatuses.Ready) / @CurrentFscaInspection.Items.Count</strong></div>
+            <div><span>Readiness checks passed</span><strong>@CurrentFscaInspection.ReadinessChecks.Count(check => check.Status == InspectionCheckStatuses.Passed) / @CurrentFscaInspection.ReadinessChecks.Count</strong></div>
+            <div><span>Status</span><strong>@CurrentFscaInspection.Status</strong></div>
+        </div>
     </section>
 }
 
@@ -65,6 +67,29 @@
     }
 </section>
 
+@if (canManage)
+{
+    <section class="work-area">
+        <details>
+            <summary class="fw-semibold">Create another regulator request</summary>
+            <p class="text-muted mt-3">Use this only for a separate future request or inspection not already listed above.</p>
+            <div class="workspace-grid">
+                <input class="form-control" @bind="edit.Reference" placeholder="Reference" />
+                <input class="form-control" @bind="edit.Title" placeholder="Title" />
+                <input class="form-control" @bind="edit.RequestingAuthority" placeholder="Requesting authority" />
+                <input class="form-control" @bind="edit.Coordinator" placeholder="Coordinator" />
+                <label>As-at date<InputDate class="form-control" @bind-Value="edit.AsAtDate" /></label>
+                <label>Request date<InputDate class="form-control" @bind-Value="edit.RequestDate" /></label>
+                <label>Due date<InputDate class="form-control" @bind-Value="edit.DueDate" /></label>
+            </div>
+            <textarea class="form-control mt-2" rows="2" @bind="edit.Scope" placeholder="Scope"></textarea>
+            <textarea class="form-control mt-2" rows="2" @bind="edit.Notes" placeholder="Notes"></textarea>
+            <input class="form-control mt-2" @bind="reason" placeholder="Reason for creating this workspace" />
+            <button class="btn btn-primary mt-2" @onclick="CreateAsync">Create workspace</button>
+        </details>
+    </section>
+}
+
 @code {
     private IReadOnlyList<InspectionCase> items = [];
     private InspectionCaseEditModel edit = new();
@@ -72,6 +97,7 @@
     private string? currentUser;
     private string? message;
     private bool canManage;
+    private InspectionCase? CurrentFscaInspection => items.FirstOrDefault(item => item.Reference == FscaInspectionSeeder.Reference);
 
     protected override async Task OnInitializedAsync()
     {

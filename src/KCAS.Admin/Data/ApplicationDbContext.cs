@@ -695,7 +695,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 
         builder.Entity<GovernanceRoleAssignment>(entity =>
         {
-            entity.Property(role => role.RoleType).HasMaxLength(96);
+            entity.Property(role => role.RoleType).HasMaxLength(191);
             entity.Property(role => role.PersonName).HasMaxLength(191);
             entity.Property(role => role.Email).HasMaxLength(191);
             entity.Property(role => role.Phone).HasMaxLength(64);

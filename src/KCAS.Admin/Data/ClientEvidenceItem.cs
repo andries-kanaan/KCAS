@@ -47,6 +47,14 @@ public sealed class ClientEvidenceItem
 
     public DateOnly? ScreeningReviewDate { get; set; }
 
+    public DateTime? ScreeningReviewedAtUtc { get; set; }
+
+    [MaxLength(191)]
+    public string? ScreeningPerformedBy { get; set; }
+
+    [MaxLength(1024)]
+    public string? ScreeningSources { get; set; }
+
     [MaxLength(96)]
     public string? ScreeningSubjectType { get; set; }
 

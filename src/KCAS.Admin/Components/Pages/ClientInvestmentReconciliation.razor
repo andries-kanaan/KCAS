@@ -5,6 +5,7 @@
 @using KCAS.Admin.Data
 @inject InvestmentReconciliationService ReconciliationService
 @inject AuthenticationStateProvider AuthenticationStateProvider
+@inject DocumentPathDisplayService PathDisplay
 
 <PageTitle>Investment reconciliation</PageTitle>
 
@@ -18,7 +19,7 @@ else
         <div>
             <p class="eyebrow">Client compliance review · Investment verification</p>
             <h1>@model.DisplayName</h1>
-            <p class="text-muted mb-0">Kanaan ID: @Display(model.KanaanId) · Folder: @Display(model.ClientFolder)</p>
+            <p class="text-muted mb-0">Kanaan ID: @Display(model.KanaanId) · Folder: @Display(PathDisplay.ForWorkstation(model.ClientFolder))</p>
         </div>
         <div class="header-actions">
             <a class="btn btn-primary" href="@($"/clients/{ClientId}/compliance-review")">Back to compliance review</a>

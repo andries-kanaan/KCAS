@@ -63,7 +63,10 @@ public sealed class ComplianceService(ApplicationDbContext db)
         return new ComplianceManageModel
         {
             Profile = ComplianceProfileModel.FromEntity(await db.ComplianceProfiles.AsNoTracking().OrderBy(profile => profile.Id).LastOrDefaultAsync()),
-            GovernanceRoles = await db.GovernanceRoleAssignments.AsNoTracking().OrderBy(role => role.RoleType).ThenBy(role => role.PersonName).ToListAsync(),
+            GovernanceRoles = (await db.GovernanceRoleAssignments.AsNoTracking().ToListAsync())
+                .OrderBy(GovernanceDisplayOrder)
+                .ThenBy(role => role.PersonName)
+                .ToList(),
             Documents = await db.ControlledDocuments.AsNoTracking().OrderBy(document => document.DocumentType).ThenBy(document => document.Title).ToListAsync(),
             ReferenceValues = await db.ComplianceReferenceValues.AsNoTracking().OrderBy(reference => reference.Category).ThenBy(reference => reference.SortOrder).ThenBy(reference => reference.Name).ToListAsync(),
             Methodologies = await db.RiskMethodologyVersions.AsNoTracking().Include(methodology => methodology.Factors).Include(methodology => methodology.Bands).OrderByDescending(methodology => methodology.CreatedAtUtc).ToListAsync(),
@@ -659,6 +662,18 @@ public sealed class ComplianceService(ApplicationDbContext db)
             throw new ValidationException(message);
         }
     }
+
+    private static int GovernanceDisplayOrder(GovernanceRoleAssignment role) => role.PersonName switch
+    {
+        "Gert Delport" => 1,
+        "Andre Delport" => 2,
+        "The Corporate Counsel" => 3,
+        "Andries van Tonder" => 4,
+        "Johannes Delport" => 5,
+        "Hannetjie Delport" => 6,
+        "Jennifer Delport" => 7,
+        _ => 100
+    };
 }
 
 public static class ComplianceApprovalRules

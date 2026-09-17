@@ -545,7 +545,8 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
             SubjectName = "Trustee One",
             Outcome = ClientEvidenceScreeningOutcomes.NoMatch,
             RiskSignal = ClientEvidenceRiskSignals.Low,
-            ReviewDate = DateOnly.FromDateTime(DateTime.Today)
+            ReviewDate = DateOnly.FromDateTime(DateTime.Today),
+            Sources = "Test screening register"
         }, "reviewer@example.test", null));
     }
 
@@ -565,12 +566,18 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
             Outcome = ClientEvidenceScreeningOutcomes.ConfirmedMatch,
             RiskSignal = ClientEvidenceRiskSignals.High,
             ReviewDate = DateOnly.FromDateTime(DateTime.Today),
+            Sources = "Test sanctions register",
+            PerformedBy = ClientEvidenceScreeningPerformers.Codex,
+            ReviewedAtUtc = new DateTime(2026, 9, 17, 8, 30, 0, DateTimeKind.Utc),
             Notes = "Confirmed sanctions match escalated for formal handling."
         }, "reviewer@example.test", null);
 
         var item = await db.ClientEvidenceItems.SingleAsync(item => item.Id == itemId);
         Assert.True(item.EscalationRequired);
         Assert.Equal(ClientEvidenceRiskSignals.High, item.ScreeningRiskSignal);
+        Assert.Equal(ClientEvidenceScreeningPerformers.Codex, item.ScreeningPerformedBy);
+        Assert.Equal("Test sanctions register", item.ScreeningSources);
+        Assert.Equal(new DateTime(2026, 9, 17, 8, 30, 0, DateTimeKind.Utc), item.ScreeningReviewedAtUtc);
         Assert.Contains((await service.LoadClientReadinessAsync(clientId)).Requirements, requirement => requirement.EvidenceType == "SanctionsTfs" && requirement.IsComplete);
     }
 
