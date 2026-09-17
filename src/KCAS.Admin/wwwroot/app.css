@@ -574,6 +574,43 @@ a, .btn-link {
     min-width: 8rem;
 }
 
+.clients-table {
+    min-width: 68rem;
+}
+
+.clients-table .clients-column-id { width: 8%; }
+.clients-table .clients-column-name { width: 11%; }
+.clients-table .clients-column-surname { width: 11%; }
+.clients-table .clients-column-email { width: 18%; }
+.clients-table .clients-column-phone { width: 13%; }
+.clients-table .clients-column-status { width: 10%; }
+.clients-table .clients-column-investment { width: 18%; }
+.clients-table .clients-column-value { width: 11%; }
+
+.clients-table td:last-child,
+.clients-table th:last-child {
+    white-space: nowrap;
+}
+
+@media (min-width: 1400px) {
+    .clients-table {
+        width: 100%;
+        min-width: 0;
+        table-layout: fixed;
+    }
+
+    .clients-table .form-control-sm,
+    .clients-table .form-select-sm {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .clients-table th,
+    .clients-table td {
+        overflow-wrap: anywhere;
+    }
+}
+
 .toolbar-panel,
 .detail-panel {
     margin-bottom: 1rem;

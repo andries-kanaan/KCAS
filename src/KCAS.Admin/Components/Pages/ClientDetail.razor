@@ -26,7 +26,7 @@ else
             <p class="text-muted mb-0">Kanaan ID: @(client.KanaanId ?? "Not captured")</p>
         </div>
         <div class="header-actions">
-            <a class="btn btn-primary" href="@($"/clients/{Id}/compliance-review")">Start / continue compliance review</a>
+            <a class="btn btn-primary" href="@($"/clients/{Id}/compliance-review")">@ComplianceReviewActionLabel</a>
             @if (client.ClientCategory is ClientCategories.Trust or ClientCategories.LegalPerson)
             {
                 <a class="btn btn-outline-secondary" href="@($"/clients/{Id}/ownership")">Ownership register</a>
@@ -1029,6 +1029,14 @@ else
     private string? noteFilter;
     private string? statusMessage;
     private int notePage = 1;
+    private bool hasStartedComplianceReview;
+    private bool hasCompletedComplianceReview;
+
+    private string ComplianceReviewActionLabel => hasCompletedComplianceReview
+        ? "View compliance review"
+        : hasStartedComplianceReview
+            ? "Continue compliance review"
+            : "Start compliance review";
 
     protected override async Task OnParametersSetAsync()
     {
@@ -1039,6 +1047,8 @@ else
 
     private async Task LoadAsync()
     {
+        hasStartedComplianceReview = false;
+        hasCompletedComplianceReview = false;
         client = await Db.Clients
             .AsNoTracking()
             .AsSplitQuery()
@@ -1056,6 +1066,33 @@ else
                 .ThenInclude(account => account.Transactions)
             .Include(client => client.VerificationItems)
             .SingleOrDefaultAsync(client => client.Id == Id);
+        if (client is not null)
+        {
+            var reviewState = await Db.Clients
+                .AsNoTracking()
+                .Where(item => item.Id == Id)
+                .Select(item => new
+                {
+                    HasAssessment = item.RiskAssessments.Any(),
+                    HasCompletedAssessment = item.RiskAssessments.Any(assessment =>
+                        assessment.Status == ClientRiskAssessmentStatuses.Finalised ||
+                        assessment.Status == ClientRiskAssessmentStatuses.Approved),
+                    HasLifecycleReview = item.LifecycleStatus != ClientLifecycleStatuses.Unreviewed,
+                    HasEvidence = item.EvidenceItems.Any(),
+                    HasInvestmentReview = item.InvestmentReconciliationReviews.Any()
+                })
+                .SingleAsync();
+            var hasFolderScan = !string.IsNullOrWhiteSpace(client.ClientFolder) &&
+                                await Db.ClientEvidenceScanRuns.AsNoTracking()
+                                    .AnyAsync(run => run.RootPath == client.ClientFolder);
+            hasCompletedComplianceReview = reviewState.HasCompletedAssessment;
+            hasStartedComplianceReview = hasCompletedComplianceReview ||
+                                         reviewState.HasAssessment ||
+                                         reviewState.HasLifecycleReview ||
+                                         reviewState.HasEvidence ||
+                                         reviewState.HasInvestmentReview ||
+                                         hasFolderScan;
+        }
         investmentFundReferences = await Db.InvestmentFundReferences
             .AsNoTracking()
             .ToListAsync();
