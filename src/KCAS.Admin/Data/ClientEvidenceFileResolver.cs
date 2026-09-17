@@ -63,9 +63,17 @@ public static class ClientEvidenceFileResolver
     private static string? CombineWithinFolder(string? folder, string? relativePath)
     {
         if (string.IsNullOrWhiteSpace(folder) || string.IsNullOrWhiteSpace(relativePath) ||
-            Path.IsPathFullyQualified(relativePath))
+            IsAbsolutePath(relativePath))
         {
             return null;
+        }
+
+        if (IsWindowsAbsolutePath(folder))
+        {
+            var segments = relativePath.Replace('/', '\\')
+                .Split('\\', StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Any(segment => segment is "." or "..")) return null;
+            return folder.Trim().Replace('/', '\\').TrimEnd('\\') + "\\" + string.Join("\\", segments);
         }
 
         var root = Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -75,6 +83,19 @@ public static class ClientEvidenceFileResolver
             : null;
     }
 
-    private static string? NormalizeOrNull(string? path) =>
-        string.IsNullOrWhiteSpace(path) ? null : Path.GetFullPath(path.Trim());
+    private static string? NormalizeOrNull(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return null;
+        var trimmed = path.Trim();
+        return IsWindowsAbsolutePath(trimmed)
+            ? trimmed.Replace('/', '\\')
+            : Path.GetFullPath(trimmed);
+    }
+
+    private static bool IsAbsolutePath(string path) =>
+        IsWindowsAbsolutePath(path) || Path.IsPathFullyQualified(path);
+
+    private static bool IsWindowsAbsolutePath(string path) =>
+        (path.Length >= 3 && char.IsLetter(path[0]) && path[1] == ':' && path[2] is '\\' or '/') ||
+        path.StartsWith("\\\\", StringComparison.Ordinal);
 }
