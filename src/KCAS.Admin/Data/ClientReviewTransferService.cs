@@ -704,11 +704,14 @@ public sealed class ClientReviewTransferService(
                 item.VersionLabel == package.Assessment.MethodologyVersionLabel,
                 cancellationToken);
 
+        var liveRoot = await LoadActiveClientFolderRootAsync(cancellationToken);
         var mappedClientFolder = client.ClientFolder;
         if (!string.IsNullOrWhiteSpace(package.Client.ClientFolder))
         {
-            var liveRoot = await LoadActiveClientFolderRootAsync(cancellationToken)
-                ?? throw new InvalidOperationException("Live KCAS has no active client evidence root.");
+            if (string.IsNullOrWhiteSpace(liveRoot))
+            {
+                throw new InvalidOperationException("Live KCAS has no active client evidence root.");
+            }
             mappedClientFolder = MapClientFolderToLiveRoot(package.Client.ClientFolder, liveRoot)
                 ?? throw new InvalidOperationException("The package client folder cannot be mapped safely to the live root.");
         }
@@ -907,9 +910,23 @@ public sealed class ClientReviewTransferService(
         foreach (var source in package.Evidence)
         {
             var key = source.EvidenceKey;
+            var mappedSourcePath = ClientEvidenceFileResolver.PreferredServerPath(
+                source.SourcePath,
+                source.RelativePath,
+                source.FileName,
+                mappedClientFolder,
+                liveRoot);
             partyByKey.TryGetValue(source.RelatedPartyKey ?? "", out var screeningParty);
             if (evidenceByKey.TryGetValue(key, out var existingItem))
             {
+                if (!string.IsNullOrWhiteSpace(mappedSourcePath))
+                {
+                    existingItem.SourcePath = mappedSourcePath;
+                    existingItem.RelativePath = source.RelativePath;
+                    existingItem.FileName = source.FileName;
+                    existingItem.UpdatedAtUtc = DateTime.UtcNow;
+                    existingItem.UpdatedBy = user;
+                }
                 if (source.ScreeningReviewedAtUtc is not null)
                 {
                     existingItem.ScreeningReviewedAtUtc = source.ScreeningReviewedAtUtc;
@@ -935,7 +952,7 @@ public sealed class ClientReviewTransferService(
                 ClientEvidenceRequirementId = requirement?.Id,
                 EvidenceType = source.EvidenceType,
                 Title = source.Title,
-                SourcePath = source.SourcePath,
+                SourcePath = mappedSourcePath,
                 RelativePath = source.RelativePath,
                 FileName = source.FileName,
                 FileSha256 = source.FileSha256,
