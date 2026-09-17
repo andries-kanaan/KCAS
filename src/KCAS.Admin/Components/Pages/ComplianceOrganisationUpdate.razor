@@ -1,0 +1,184 @@
+@page "/compliance/organisation/update"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ComplianceManage)]
+@using KCAS.Admin.Data
+@inject ComplianceService ComplianceService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Update organisation and governance</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Compliance administration</p>
+        <h1>Update organisation and governance</h1>
+        <p class="lede">Maintain the FSP record and its responsible-person structure. Saved changes are recorded in the compliance audit trail.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="/compliance/organisation">Back to record</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(statusMessage))
+{
+    <div class="alert @(isError ? "alert-danger" : "alert-success")">@statusMessage</div>
+}
+
+@if (model is null)
+{
+    <p>Loading organisation record...</p>
+}
+else
+{
+    <section class="work-area">
+        <h2>Change reason</h2>
+        <p class="text-muted">Required for every saved profile or governance change.</p>
+        <input class="form-control" @bind="reason" placeholder="Reason for this compliance change" />
+    </section>
+
+    <section class="work-area">
+        <h2>FSP and accountable institution profile</h2>
+        <div class="workspace-grid">
+            <input class="form-control" @bind="profile.LegalName" placeholder="Legal name" />
+            <input class="form-control" @bind="profile.TradingName" placeholder="Trading name" />
+            <input class="form-control" @bind="profile.FspNumber" placeholder="FSP number" />
+            <input class="form-control" @bind="profile.AccountableInstitutionNumber" placeholder="Accountable institution number" />
+            <input class="form-control" @bind="profile.PrimaryContactName" placeholder="Primary contact" />
+            <input class="form-control" @bind="profile.PrimaryContactEmail" placeholder="Primary contact email" />
+            <input class="form-control" @bind="profile.PrimaryContactPhone" placeholder="Primary contact phone" />
+            <InputDate class="form-control" @bind-Value="profile.EffectiveFrom" />
+            <select class="form-select" @bind="profile.Status">
+                @foreach (var status in statuses)
+                {
+                    <option value="@status">@status</option>
+                }
+            </select>
+        </div>
+        <textarea class="form-control mt-2" @bind="profile.RegisteredAddress" placeholder="Registered address"></textarea>
+        <textarea class="form-control mt-2" @bind="profile.OperatingAddress" placeholder="Operating address"></textarea>
+        <button type="button" class="btn btn-primary mt-2" @onclick="SaveProfileAsync">Save profile</button>
+    </section>
+
+    <section class="work-area">
+        <h2>@(governance.Id.HasValue ? "Update governance role" : "Add governance role")</h2>
+        <div class="workspace-grid">
+            <input class="form-control" @bind="governance.PersonName" placeholder="Person or organisation" />
+            <input class="form-control" @bind="governance.RoleType" placeholder="Position and regulated roles" />
+            <input class="form-control" @bind="governance.Email" placeholder="Email" />
+            <input class="form-control" @bind="governance.Phone" placeholder="Phone" />
+            <InputDate class="form-control" @bind-Value="governance.StartDate" />
+            <InputDate class="form-control" @bind-Value="governance.EndDate" />
+        </div>
+        <textarea class="form-control mt-2" @bind="governance.ResponsibilitySummary" placeholder="Responsibility summary"></textarea>
+        <label class="form-check mt-2">
+            <InputCheckbox class="form-check-input" @bind-Value="governance.IsActive" />
+            <span class="form-check-label">Active</span>
+        </label>
+        <div class="d-flex gap-2 mt-2">
+            <button type="button" class="btn btn-primary" @onclick="SaveGovernanceAsync">@(governance.Id.HasValue ? "Save role changes" : "Add role")</button>
+            @if (governance.Id.HasValue)
+            {
+                <button type="button" class="btn btn-outline-secondary" @onclick="CancelRoleEdit">Cancel</button>
+            }
+        </div>
+
+        <div class="table-responsive mt-3">
+            <table class="table align-middle">
+                <thead><tr><th>Person</th><th>Position and regulated roles</th><th>Contact</th><th>Responsibility</th><th>Status</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var role in model.GovernanceRoles)
+                    {
+                        <tr>
+                            <td><strong>@role.PersonName</strong></td>
+                            <td>@role.RoleType</td>
+                            <td>@Display(role.Email)<br /><span class="text-muted small">@Display(role.Phone)</span></td>
+                            <td>@Display(role.ResponsibilitySummary)</td>
+                            <td>@(role.IsActive ? "Active" : "Inactive")</td>
+                            <td class="text-end"><button type="button" class="btn btn-sm btn-outline-primary" @onclick="() => EditRole(role)">Edit</button></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}
+
+@code {
+    private static readonly string[] statuses =
+    [
+        ComplianceStatuses.Draft,
+        ComplianceStatuses.Review,
+        ComplianceStatuses.Approved,
+        ComplianceStatuses.Active,
+        ComplianceStatuses.Superseded,
+        ComplianceStatuses.Rejected,
+        ComplianceStatuses.Withdrawn,
+        ComplianceStatuses.Closed
+    ];
+
+    private ComplianceManageModel? model;
+    private ComplianceProfileModel profile = new();
+    private GovernanceRoleModel governance = new();
+    private string? currentUser;
+    private string? reason;
+    private string? statusMessage;
+    private bool isError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        currentUser = authState.User.Identity?.Name;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        model = await ComplianceService.LoadManageModelAsync();
+        profile = model.Profile;
+    }
+
+    private async Task SaveProfileAsync() => await ExecuteAsync(
+        () => ComplianceService.SaveProfileAsync(profile, currentUser, reason ?? ""),
+        "Organisation profile updated.");
+
+    private async Task SaveGovernanceAsync() => await ExecuteAsync(
+        async () =>
+        {
+            await ComplianceService.SaveGovernanceRoleAsync(governance, currentUser, reason ?? "");
+            governance = new();
+        },
+        "Governance role saved.");
+
+    private async Task ExecuteAsync(Func<Task> action, string successMessage)
+    {
+        try
+        {
+            await action();
+            await LoadAsync();
+            statusMessage = successMessage;
+            isError = false;
+        }
+        catch (Exception exception)
+        {
+            statusMessage = exception.Message;
+            isError = true;
+        }
+    }
+
+    private void EditRole(GovernanceRoleAssignment role)
+    {
+        governance = new GovernanceRoleModel
+        {
+            Id = role.Id,
+            RoleType = role.RoleType,
+            PersonName = role.PersonName,
+            Email = role.Email,
+            Phone = role.Phone,
+            ResponsibilitySummary = role.ResponsibilitySummary,
+            StartDate = role.StartDate,
+            EndDate = role.EndDate,
+            IsActive = role.IsActive
+        };
+        statusMessage = null;
+    }
+
+    private void CancelRoleEdit() => governance = new();
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+}

@@ -87,11 +87,7 @@ public sealed class RmcpService(ApplicationDbContext db)
         version.VersionReference = Required(model.VersionReference, "Version reference", 64);
         version.Scope = Required(model.Scope, "Scope");
         version.Owner = Required(model.Owner, "Owner", 191);
-        if (model.ReviewMonths is < 1 or > 60)
-        {
-            throw new ValidationException("Review cycle must be between 1 and 60 months.");
-        }
-        version.ReviewMonths = model.ReviewMonths;
+        version.ReviewMonths = 12;
         version.SignedDocumentLocation = Normalize(model.SignedDocumentLocation);
         version.ApprovalResolutionLocation = Normalize(model.ApprovalResolutionLocation);
         version.ChangeSummary = Required(model.ChangeSummary, "Change summary");
@@ -232,7 +228,8 @@ public sealed class RmcpService(ApplicationDbContext db)
 
         version.Status = ComplianceStatuses.Active;
         version.EffectiveDate = effectiveDate;
-        version.NextReviewDate = effectiveDate.AddMonths(version.ReviewMonths);
+        version.ReviewMonths = 12;
+        version.NextReviewDate = effectiveDate.AddYears(1);
         version.ActivatedAtUtc = DateTime.UtcNow;
         version.UpdatedAtUtc = DateTime.UtcNow;
         version.UpdatedBy = user;

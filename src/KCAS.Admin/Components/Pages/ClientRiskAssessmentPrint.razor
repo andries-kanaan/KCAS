@@ -37,7 +37,7 @@ else
 
         <h2 class="h4 mt-4">Result</h2>
         <dl>
-            <dt>Calculated score</dt><dd>@Text(Result, "calculatedScore")</dd>
+            <dt>Calculated score</dt><dd>@Number(Result, "calculatedScore")</dd>
             <dt>Calculated rating</dt><dd>@Text(Result, "calculatedRating")</dd>
             <dt>Final rating</dt><dd>@Text(Result, "finalRating")</dd>
             <dt>EDD required</dt><dd>@BooleanText(Result, "requiresEdd")</dd>
@@ -48,15 +48,14 @@ else
         <h2 class="h4 mt-4">Factor calculation</h2>
         <div class="table-responsive">
             <table class="table align-middle">
-                <thead><tr><th>Factor</th><th>Answer</th><th>Score</th><th>Weighted</th><th>Explanation</th><th>Evidence</th></tr></thead>
+                <thead><tr><th>Factor</th><th>Answer</th><th>Score</th><th>Explanation</th><th>Evidence</th></tr></thead>
                 <tbody>
                     @foreach (var factor in Factors)
                     {
                         <tr>
                             <td>@Text(factor, "name")</td>
                             <td>@Text(factor, "option")</td>
-                            <td>@Text(factor, "score")</td>
-                            <td>@Text(factor, "weightedScore")</td>
+                            <td>@Number(factor, "score")</td>
                             <td>@Text(factor, "explanation")</td>
                             <td>@EvidenceTitle(factor)</td>
                         </tr>
@@ -108,6 +107,11 @@ else
 
     private static string BooleanText(JsonElement element, string property)
         => element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.True ? "Yes" : "No";
+
+    private static string Number(JsonElement element, string property)
+        => element.TryGetProperty(property, out var value) && value.TryGetDecimal(out var number)
+            ? (decimal.Truncate(number) == number ? number.ToString("0") : number.ToString("0.##"))
+            : Text(element, property);
 
     private static string EvidenceTitle(JsonElement factor)
         => factor.TryGetProperty("evidence", out var evidence) && evidence.ValueKind == JsonValueKind.Object

@@ -8,6 +8,7 @@
 @inject ClientEvidenceReadinessService EvidenceService
 @inject ClientEvidenceScanCoordinator ScanCoordinator
 @inject AuthenticationStateProvider AuthenticationStateProvider
+@inject DocumentPathDisplayService PathDisplay
 
 <PageTitle>Client compliance review</PageTitle>
 
@@ -82,7 +83,7 @@ else
             }
         </div>
         <dl class="mb-0">
-            <dt>Selected folder</dt><dd>@Display(model.ClientFolder)</dd>
+            <dt>Selected folder</dt><dd>@Display(PathDisplay.ForWorkstation(model.ClientFolder))</dd>
             <dt>Latest scan</dt>
             <dd>
                 @if (model.LatestFolderScan is null)

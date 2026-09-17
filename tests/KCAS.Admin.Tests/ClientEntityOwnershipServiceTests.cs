@@ -125,6 +125,7 @@ public sealed class ClientEntityOwnershipServiceTests(KcasWebApplicationFactory 
                 Outcome = ClientEvidenceScreeningOutcomes.ForEvidenceType(evidenceType)[0],
                 RiskSignal = ClientEvidenceRiskSignals.Low,
                 ReviewDate = DateOnly.FromDateTime(DateTime.Today),
+                Sources = "Test PEP and sanctions registers",
                 Notes = "Reviewed the related party against the applicable screening source."
             }, "reviewer@example.test", $"Complete {evidenceType} screening.");
         }

@@ -46,14 +46,13 @@ else
             <article class="detail-panel mb-3">
                 <h3 class="h5">@factor.Code — @factor.Name</h3>
                 <p>@Display(factor.Description)</p>
-                <p><strong>Weight:</strong> @factor.Weight</p>
                 <div class="table-responsive">
                     <table class="table align-middle">
                         <thead><tr><th>Option</th><th>Code</th><th>Score</th><th>Mandatory High</th></tr></thead>
                         <tbody>
                             @foreach (var option in factor.Options.OrderBy(item => item.SortOrder))
                             {
-                                <tr><td>@option.Label</td><td>@option.Code</td><td>@option.Score</td><td>@(option.TriggersHighRisk ? "Yes" : "No")</td></tr>
+                                <tr><td>@option.Label</td><td>@option.Code</td><td>@WholeNumber(option.Score)</td><td>@(option.TriggersHighRisk ? "Yes" : "No")</td></tr>
                             }
                         </tbody>
                     </table>
@@ -70,7 +69,7 @@ else
                 <tbody>
                     @foreach (var band in methodology.Bands.OrderBy(item => item.SortOrder))
                     {
-                        <tr><td>@band.Name</td><td>@band.MinimumScore</td><td>@(band.MaximumScore?.ToString() ?? "No maximum")</td><td>@band.ReviewMonths months</td></tr>
+                        <tr><td>@band.Name</td><td>@WholeNumber(band.MinimumScore)</td><td>@(band.MaximumScore is null ? "No maximum" : WholeNumber(band.MaximumScore.Value))</td><td>@band.ReviewMonths months</td></tr>
                     }
                 </tbody>
             </table>
@@ -97,4 +96,5 @@ else
 
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "Not captured" : value;
     private static string Date(DateOnly? value) => value?.ToString("yyyy-MM-dd") ?? "Not set";
+    private static string WholeNumber(decimal value) => decimal.Truncate(value) == value ? value.ToString("0") : value.ToString("0.##");
 }

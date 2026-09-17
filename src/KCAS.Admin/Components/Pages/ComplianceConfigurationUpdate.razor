@@ -1,0 +1,244 @@
+@page "/compliance/methodologies/update"
+@page "/compliance/references/update"
+@page "/compliance/evidence/update"
+@page "/compliance/tasks/update"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ComplianceManage)]
+@using KCAS.Admin.Data
+@using Microsoft.AspNetCore.Components.Rendering
+@inject ComplianceService ComplianceService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager NavigationManager
+
+<PageTitle>Update @SectionTitle</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Controlled compliance change</p>
+        <h1>Update @SectionTitle</h1>
+        <p class="lede">Make a deliberate change to this controlled record. Every saved action requires a reason and is written to the audit trail.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="@ReturnUrl">Back to @SectionTitle</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(statusMessage))
+{
+    <div class="alert @(isError ? "alert-danger" : "alert-success")">@statusMessage</div>
+}
+
+@if (model is null)
+{
+    <p>Loading compliance records...</p>
+}
+else
+{
+    <section class="work-area">
+        <h2>Change reason</h2>
+        <input class="form-control" @bind="reason" placeholder="Required reason for this compliance change" />
+    </section>
+
+    @if (section == "methodologies")
+    {
+        <section class="work-area">
+            <h2>Create methodology draft</h2>
+            <p class="text-muted">Use this only to create a new controlled version. Existing versions remain available from the review page.</p>
+            <div class="workspace-grid">
+                <input class="form-control" @bind="methodology.Name" placeholder="Methodology name" />
+                <input class="form-control" @bind="methodology.VersionLabel" placeholder="Version label" />
+                <InputDate class="form-control" @bind-Value="methodology.EffectiveFrom" />
+            </div>
+            <textarea class="form-control mt-2" @bind="methodology.Summary" placeholder="Methodology summary"></textarea>
+            <div class="workspace-grid mt-2">
+                <input class="form-control" @bind="factor.Code" placeholder="Factor code" />
+                <input class="form-control" @bind="factor.Name" placeholder="Factor name" />
+                <input class="form-control" @bind="option.Label" placeholder="Option label" />
+                <InputNumber class="form-control" @bind-Value="option.Score" />
+                <input class="form-control" @bind="band.Name" placeholder="Risk band" />
+                <InputNumber class="form-control" @bind-Value="band.MinimumScore" />
+                <InputNumber class="form-control" @bind-Value="band.MaximumScore" />
+                <InputNumber class="form-control" @bind-Value="band.ReviewMonths" />
+            </div>
+            <button type="button" class="btn btn-primary mt-2" @onclick="SaveMethodologyAsync">Create draft</button>
+            <button type="button" class="btn btn-outline-primary mt-2 ms-1" @onclick="CreateStarterMethodologyAsync">Create Kanaan starter draft</button>
+        </section>
+
+        <section class="work-area">
+            <h2>Methodology workflow</h2>
+            <p class="text-muted">Submit drafts, record Key Individual decisions and activate approved versions.</p>
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead><tr><th>Methodology</th><th>Version</th><th>Status</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var item in model.Methodologies)
+                        {
+                            <tr>
+                                <td>@item.Name</td><td>@Display(item.VersionLabel)</td><td>@item.Status</td>
+                                <td class="text-end">
+                                    <a class="btn btn-sm btn-outline-secondary" href="@($"/compliance/methodologies/{item.Id}/review")">Review</a>
+                                    @if (item.Status is ComplianceStatuses.Draft or ComplianceStatuses.Review)
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-secondary ms-1" @onclick="() => OpenRename(item.Id, item.VersionLabel)">Rename</button>
+                                    }
+                                    @if (item.Status == ComplianceStatuses.Draft)
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-primary ms-1" @onclick="() => SubmitMethodologyAsync(item.Id)">Submit</button>
+                                    }
+                                    @if (canKiApprove && item.Status == ComplianceStatuses.Review)
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-primary ms-1" @onclick="() => ApproveMethodologyAsync(item.Id)">Approve</button>
+                                        <button type="button" class="btn btn-sm btn-outline-danger ms-1" @onclick="() => RejectMethodologyAsync(item.Id)">Reject</button>
+                                    }
+                                    @if (item.Status == ComplianceStatuses.Approved)
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-success ms-1" @onclick="() => ActivateMethodologyAsync(item.Id)">Activate</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            @if (renameMethodologyId.HasValue)
+            {
+                <div class="detail-panel mt-3">
+                    <h3 class="h5">Rename methodology version</h3>
+                    <input class="form-control" @bind="renameVersionLabel" placeholder="New version label" />
+                    <button type="button" class="btn btn-primary mt-2" @onclick="RenameMethodologyAsync">Save version label</button>
+                    <button type="button" class="btn btn-outline-secondary mt-2 ms-1" @onclick="CancelRename">Cancel</button>
+                </div>
+            }
+        </section>
+    }
+    else if (section == "references")
+    {
+        <section class="work-area">
+            <h2>@(reference.Id.HasValue ? "Update reference" : "Add reference")</h2>
+            <div class="workspace-grid">
+                <input class="form-control" @bind="reference.Category" placeholder="Category" />
+                <input class="form-control" @bind="reference.Code" placeholder="Code" />
+                <input class="form-control" @bind="reference.Name" placeholder="Name" />
+                <InputNumber class="form-control" @bind-Value="reference.SortOrder" />
+            </div>
+            <textarea class="form-control mt-2" @bind="reference.Description" placeholder="Description"></textarea>
+            <label class="form-check mt-2"><InputCheckbox class="form-check-input" @bind-Value="reference.IsActive" /><span class="form-check-label">Active</span></label>
+            <button type="button" class="btn btn-primary mt-2" @onclick="SaveReferenceAsync">Save reference</button>
+            @if (reference.Id.HasValue) { <button type="button" class="btn btn-outline-secondary mt-2 ms-1" @onclick="() => reference = new()">Cancel</button> }
+            @ReferenceTable()
+        </section>
+    }
+    else if (section == "evidence")
+    {
+        <section class="work-area">
+            <h2>@(evidence.Id.HasValue ? "Update evidence record" : "Add evidence record")</h2>
+            <div class="workspace-grid">
+                <input class="form-control" @bind="evidence.EvidenceType" placeholder="Evidence type" />
+                <input class="form-control" @bind="evidence.Title" placeholder="Title" />
+                <input class="form-control" @bind="evidence.Source" placeholder="Source" />
+                <input class="form-control" @bind="evidence.Location" placeholder="Location or link" />
+                <InputDate class="form-control" @bind-Value="evidence.ReceivedDate" />
+                <InputDate class="form-control" @bind-Value="evidence.VerifiedDate" />
+                <InputDate class="form-control" @bind-Value="evidence.ExpiryDate" />
+                <input class="form-control" @bind="evidence.Reviewer" placeholder="Reviewer" />
+            </div>
+            <textarea class="form-control mt-2" @bind="evidence.Notes" placeholder="Evidence note"></textarea>
+            <button type="button" class="btn btn-primary mt-2" @onclick="SaveEvidenceAsync">Save evidence</button>
+            @if (evidence.Id.HasValue) { <button type="button" class="btn btn-outline-secondary mt-2 ms-1" @onclick="() => evidence = new()">Cancel</button> }
+            @EvidenceTable()
+        </section>
+    }
+    else if (section == "tasks")
+    {
+        <section class="work-area">
+            <h2>@(task.Id.HasValue ? "Update task" : "Add task")</h2>
+            <div class="workspace-grid">
+                <input class="form-control" @bind="task.Title" placeholder="Task title" />
+                <input class="form-control" @bind="task.Owner" placeholder="Owner" />
+                <InputDate class="form-control" @bind-Value="task.DueDate" />
+                <select class="form-select" @bind="task.Status">@foreach (var status in statuses) { <option value="@status">@status</option> }</select>
+            </div>
+            <textarea class="form-control mt-2" @bind="task.Description" placeholder="Description"></textarea>
+            <button type="button" class="btn btn-primary mt-2" @onclick="SaveTaskAsync">Save task</button>
+            @if (task.Id.HasValue) { <button type="button" class="btn btn-outline-secondary mt-2 ms-1" @onclick="() => task = new()">Cancel</button> }
+            @TaskTable()
+        </section>
+    }
+}
+
+@code {
+    private static readonly string[] statuses = [ComplianceStatuses.Draft, ComplianceStatuses.Review, ComplianceStatuses.Approved, ComplianceStatuses.Active, ComplianceStatuses.Superseded, ComplianceStatuses.Rejected, ComplianceStatuses.Withdrawn, ComplianceStatuses.Closed];
+    private string section = "methodologies";
+    private string SectionTitle => section switch { "references" => "regulatory references", "evidence" => "evidence register", "tasks" => "monitoring and tasks", _ => "risk methodology" };
+    private string ReturnUrl => $"/compliance/{section}";
+    private ComplianceManageModel? model;
+    private RiskMethodologyModel methodology = new();
+    private RiskFactorModel factor = new() { Code = "CLIENT", Name = "Client risk", Weight = 1 };
+    private RiskFactorOptionModel option = new() { Code = "LOW", Label = "Low", Score = 1 };
+    private RiskBandModel band = new() { Name = "Low", MinimumScore = 0, MaximumScore = 2, ReviewMonths = 60 };
+    private ComplianceReferenceValueModel reference = new();
+    private ComplianceEvidenceModel evidence = new();
+    private ComplianceTaskModel task = new();
+    private string? reason;
+    private string? currentUser;
+    private string? statusMessage;
+    private bool isError;
+    private bool canKiApprove;
+    private int? renameMethodologyId;
+    private string? renameVersionLabel;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var parts = NavigationManager.ToBaseRelativePath(NavigationManager.Uri).Split('/', StringSplitOptions.RemoveEmptyEntries);
+        section = parts.Length > 1 ? parts[1] : "methodologies";
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        currentUser = authState.User.Identity?.Name;
+        var canApprove = authState.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceApprove);
+        await LoadAsync();
+        canKiApprove = canApprove && model!.GovernanceRoles.Any(role => role.IsActive && string.Equals(role.Email, currentUser, StringComparison.OrdinalIgnoreCase) && ComplianceApprovalRules.IsKeyIndividualRole(role.RoleType));
+    }
+
+    private async Task LoadAsync() => model = await ComplianceService.LoadManageModelAsync();
+
+    private async Task RunAsync(Func<Task> action, string success)
+    {
+        try { await action(); await LoadAsync(); statusMessage = success; isError = false; }
+        catch (Exception exception) { statusMessage = exception.Message; isError = true; }
+    }
+
+    private async Task SaveMethodologyAsync() => await RunAsync(async () =>
+    {
+        factor.Options = [option];
+        methodology.Factors = [factor];
+        methodology.Bands = [band];
+        await ComplianceService.SaveMethodologyAsync(methodology, currentUser, reason ?? "");
+        methodology = new();
+        factor = new() { Code = "CLIENT", Name = "Client risk", Weight = 1 };
+        option = new() { Code = "LOW", Label = "Low", Score = 1 };
+        band = new() { Name = "Low", MinimumScore = 0, MaximumScore = 2, ReviewMonths = 60 };
+    }, "Methodology draft created.");
+    private async Task CreateStarterMethodologyAsync() => await RunAsync(() => ComplianceService.CreateKanaanStarterMethodologyAsync(currentUser, reason ?? ""), "Starter methodology created.");
+    private async Task SubmitMethodologyAsync(int id) => await RunAsync(() => ComplianceService.SubmitMethodologyAsync(id, currentUser, reason ?? ""), "Methodology submitted.");
+    private async Task ApproveMethodologyAsync(int id) => await RunAsync(() => ComplianceService.ApproveMethodologyAsync(id, currentUser, reason ?? ""), "Methodology approved.");
+    private async Task RejectMethodologyAsync(int id) => await RunAsync(() => ComplianceService.RejectMethodologyAsync(id, currentUser, reason ?? ""), "Methodology rejected.");
+    private async Task ActivateMethodologyAsync(int id) => await RunAsync(() => ComplianceService.ActivateMethodologyAsync(id, currentUser, reason ?? ""), "Methodology activated.");
+    private async Task SaveReferenceAsync() => await RunAsync(async () => { await ComplianceService.SaveReferenceValueAsync(reference, currentUser, reason ?? ""); reference = new(); }, "Reference saved.");
+    private async Task SaveEvidenceAsync() => await RunAsync(async () => { await ComplianceService.SaveEvidenceAsync(evidence, currentUser, reason ?? ""); evidence = new(); }, "Evidence record saved.");
+    private async Task SaveTaskAsync() => await RunAsync(async () => { await ComplianceService.SaveTaskAsync(task, currentUser, reason ?? ""); task = new(); }, "Task saved.");
+    private void OpenRename(int id, string? label) { renameMethodologyId = id; renameVersionLabel = SuggestFinalVersionLabel(label); }
+    private void CancelRename() { renameMethodologyId = null; renameVersionLabel = null; }
+    private async Task RenameMethodologyAsync() => await RunAsync(async () => { await ComplianceService.RenameMethodologyVersionAsync(renameMethodologyId!.Value, renameVersionLabel, currentUser, reason ?? ""); CancelRename(); }, "Version label updated.");
+
+    private RenderFragment ReferenceTable() => builder => RenderEditTable(builder, model!.ReferenceValues.Select(x => (new[] { x.Category, x.Code, x.Name, x.IsActive ? "Active" : "Inactive" }, (Action)(() => reference = new() { Id = x.Id, Category = x.Category, Code = x.Code, Name = x.Name, Description = x.Description, SortOrder = x.SortOrder, IsActive = x.IsActive }))));
+    private RenderFragment EvidenceTable() => builder => RenderEditTable(builder, model!.Evidence.Select(x => (new[] { x.EvidenceType, x.Title, Display(x.Source), Date(x.ExpiryDate) }, (Action)(() => evidence = new() { Id = x.Id, EvidenceType = x.EvidenceType, Title = x.Title, Source = x.Source, Location = x.Location, ReceivedDate = x.ReceivedDate, VerifiedDate = x.VerifiedDate, ExpiryDate = x.ExpiryDate, Reviewer = x.Reviewer, Notes = x.Notes, LinkedEntityType = x.LinkedEntityType, LinkedEntityId = x.LinkedEntityId }))));
+    private RenderFragment TaskTable() => builder => RenderEditTable(builder, model!.Tasks.Select(x => (new[] { x.Title, Display(x.Owner), Date(x.DueDate), x.Status }, (Action)(() => task = new() { Id = x.Id, Title = x.Title, Description = x.Description, Owner = x.Owner, DueDate = x.DueDate, Priority = x.Priority, Status = x.Status, LinkedEntityType = x.LinkedEntityType, LinkedEntityId = x.LinkedEntityId, ClosureNotes = x.ClosureNotes }))));
+
+    private void RenderEditTable(RenderTreeBuilder builder, IEnumerable<(string[] Cells, Action Edit)> rows)
+    {
+        var i = 0; builder.OpenElement(i++, "div"); builder.AddAttribute(i++, "class", "table-responsive mt-3"); builder.OpenElement(i++, "table"); builder.AddAttribute(i++, "class", "table align-middle"); builder.OpenElement(i++, "tbody");
+        foreach (var row in rows) { builder.OpenElement(i++, "tr"); foreach (var cell in row.Cells) { builder.OpenElement(i++, "td"); builder.AddContent(i++, cell); builder.CloseElement(); } builder.OpenElement(i++, "td"); builder.AddAttribute(i++, "class", "text-end"); builder.OpenElement(i++, "button"); builder.AddAttribute(i++, "class", "btn btn-sm btn-outline-primary"); builder.AddAttribute(i++, "onclick", EventCallback.Factory.Create(this, row.Edit)); builder.AddContent(i++, "Edit"); builder.CloseElement(); builder.CloseElement(); builder.CloseElement(); }
+        builder.CloseElement(); builder.CloseElement(); builder.CloseElement();
+    }
+
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+    private static string Date(DateOnly? value) => value?.ToString("yyyy-MM-dd") ?? "-";
+    private static string SuggestFinalVersionLabel(string? label) { var value = label?.Trim() ?? ""; if (!value.StartsWith("Working draft", StringComparison.OrdinalIgnoreCase)) return value.Length == 0 ? "Version 1" : value; var suffix = value[13..].Trim().TrimStart('v', 'V').Trim(); return suffix.Length == 0 ? "Version 1" : $"Version {suffix}"; }
+}

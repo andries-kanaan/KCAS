@@ -3,6 +3,7 @@ using System;
 using KCAS.Admin.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace KCAS.Admin.Data.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260917065043_AddScreeningExecutionProof")]
+    partial class AddScreeningExecutionProof
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -3272,8 +3275,8 @@ namespace KCAS.Admin.Data.Migrations
 
                     b.Property<string>("RoleType")
                         .IsRequired()
-                        .HasMaxLength(191)
-                        .HasColumnType("varchar(191)");
+                        .HasMaxLength(96)
+                        .HasColumnType("varchar(96)");
 
                     b.Property<DateTime?>("StartDate")
                         .HasColumnType("date");

@@ -910,6 +910,14 @@ public sealed class ClientReviewTransferService(
             partyByKey.TryGetValue(source.RelatedPartyKey ?? "", out var screeningParty);
             if (evidenceByKey.TryGetValue(key, out var existingItem))
             {
+                if (source.ScreeningReviewedAtUtc is not null)
+                {
+                    existingItem.ScreeningReviewedAtUtc = source.ScreeningReviewedAtUtc;
+                    existingItem.ScreeningPerformedBy = source.ScreeningPerformedBy;
+                    existingItem.ScreeningSources = source.ScreeningSources;
+                    existingItem.UpdatedAtUtc = DateTime.UtcNow;
+                    existingItem.UpdatedBy = user;
+                }
                 if (screeningParty is not null && existingItem.ClientRelatedPartyId != screeningParty.Id)
                 {
                     existingItem.ClientRelatedPartyId = screeningParty.Id;
@@ -938,6 +946,9 @@ public sealed class ClientReviewTransferService(
                 ExpiryDate = source.ExpiryDate,
                 Reviewer = source.Reviewer,
                 ScreeningReviewDate = source.ScreeningReviewDate,
+                ScreeningReviewedAtUtc = source.ScreeningReviewedAtUtc,
+                ScreeningPerformedBy = source.ScreeningPerformedBy,
+                ScreeningSources = source.ScreeningSources,
                 ScreeningSubjectType = source.ScreeningSubjectType,
                 ScreeningSubjectName = source.ScreeningSubjectName,
                 ScreeningOutcome = source.ScreeningOutcome,
@@ -1303,6 +1314,9 @@ public sealed class ClientReviewTransferService(
                 ExpiryDate = item.ExpiryDate,
                 Reviewer = item.Reviewer,
                 ScreeningReviewDate = item.ScreeningReviewDate,
+                ScreeningReviewedAtUtc = item.ScreeningReviewedAtUtc,
+                ScreeningPerformedBy = item.ScreeningPerformedBy,
+                ScreeningSources = item.ScreeningSources,
                 ScreeningSubjectType = item.ScreeningSubjectType,
                 ScreeningSubjectName = item.ScreeningSubjectName,
                 ScreeningOutcome = item.ScreeningOutcome,
@@ -2644,6 +2658,9 @@ public sealed class ClientReviewEvidencePackage
     public DateOnly? ExpiryDate { get; set; }
     public string? Reviewer { get; set; }
     public DateOnly? ScreeningReviewDate { get; set; }
+    public DateTime? ScreeningReviewedAtUtc { get; set; }
+    public string? ScreeningPerformedBy { get; set; }
+    public string? ScreeningSources { get; set; }
     public string? ScreeningSubjectType { get; set; }
     public string? ScreeningSubjectName { get; set; }
     public string? ScreeningOutcome { get; set; }

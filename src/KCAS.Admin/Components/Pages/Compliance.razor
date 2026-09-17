@@ -21,7 +21,7 @@
         <a class="btn btn-outline-primary" href="/compliance/goaml">goAML check</a>
         <AuthorizeView Policy="@KcasPermissions.ComplianceManage">
             <Authorized>
-                <a class="btn btn-outline-secondary" href="/compliance/profile">Settings</a>
+                <a class="btn btn-outline-secondary" href="/compliance/organisation">Settings</a>
             </Authorized>
         </AuthorizeView>
     </div>
@@ -34,6 +34,31 @@
 else
 {
     <section class="summary-grid">
+        <article class="summary-card">
+            <span>1. Risk methodology</span>
+            <strong>Factors, scores and risk bands</strong>
+            <a class="btn btn-sm btn-outline-primary mt-3" href="/compliance/methodologies">Open methodology</a>
+        </article>
+        <article class="summary-card">
+            <span>2. Business risk assessment</span>
+            <strong>Entity-wide risk and annual review</strong>
+            <a class="btn btn-sm btn-outline-primary mt-3" href="/compliance/business-risk">Open BRA</a>
+        </article>
+        <article class="summary-card">
+            <span>3. RMCP and controls</span>
+            <strong>Approved programme and control operation</strong>
+            <a class="btn btn-sm btn-outline-primary mt-3" href="/compliance/rmcp">Open RMCP</a>
+        </article>
+        <article class="summary-card">
+            <span>4. Organisation and governance</span>
+            <strong>FSP identity, responsible persons and accountability</strong>
+            <a class="btn btn-sm btn-outline-primary mt-3" href="/compliance/organisation">Open organisation record</a>
+        </article>
+        <article class="summary-card">
+            <span>5. Evidence register</span>
+            <strong>Submitted documents and supporting proof</strong>
+            <a class="btn btn-sm btn-outline-primary mt-3" href="/compliance/evidence">Open evidence</a>
+        </article>
         <AuthorizeView Policy="@KcasPermissions.ClientsView">
             <Authorized>
                 <article class="summary-card">
@@ -48,17 +73,12 @@ else
             <strong>Recordings and checks</strong>
             <a class="btn btn-sm btn-outline-primary mt-3" href="/compliance/goaml">Open goAML check</a>
         </article>
-        <article class="summary-card">
-            <span>Programme and controls</span>
-            <strong>BRA, RMCP and monitoring</strong>
-            <a class="btn btn-sm btn-outline-primary mt-3" href="/compliance/programme">Open programme</a>
-        </article>
         <AuthorizeView Policy="@KcasPermissions.InspectionsView">
             <Authorized>
                 <article class="summary-card">
-                    <span>Inspection readiness</span>
-                    <strong>Cases and evidence packs</strong>
-                    <a class="btn btn-sm btn-outline-primary mt-3" href="/compliance/inspections">Open inspections</a>
+                    <span>Inspection response</span>
+                    <strong>Regulator requests and frozen response packs</strong>
+                    <a class="btn btn-sm btn-outline-primary mt-3" href="/compliance/inspections">Open response workspace</a>
                 </article>
             </Authorized>
         </AuthorizeView>
@@ -137,47 +157,17 @@ else
         </div>
     </section>
 
-    @if (dashboard.SignedFinalDocuments.Count > 0 || dashboard.SignedFinalEvidence.Count > 0)
+    @if (dashboard.SignedFinalEvidence.Count > 0)
     {
         <section class="work-area">
             <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
                 <div>
-                    <h2 class="mb-1">Signed-final FSCA pack</h2>
-                    <p class="text-muted mb-0">Controlled documents and evidence records captured from the submitted RMCP/BRA pack.</p>
+                    <h2 class="mb-1">Signed-final FSCA evidence</h2>
+                    <p class="text-muted mb-0">The submitted programme documents and supporting evidence, with direct access to each captured source.</p>
                 </div>
                 <a class="btn btn-sm btn-outline-primary" href="/compliance/programme-transfers">Transfer programme pack</a>
             </div>
 
-            <h3>Documents</h3>
-            <div class="table-responsive">
-                <table class="table align-middle">
-                    <thead>
-                        <tr>
-                            <th>Document</th>
-                            <th>Status</th>
-                            <th>Review date</th>
-                            <th>Evidence note</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var document in dashboard.SignedFinalDocuments)
-                        {
-                            <tr>
-                                <td>
-                                    <strong>@document.Title</strong>
-                                    <div class="text-muted small">@document.DocumentType</div>
-                                    <div class="text-muted small">@Display(document.Location)</div>
-                                </td>
-                                <td>@document.Status</td>
-                                <td>@Date(document.NextReviewDate)</td>
-                                <td>@Display(document.Notes)</td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-
-            <h3>Evidence</h3>
             <div class="table-responsive">
                 <table class="table align-middle">
                     <thead>
@@ -186,6 +176,7 @@ else
                             <th>Verified</th>
                             <th>Expiry</th>
                             <th>Evidence note</th>
+                            <th></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -200,6 +191,7 @@ else
                                 <td>@Date(evidence.VerifiedDate)</td>
                                 <td>@Date(evidence.ExpiryDate)</td>
                                 <td>@Display(evidence.Notes)</td>
+                                <td class="text-end"><a class="btn btn-sm btn-outline-primary" href="@($"/compliance/evidence/{evidence.Id}/file")" target="_blank" rel="noopener">Open</a></td>
                             </tr>
                         }
                     </tbody>

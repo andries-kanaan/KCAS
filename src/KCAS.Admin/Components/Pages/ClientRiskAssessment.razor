@@ -113,7 +113,7 @@ else
                 @foreach (var factor in model.Factors)
                 {
                     <article class="detail-panel mb-3">
-                        <h3 class="h5">@factor.Name <span class="text-muted">(weight @factor.Weight)</span></h3>
+                        <h3 class="h5">@factor.Name</h3>
                         @if (!string.IsNullOrWhiteSpace(factor.Description))
                         {
                             <p class="text-muted">@factor.Description</p>
@@ -123,7 +123,7 @@ else
                                 <option value="">Select an answer</option>
                                 @foreach (var optionItem in factor.Options)
                                 {
-                                    <option value="@optionItem.Id">@optionItem.Label (@optionItem.Score)@(optionItem.TriggersHighRisk ? " — mandatory High" : "")</option>
+                                    <option value="@optionItem.Id">@optionItem.Label (@Number(optionItem.Score))@(optionItem.TriggersHighRisk ? " — mandatory High" : "")</option>
                                 }
                             </select>
                             <select class="form-select" @bind="factor.EvidenceItemId" disabled="@(!canPrepare)">
@@ -187,7 +187,7 @@ else
             <section class="work-area">
                 <h2>Assessment result</h2>
                 <dl>
-                    <dt>Calculated score</dt><dd>@model.Assessment.CalculatedScore</dd>
+                    <dt>Calculated score</dt><dd>@Number(model.Assessment.CalculatedScore)</dd>
                     <dt>Calculated rating</dt><dd>@Display(model.Assessment.CalculatedRating)</dd>
                     <dt>Final rating</dt><dd>@Display(model.Assessment.FinalRating)</dd>
                     <dt>EDD required</dt><dd>@(model.Assessment.RequiresEdd ? "Yes" : "No")</dd>
@@ -257,7 +257,7 @@ else
                             @foreach (var item in model.History)
                             {
                                 <tr>
-                                    <td>@item.Status</td><td>@item.ReviewTriggerType</td><td>@Display(item.Rating)</td><td>@item.Score</td><td>@Date(item.EffectiveDate)</td><td>@Date(item.NextReviewDate)</td><td>@Display(item.FinalisedBy)</td>
+                                    <td>@item.Status</td><td>@item.ReviewTriggerType</td><td>@Display(item.Rating)</td><td>@Number(item.Score)</td><td>@Date(item.EffectiveDate)</td><td>@Date(item.NextReviewDate)</td><td>@Display(item.FinalisedBy)</td>
                                     <td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="@($"/clients/{ClientId}/risk/{item.Id}")">View/print</a></td>
                                 </tr>
                             }
@@ -400,4 +400,5 @@ else
 
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "Not captured" : value;
     private static string Date(DateOnly? value) => value?.ToString("yyyy-MM-dd") ?? "Not set";
+    private static string Number(decimal value) => decimal.Truncate(value) == value ? value.ToString("0") : value.ToString("0.##");
 }

@@ -7,6 +7,7 @@
 @inject ClientEvidenceReadinessService EvidenceService
 @inject ClientEvidenceScanCoordinator ScanCoordinator
 @inject AuthenticationStateProvider AuthenticationStateProvider
+@inject DocumentPathDisplayService PathDisplay
 
 <PageTitle>Client evidence readiness</PageTitle>
 
@@ -193,7 +194,7 @@ else
                                 }
                                 else
                                 {
-                                    @Display(client.ClientFolder)
+                                    @Display(PathDisplay.ForWorkstation(client.ClientFolder))
                                 }
                             </td>
                             <td>@client.LinkedEvidenceCount</td>
