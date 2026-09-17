@@ -156,19 +156,37 @@ app.MapGet("/health/ready", async (ApplicationDbContext db, CancellationToken ca
 
 app.MapGet("/client-evidence/items/{id:int}/file", async Task<IResult> (int id, ApplicationDbContext db, CancellationToken cancellationToken) =>
 {
-    var item = await db.ClientEvidenceItems.AsNoTracking().SingleOrDefaultAsync(item => item.Id == id, cancellationToken);
-    if (item is null || string.IsNullOrWhiteSpace(item.SourcePath) || !File.Exists(item.SourcePath))
+    var item = await db.ClientEvidenceItems.AsNoTracking()
+        .Where(item => item.Id == id)
+        .Select(item => new
+        {
+            item.SourcePath,
+            item.RelativePath,
+            item.FileName,
+            item.Client.ClientFolder
+        })
+        .SingleOrDefaultAsync(cancellationToken);
+    var activeServerRoot = await db.ClientEvidenceScanRoots.AsNoTracking()
+        .Where(root => root.IsActive)
+        .OrderByDescending(root => root.Id)
+        .Select(root => root.RootPath)
+        .FirstOrDefaultAsync(cancellationToken);
+    var resolvedPath = item is null
+        ? null
+        : ClientEvidenceFileResolver.ResolveExistingPath(
+            item.SourcePath, item.RelativePath, item.FileName, item.ClientFolder, activeServerRoot);
+    if (resolvedPath is null)
     {
         return Results.NotFound();
     }
 
     var contentTypeProvider = new FileExtensionContentTypeProvider();
-    if (!contentTypeProvider.TryGetContentType(item.SourcePath, out var contentType))
+    if (!contentTypeProvider.TryGetContentType(resolvedPath, out var contentType))
     {
         contentType = "application/octet-stream";
     }
 
-    return Results.File(File.OpenRead(item.SourcePath), contentType, enableRangeProcessing: true);
+    return Results.File(File.OpenRead(resolvedPath), contentType, enableRangeProcessing: true);
 }).RequireAuthorization(KcasPermissions.ComplianceView);
 
 app.MapGet("/compliance/evidence/{id:int}/file", async Task<IResult> (int id, ApplicationDbContext db, CancellationToken cancellationToken) =>
