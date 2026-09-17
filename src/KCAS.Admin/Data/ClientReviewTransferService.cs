@@ -445,17 +445,16 @@ public sealed class ClientReviewTransferService(
         string? supersededPackageId = null;
         if (client is not null)
         {
-            methodology = await db.RiskMethodologyVersions.AsNoTracking()
-                .Include(item => item.Factors).ThenInclude(item => item.Options)
-                .SingleOrDefaultAsync(item =>
-                    item.Name == package.Assessment.MethodologyName &&
-                    item.VersionLabel == package.Assessment.MethodologyVersionLabel,
-                    cancellationToken);
-            if (methodology is null)
+            var methodologyResolution = await ResolveMethodologyAsync(
+                package.Assessment, asNoTracking: true, cancellationToken);
+            methodology = methodologyResolution.Methodology;
+            if (methodologyResolution.Error is not null)
             {
-                conflicts.Add(
-                    $"The live methodology '{package.Assessment.MethodologyName} " +
-                    $"{package.Assessment.MethodologyVersionLabel}' was not found.");
+                conflicts.Add(methodologyResolution.Error);
+            }
+            if (methodologyResolution.Warning is not null)
+            {
+                warnings.Add(methodologyResolution.Warning);
             }
 
             if (client.LifecycleStatus != ClientLifecycleStatuses.Unreviewed &&
@@ -711,12 +710,11 @@ public sealed class ClientReviewTransferService(
             .Include(item => item.FundValuations)
             .SingleAsync(item => item.Id == preview.TargetClientId.Value, cancellationToken);
         var linkedInvestmentAccounts = await LoadLinkedInvestmentAccountsAsync(client, asNoTracking: false, cancellationToken);
-        var methodology = await db.RiskMethodologyVersions
-            .Include(item => item.Factors).ThenInclude(item => item.Options)
-            .SingleAsync(item =>
-                item.Name == package.Assessment.MethodologyName &&
-                item.VersionLabel == package.Assessment.MethodologyVersionLabel,
-                cancellationToken);
+        var methodologyResolution = await ResolveMethodologyAsync(
+            package.Assessment, asNoTracking: false, cancellationToken);
+        var methodology = methodologyResolution.Methodology
+            ?? throw new InvalidOperationException(
+                methodologyResolution.Error ?? "The package methodology could not be resolved on live.");
 
         var liveRoot = await LoadActiveClientFolderRootAsync(cancellationToken);
         var mappedClientFolder = client.ClientFolder;
@@ -2095,6 +2093,112 @@ public sealed class ClientReviewTransferService(
         return Path.GetFullPath(Path.Combine(
             environment.ContentRootPath, "..", "..", "backups", "client-review-packages"));
     }
+
+    private async Task<MethodologyResolution> ResolveMethodologyAsync(
+        ClientReviewAssessmentPackage assessment,
+        bool asNoTracking,
+        CancellationToken cancellationToken)
+    {
+        IQueryable<RiskMethodologyVersion> query = db.RiskMethodologyVersions
+            .Include(item => item.Factors).ThenInclude(item => item.Options);
+        if (asNoTracking)
+        {
+            query = query.AsNoTracking();
+        }
+
+        var candidates = await query
+            .Where(item => item.Name == assessment.MethodologyName)
+            .ToListAsync(cancellationToken);
+        var exact = candidates.Where(item => string.Equals(
+            item.VersionLabel,
+            assessment.MethodologyVersionLabel,
+            StringComparison.OrdinalIgnoreCase)).ToList();
+        if (exact.Count == 1)
+        {
+            return new MethodologyResolution(exact[0], null, null);
+        }
+        if (exact.Count > 1)
+        {
+            return new MethodologyResolution(null, null,
+                $"More than one live methodology matches '{assessment.MethodologyName} {assessment.MethodologyVersionLabel}'.");
+        }
+        if (candidates.Count == 0)
+        {
+            return new MethodologyResolution(null, null,
+                $"The live methodology '{assessment.MethodologyName} {assessment.MethodologyVersionLabel}' was not found.");
+        }
+        if (candidates.Count > 1)
+        {
+            return new MethodologyResolution(null, null,
+                $"The live methodology label differs from '{assessment.MethodologyVersionLabel}', and more than one '{assessment.MethodologyName}' version exists. Activate or rename the intended version before importing.");
+        }
+
+        var candidate = candidates[0];
+        var compatibilityErrors = MethodologyCompatibilityErrors(candidate, assessment);
+        if (compatibilityErrors.Count > 0)
+        {
+            return new MethodologyResolution(null, null,
+                $"The same-named live methodology '{candidate.Name} {candidate.VersionLabel}' is not compatible with the package: {string.Join("; ", compatibilityErrors)}");
+        }
+
+        return new MethodologyResolution(
+            candidate,
+            $"Methodology matched by compatible structure. Package uses '{assessment.MethodologyVersionLabel}' ({assessment.MethodologyStatus}); live uses '{candidate.VersionLabel}' ({candidate.Status}).",
+            null);
+    }
+
+    private static List<string> MethodologyCompatibilityErrors(
+        RiskMethodologyVersion methodology,
+        ClientReviewAssessmentPackage assessment)
+    {
+        var errors = new List<string>();
+        var responsesByFactor = assessment.Responses
+            .GroupBy(item => item.FactorCode, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
+        if (responsesByFactor.Any(entry => entry.Value.Count != 1))
+        {
+            errors.Add("package factor responses are duplicated");
+        }
+        if (responsesByFactor.Count != methodology.Factors.Count)
+        {
+            errors.Add($"package has {responsesByFactor.Count} factor response(s), live has {methodology.Factors.Count}");
+        }
+
+        foreach (var factor in methodology.Factors)
+        {
+            if (!responsesByFactor.TryGetValue(factor.Code, out var matches) || matches.Count != 1)
+            {
+                errors.Add($"factor '{factor.Code}' is missing");
+                continue;
+            }
+
+            var response = matches[0];
+            var options = factor.Options.Where(item => string.Equals(
+                item.Code, response.OptionCode, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (options.Count != 1)
+            {
+                errors.Add($"option '{factor.Code}/{response.OptionCode}' is missing or duplicated");
+                continue;
+            }
+
+            var option = options[0];
+            if (option.Score != response.Score)
+            {
+                errors.Add($"option '{factor.Code}/{option.Code}' score differs");
+            }
+            if (response.WeightedScore != response.Score * factor.Weight)
+            {
+                errors.Add($"factor '{factor.Code}' weight differs");
+            }
+        }
+
+        return errors;
+    }
+
+    private sealed record MethodologyResolution(
+        RiskMethodologyVersion? Methodology,
+        string? Warning,
+        string? Error);
 
     private static void ValidatePackageStructure(ClientReviewPackage package, ICollection<string> conflicts)
     {
