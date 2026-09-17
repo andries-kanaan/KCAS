@@ -178,10 +178,25 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         var items = await db.ClientEvidenceItems
             .AsNoTracking()
             .Include(item => item.Requirement)
+            .Include(item => item.InvestmentLinks)
+                .ThenInclude(link => link.InvestmentAccount)
             .Where(item => item.ClientId == clientId)
             .OrderBy(item => item.EvidenceType)
             .ThenBy(item => item.Title)
             .ToListAsync();
+        var investmentAccounts = await db.ClientInvestmentAccounts
+            .AsNoTracking()
+            .Include(account => account.ReconciliationReviews)
+            .Where(account => account.ClientId == clientId)
+            .ToListAsync();
+        var currentInvestmentAccounts = investmentAccounts
+            .Where(account => account.ReconciliationReviews
+                .OrderByDescending(review => review.ReviewedAtUtc)
+                .ThenByDescending(review => review.Id)
+                .FirstOrDefault()?.Outcome == ClientInvestmentReconciliationOutcomes.Current)
+            .OrderBy(account => account.AccountNumber)
+            .ThenBy(account => account.Id)
+            .ToList();
         var exceptions = await db.ClientEvidenceExceptions
             .AsNoTracking()
             .Include(exception => exception.Requirement)
@@ -217,7 +232,15 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                     .ThenBy(item => item.Title)
                     .ToList();
                 var activeException = exceptions.FirstOrDefault(exception => exception.ClientEvidenceRequirementId == requirement.Id && !IsExpired(exception.ReviewDate, today));
-                var isComplete = matchedItems.Any(item => IsEvidenceComplete(requirement, item, today));
+                var completeItems = matchedItems.Where(item => IsEvidenceComplete(requirement, item, today)).ToList();
+                var coveredInvestmentIds = completeItems
+                    .SelectMany(item => item.InvestmentLinks)
+                    .Select(link => link.ClientInvestmentAccountId)
+                    .ToHashSet();
+                var usesInvestmentCoverage = requirement.EvidenceType == "SourceOfFunds" && coveredInvestmentIds.Count > 0;
+                var isComplete = usesInvestmentCoverage
+                    ? currentInvestmentAccounts.All(account => coveredInvestmentIds.Contains(account.Id))
+                    : completeItems.Count > 0;
                 var recommendedExceptionReason = RecommendedExceptionReason(client.ClientCategory, requirement.EvidenceType);
                 return new ClientEvidenceRequirementStatusModel
                 {
@@ -237,6 +260,21 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                 CanRecordReview = IsReviewOnlyEvidenceType(requirement.EvidenceType),
                 CanApplyRecommendedException = recommendedExceptionReason is not null,
                 RecommendedExceptionReason = recommendedExceptionReason,
+                UsesInvestmentCoverage = usesInvestmentCoverage,
+                CurrentInvestmentCount = requirement.EvidenceType == "SourceOfFunds" ? currentInvestmentAccounts.Count : 0,
+                CoveredInvestmentCount = requirement.EvidenceType == "SourceOfFunds"
+                    ? currentInvestmentAccounts.Count(account => coveredInvestmentIds.Contains(account.Id))
+                    : 0,
+                CurrentInvestments = requirement.EvidenceType == "SourceOfFunds"
+                    ? currentInvestmentAccounts.Select(account => new ClientEvidenceInvestmentCoverageModel
+                    {
+                        InvestmentAccountId = account.Id,
+                        AccountNumber = account.AccountNumber,
+                        Administrator = account.Administrator,
+                        ProductName = account.ProductName,
+                        IsCovered = coveredInvestmentIds.Contains(account.Id)
+                    }).ToList()
+                    : [],
                 Items = matchedItems.Select(ClientEvidenceItemModel.FromItem).ToList()
             };
             })
@@ -1360,6 +1398,53 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             $"Applied KCAS rule-supported exception: {exceptionReason}");
     }
 
+    public async Task UpdateSourceOfFundsCoverageAsync(
+        int clientId,
+        int evidenceItemId,
+        IReadOnlyCollection<int> investmentAccountIds,
+        string? userName,
+        string reason)
+    {
+        RequireReason(reason);
+        var evidence = await db.ClientEvidenceItems
+            .Include(item => item.InvestmentLinks)
+            .SingleOrDefaultAsync(item => item.Id == evidenceItemId && item.ClientId == clientId)
+            ?? throw new InvalidOperationException("Evidence item not found.");
+        if (evidence.EvidenceType != "SourceOfFunds")
+        {
+            throw new ValidationException("Investment coverage can only be assigned to source-of-funds evidence.");
+        }
+
+        var requestedIds = investmentAccountIds.Distinct().ToHashSet();
+        var validIds = await db.ClientInvestmentAccounts
+            .Where(account => account.ClientId == clientId && requestedIds.Contains(account.Id))
+            .Select(account => account.Id)
+            .ToListAsync();
+        if (validIds.Count != requestedIds.Count)
+        {
+            throw new ValidationException("One or more selected investments do not belong to this client.");
+        }
+
+        var previousIds = evidence.InvestmentLinks.Select(link => link.ClientInvestmentAccountId).Order().ToArray();
+        db.ClientEvidenceInvestmentLinks.RemoveRange(evidence.InvestmentLinks);
+        foreach (var accountId in requestedIds)
+        {
+            db.ClientEvidenceInvestmentLinks.Add(new ClientEvidenceInvestmentLink
+            {
+                ClientEvidenceItemId = evidence.Id,
+                ClientInvestmentAccountId = accountId,
+                LinkedBy = userName
+            });
+        }
+
+        await AddAuditAsync("ClientEvidenceItem", evidence.Id, "UpdateSourceOfFundsCoverage", new
+        {
+            PreviousInvestmentAccountIds = previousIds,
+            InvestmentAccountIds = requestedIds.Order().ToArray()
+        }, userName, reason);
+        await db.SaveChangesAsync();
+    }
+
     public async Task CreateTaskForRequirementAsync(int clientId, int requirementId, string? owner, DateOnly? dueDate, string? userName, string reason)
     {
         RequireReason(reason);
@@ -2336,7 +2421,21 @@ public sealed class ClientEvidenceRequirementStatusModel
     public bool CanApplyRecommendedException { get; set; }
     public string? RecommendedExceptionReason { get; set; }
     public string? ExceptionReason { get; set; }
+    public bool UsesInvestmentCoverage { get; set; }
+    public int CurrentInvestmentCount { get; set; }
+    public int CoveredInvestmentCount { get; set; }
+    public List<ClientEvidenceInvestmentCoverageModel> CurrentInvestments { get; set; } = [];
     public List<ClientEvidenceItemModel> Items { get; set; } = [];
+}
+
+public sealed class ClientEvidenceInvestmentCoverageModel
+{
+    public int InvestmentAccountId { get; set; }
+    public string? AccountNumber { get; set; }
+    public string? Administrator { get; set; }
+    public string? ProductName { get; set; }
+    public bool IsCovered { get; set; }
+    public string Label => string.Join(" · ", new[] { AccountNumber, Administrator, ProductName }.Where(value => !string.IsNullOrWhiteSpace(value)));
 }
 
 public sealed class ClientEvidenceItemModel
@@ -2367,6 +2466,7 @@ public sealed class ClientEvidenceItemModel
     public string? SelectionReason { get; set; }
     public string VerificationPolicy { get; set; } = "";
     public int? SupersededByClientEvidenceItemId { get; set; }
+    public List<ClientEvidenceInvestmentCoverageModel> CoveredInvestments { get; set; } = [];
     public bool IsCurrentSelection => SelectionStatus == ClientEvidenceSelectionStatuses.Current;
     public bool CanOpen => !string.IsNullOrWhiteSpace(FileName) && IsOpenableFile(FileName);
     public bool IsImage => !string.IsNullOrWhiteSpace(FileName) && IsImageFile(FileName);
@@ -2399,7 +2499,17 @@ public sealed class ClientEvidenceItemModel
         SelectionConfidence = item.SelectionConfidence,
         SelectionReason = item.SelectionReason,
         VerificationPolicy = item.VerificationPolicy,
-        SupersededByClientEvidenceItemId = item.SupersededByClientEvidenceItemId
+        SupersededByClientEvidenceItemId = item.SupersededByClientEvidenceItemId,
+        CoveredInvestments = item.InvestmentLinks
+            .OrderBy(link => link.InvestmentAccount.AccountNumber)
+            .Select(link => new ClientEvidenceInvestmentCoverageModel
+            {
+                InvestmentAccountId = link.ClientInvestmentAccountId,
+                AccountNumber = link.InvestmentAccount.AccountNumber,
+                Administrator = link.InvestmentAccount.Administrator,
+                ProductName = link.InvestmentAccount.ProductName,
+                IsCovered = true
+            }).ToList()
     };
 
     private static bool IsOpenableFile(string fileName)

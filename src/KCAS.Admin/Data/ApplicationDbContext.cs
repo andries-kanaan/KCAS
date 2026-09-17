@@ -45,6 +45,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<ComplianceAuditEvent> ComplianceAuditEvents => Set<ComplianceAuditEvent>();
     public DbSet<ClientEvidenceRequirement> ClientEvidenceRequirements => Set<ClientEvidenceRequirement>();
     public DbSet<ClientEvidenceItem> ClientEvidenceItems => Set<ClientEvidenceItem>();
+    public DbSet<ClientEvidenceInvestmentLink> ClientEvidenceInvestmentLinks => Set<ClientEvidenceInvestmentLink>();
     public DbSet<ClientEvidenceException> ClientEvidenceExceptions => Set<ClientEvidenceException>();
     public DbSet<ClientEvidenceScanRoot> ClientEvidenceScanRoots => Set<ClientEvidenceScanRoot>();
     public DbSet<ClientEvidenceScanRun> ClientEvidenceScanRuns => Set<ClientEvidenceScanRun>();
@@ -905,6 +906,21 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.HasIndex(item => item.ExpiryDate);
             entity.HasIndex(item => item.SupersededByClientEvidenceItemId);
             entity.HasIndex(item => item.ClientRelatedPartyId);
+        });
+
+        builder.Entity<ClientEvidenceInvestmentLink>(entity =>
+        {
+            entity.HasOne(link => link.EvidenceItem)
+                .WithMany(item => item.InvestmentLinks)
+                .HasForeignKey(link => link.ClientEvidenceItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(link => link.InvestmentAccount)
+                .WithMany(account => account.SourceOfFundsEvidenceLinks)
+                .HasForeignKey(link => link.ClientInvestmentAccountId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(link => link.LinkedBy).HasMaxLength(191);
+            entity.HasIndex(link => new { link.ClientEvidenceItemId, link.ClientInvestmentAccountId }).IsUnique();
+            entity.HasIndex(link => link.ClientInvestmentAccountId);
         });
 
         builder.Entity<ClientEvidenceException>(entity =>

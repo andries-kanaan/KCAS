@@ -182,9 +182,22 @@ else
                                 <div>@requirement.Title</div>
                                 <div class="text-muted small">@requirement.EvidenceType</div>
                                 <div class="text-muted small">@requirement.LinkedItemCount linked, @requirement.VerifiedItemCount verified</div>
+                                @if (requirement.EvidenceType == "SourceOfFunds" && requirement.CurrentInvestmentCount > 0)
+                                {
+                                    <div class="small">
+                                        @(requirement.UsesInvestmentCoverage
+                                            ? $"{requirement.CoveredInvestmentCount} of {requirement.CurrentInvestmentCount} current investments covered"
+                                            : $"Client-level evidence; assign coverage across {requirement.CurrentInvestmentCount} current investments")
+                                    </div>
+                                }
                             </td>
                             <td>
-                                @if (requirement.Items.Count == 0)
+                                @if (requirement.Items.Count == 0 && requirement.IsExceptioned && requirement.EvidenceType == "BeneficialOwnership")
+                                {
+                                    <strong>Not applicable - natural-person client</strong>
+                                    <div class="text-muted small">@requirement.ExceptionReason</div>
+                                }
+                                else if (requirement.Items.Count == 0)
                                 {
                                     <span class="text-muted">No linked evidence</span>
                                 }
@@ -218,6 +231,14 @@ else
                                                 {
                                                     <div class="small evidence-selection-reason">@item.SelectionReason</div>
                                                 }
+                                                @if (item.EvidenceType == "SourceOfFunds")
+                                                {
+                                                    <div class="text-muted small">
+                                                        Investment coverage: @(item.CoveredInvestments.Count == 0
+                                                            ? "Not assigned by investment"
+                                                            : string.Join(", ", item.CoveredInvestments.Select(account => account.Label)))
+                                                    </div>
+                                                }
                                                 @if (!string.IsNullOrWhiteSpace(item.ScreeningRiskSignal))
                                                 {
                                                     <div class="small">Review: @DisplayOutcome(item.ScreeningOutcome), @item.ScreeningRiskSignal risk</div>
@@ -234,6 +255,10 @@ else
                                                 {
                                                     <div class="row-actions">
                                                         <a class="btn btn-outline-secondary btn-sm" href="@item.FileUrl" target="_blank" rel="noopener">Open</a>
+                                                        @if (canManage && item.EvidenceType == "SourceOfFunds")
+                                                        {
+                                                            <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => OpenCoverageModal(item, requirement)">Update coverage</button>
+                                                        }
                                                         @if (item.IsImage)
                                                         {
                                                             <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => PreviewImage(item)">Preview</button>
@@ -300,7 +325,7 @@ else
                                 }
                                 else if (requirement.IsExceptioned)
                                 {
-                                    <span>Exception</span>
+                                    <span>@(requirement.EvidenceType == "BeneficialOwnership" ? "Not applicable" : "Exception")</span>
                                 }
                                 else if (requirement.IsBlocked)
                                 {
@@ -352,6 +377,45 @@ else
                     <div class="modal-footer">
                         <a class="btn btn-outline-secondary" href="@previewImageItem.FileUrl" target="_blank" rel="noopener">Open</a>
                         <button type="button" class="btn btn-primary" @onclick="ClosePreview">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-backdrop fade show"></div>
+    }
+
+    @if (activeCoverageItem is not null && activeCoverageRequirement is not null)
+    {
+        <div class="modal fade show d-block" tabindex="-1" role="dialog" aria-modal="true">
+            <div class="modal-dialog modal-lg modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 class="modal-title h5">Source-of-funds investment coverage</h2>
+                        <button type="button" class="btn-close" aria-label="Close" @onclick="CloseCoverageModal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="mb-3"><strong>@activeCoverageItem.Title</strong></p>
+                        @if (activeCoverageRequirement.CurrentInvestments.Count == 0)
+                        {
+                            <p class="text-muted mb-0">No investments are currently classified as current in investment reconciliation.</p>
+                        }
+                        else
+                        {
+                            <div class="list-group">
+                                @foreach (var account in activeCoverageRequirement.CurrentInvestments)
+                                {
+                                    <label class="list-group-item d-flex gap-2 align-items-start">
+                                        <input type="checkbox" checked="@selectedCoverageAccountIds.Contains(account.InvestmentAccountId)"
+                                               @onchange="eventArgs => ToggleCoverageAccount(account.InvestmentAccountId, eventArgs)" />
+                                        <span>@account.Label</span>
+                                    </label>
+                                }
+                            </div>
+                        }
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" @onclick="CloseCoverageModal">Cancel</button>
+                        <button type="button" class="btn btn-primary" @onclick="SaveCoverageAsync" disabled="@(string.IsNullOrWhiteSpace(reason))">Save coverage</button>
                     </div>
                 </div>
             </div>
@@ -458,6 +522,9 @@ else
     private string? selectedClientFolder;
     private bool isClientFolderPickerOpen;
     private ClientEvidenceItemModel? previewImageItem;
+    private ClientEvidenceItemModel? activeCoverageItem;
+    private ClientEvidenceRequirementStatusModel? activeCoverageRequirement;
+    private readonly HashSet<int> selectedCoverageAccountIds = [];
     private ClientEvidenceRequirementStatusModel? activeReviewRequirement;
     private ClientEvidenceScreeningReviewRequest reviewForm = new();
     private string selectedReviewSubjectKey = "";
@@ -587,6 +654,54 @@ else
             currentUser));
     }
 
+    private void OpenCoverageModal(ClientEvidenceItemModel item, ClientEvidenceRequirementStatusModel requirement)
+    {
+        activeCoverageItem = item;
+        activeCoverageRequirement = requirement;
+        selectedCoverageAccountIds.Clear();
+        foreach (var account in item.CoveredInvestments)
+        {
+            selectedCoverageAccountIds.Add(account.InvestmentAccountId);
+        }
+    }
+
+    private void ToggleCoverageAccount(int accountId, ChangeEventArgs eventArgs)
+    {
+        if (eventArgs.Value is bool isSelected && isSelected)
+        {
+            selectedCoverageAccountIds.Add(accountId);
+        }
+        else
+        {
+            selectedCoverageAccountIds.Remove(accountId);
+        }
+    }
+
+    private void CloseCoverageModal()
+    {
+        activeCoverageItem = null;
+        activeCoverageRequirement = null;
+        selectedCoverageAccountIds.Clear();
+    }
+
+    private async Task SaveCoverageAsync()
+    {
+        if (activeCoverageItem is null || string.IsNullOrWhiteSpace(reason))
+        {
+            return;
+        }
+
+        var evidenceItemId = activeCoverageItem.Id;
+        var accountIds = selectedCoverageAccountIds.ToArray();
+        CloseCoverageModal();
+        await ExecuteAsync(async () => await EvidenceService.UpdateSourceOfFundsCoverageAsync(
+            ClientId,
+            evidenceItemId,
+            accountIds,
+            currentUser,
+            reason));
+    }
+
     private void OpenReviewModal(ClientEvidenceRequirementStatusModel requirement)
     {
         if (model is null)
@@ -653,6 +768,15 @@ else
 
     private static IEnumerable<ClientEvidenceItemModel> CurrentEvidenceItems(ClientEvidenceRequirementStatusModel requirement)
     {
+        if (requirement.EvidenceType == "SourceOfFunds")
+        {
+            var covered = requirement.Items.Where(item => item.CoveredInvestments.Count > 0).ToList();
+            if (covered.Count > 0)
+            {
+                return covered;
+            }
+        }
+
         var current = requirement.Items.Where(item => item.IsCurrentSelection).ToList();
         return current.Count > 0 ? current : requirement.Items.Take(1);
     }
@@ -663,7 +787,9 @@ else
         return requirement.Items.Where(item => !currentIds.Contains(item.Id));
     }
 
-    private static string SelectionLabel(ClientEvidenceItemModel item) => item.SelectionStatus switch
+    private static string SelectionLabel(ClientEvidenceItemModel item) => item.CoveredInvestments.Count > 0
+        ? "Investment-specific"
+        : item.SelectionStatus switch
     {
         ClientEvidenceSelectionStatuses.Current => "Current",
         ClientEvidenceSelectionStatuses.Historical => "Historical",
@@ -672,7 +798,9 @@ else
         _ => Display(item.SelectionStatus)
     };
 
-    private static string SelectionBadgeClass(ClientEvidenceItemModel item) => item.SelectionStatus switch
+    private static string SelectionBadgeClass(ClientEvidenceItemModel item) => item.CoveredInvestments.Count > 0
+        ? "badge text-bg-primary"
+        : item.SelectionStatus switch
     {
         ClientEvidenceSelectionStatuses.Current => "badge text-bg-primary",
         ClientEvidenceSelectionStatuses.Historical => "badge text-bg-light evidence-selection-badge-muted",

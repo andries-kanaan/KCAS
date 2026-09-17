@@ -68,4 +68,6 @@ public class ClientInvestmentAccount
     public ICollection<ClientInvestmentTransaction> Transactions { get; } = [];
 
     public ICollection<ClientInvestmentReconciliationReview> ReconciliationReviews { get; } = [];
+
+    public ICollection<ClientEvidenceInvestmentLink> SourceOfFundsEvidenceLinks { get; } = [];
 }
