@@ -147,11 +147,15 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
             export.FileName);
         var encrypted = await File.ReadAllBytesAsync(export.StoragePath);
 
+        // Simulate the separate live environment before validating methodology compatibility.
+        db.ClientRiskAssessments.Remove(assessment);
+        await db.SaveChangesAsync();
+
         var originalMethodologyLabel = methodology.VersionLabel;
         var originalMethodologyStatus = methodology.Status;
         methodology.VersionLabel = "Working draft live label";
         methodology.Status = ComplianceStatuses.Draft;
-        var changedOption = methodology.Factors.First().Options.First();
+        var changedOption = assessment.Responses.First().SelectedOption!;
         var originalOptionScore = changedOption.Score;
         changedOption.Score++;
         await db.SaveChangesAsync();
@@ -165,7 +169,6 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         changedOption.Score = originalOptionScore;
         await db.SaveChangesAsync();
 
-        db.ClientRiskAssessments.Remove(assessment);
         db.ClientEvidenceItems.RemoveRange(evidence, sharedDocumentEvidence);
         db.ClientEvidenceExceptions.RemoveRange(client.EvidenceExceptions);
         client.LifecycleStatus = ClientLifecycleStatuses.Unreviewed;
