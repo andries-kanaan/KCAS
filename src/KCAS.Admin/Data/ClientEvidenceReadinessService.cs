@@ -218,6 +218,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                     .ToList();
                 var activeException = exceptions.FirstOrDefault(exception => exception.ClientEvidenceRequirementId == requirement.Id && !IsExpired(exception.ReviewDate, today));
                 var isComplete = matchedItems.Any(item => IsEvidenceComplete(requirement, item, today));
+                var recommendedExceptionReason = RecommendedExceptionReason(client.ClientCategory, requirement.EvidenceType);
                 return new ClientEvidenceRequirementStatusModel
                 {
                     RequirementId = requirement.Id,
@@ -234,6 +235,8 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                 LinkedItemCount = matchedItems.Count,
                 VerifiedItemCount = matchedItems.Count(item => item.VerifiedDate is not null),
                 CanRecordReview = IsReviewOnlyEvidenceType(requirement.EvidenceType),
+                CanApplyRecommendedException = recommendedExceptionReason is not null,
+                RecommendedExceptionReason = recommendedExceptionReason,
                 Items = matchedItems.Select(ClientEvidenceItemModel.FromItem).ToList()
             };
             })
@@ -1330,6 +1333,33 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         await db.SaveChangesAsync();
     }
 
+    public async Task CreateRecommendedExceptionAsync(int clientId, int requirementId, string? userName)
+    {
+        var client = await db.Clients.AsNoTracking().SingleOrDefaultAsync(item => item.Id == clientId)
+            ?? throw new InvalidOperationException("Client not found.");
+        var requirement = await db.ClientEvidenceRequirements.AsNoTracking().SingleOrDefaultAsync(item => item.Id == requirementId)
+            ?? throw new InvalidOperationException("Evidence requirement not found.");
+        var exceptionReason = RecommendedExceptionReason(client.ClientCategory, requirement.EvidenceType)
+            ?? throw new ValidationException("KCAS has no rule-supported exception for this requirement and client category.");
+        var reviewDate = await db.ClientRiskAssessments.AsNoTracking()
+            .Where(item => item.ClientId == clientId &&
+                           (item.Status == ClientRiskAssessmentStatuses.Finalised ||
+                            item.Status == ClientRiskAssessmentStatuses.Approved))
+            .OrderByDescending(item => item.EffectiveDate)
+            .ThenByDescending(item => item.Id)
+            .Select(item => item.NextReviewDate)
+            .FirstOrDefaultAsync()
+            ?? DateOnly.FromDateTime(DateTime.Today.AddYears(1));
+
+        await CreateExceptionAsync(
+            clientId,
+            requirementId,
+            exceptionReason,
+            reviewDate,
+            userName,
+            $"Applied KCAS rule-supported exception: {exceptionReason}");
+    }
+
     public async Task CreateTaskForRequirementAsync(int clientId, int requirementId, string? owner, DateOnly? dueDate, string? userName, string reason)
     {
         RequireReason(reason);
@@ -1479,6 +1509,11 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
     }
 
     private static bool IsExpired(DateOnly? date, DateOnly today) => date.HasValue && date.Value < today;
+
+    private static string? RecommendedExceptionReason(string clientCategory, string evidenceType) =>
+        clientCategory == ClientCategories.NaturalPerson && evidenceType == "BeneficialOwnership"
+            ? "Natural-person client: the identified client is the beneficial owner; no separate legal-person ownership chain applies."
+            : null;
 
     private static ClientEvidenceMatchResult MatchClient(string relativePath, IReadOnlyList<Client> clients)
     {
@@ -2298,6 +2333,8 @@ public sealed class ClientEvidenceRequirementStatusModel
     public int LinkedItemCount { get; set; }
     public int VerifiedItemCount { get; set; }
     public bool CanRecordReview { get; set; }
+    public bool CanApplyRecommendedException { get; set; }
+    public string? RecommendedExceptionReason { get; set; }
     public string? ExceptionReason { get; set; }
     public List<ClientEvidenceItemModel> Items { get; set; } = [];
 }

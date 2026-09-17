@@ -29,6 +29,14 @@ else
             {
                 <a class="btn btn-primary" href="@model.NextAction.Url">@model.NextAction.Label</a>
             }
+            @if (HasTransferableAssessment)
+            {
+                <AuthorizeView Policy="@KcasPermissions.ComplianceManage">
+                    <Authorized>
+                        <a class="btn btn-primary" href="@($"/compliance/review-transfers?clientId={ClientId}")">Transfer completed review</a>
+                    </Authorized>
+                </AuthorizeView>
+            }
             <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}")">Client detail</a>
         </div>
     </div>
@@ -337,6 +345,8 @@ else
     private List<ClientEvidenceRequirementStatusModel> BlockedEvidence => model?.EvidenceRequirements.Where(item => item.IsBlocked).ToList() ?? [];
     private List<ClientEvidenceRequirementStatusModel> BlockedScreening => model?.ScreeningRequirements.Where(item => item.IsBlocked).ToList() ?? [];
     private bool EvidenceComplete => BlockedEvidence.Count == 0 && (model?.Evidence.OwnershipBlockers.Count ?? 0) == 0;
+    private bool HasTransferableAssessment => model?.Risk.Assessment?.Status is
+        ClientRiskAssessmentStatuses.Finalised or ClientRiskAssessmentStatuses.Approved;
     private string? FolderPickerInitialPath => model?.ClientFolderExists == true
         ? model.ClientFolder
         : model?.ActiveScanRoot ?? model?.ClientFolder;

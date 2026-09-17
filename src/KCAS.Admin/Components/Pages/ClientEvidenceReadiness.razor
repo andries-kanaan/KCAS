@@ -313,17 +313,20 @@ else
                             </td>
                             <td>
                                 <div class="row-actions">
-                                    @if (canManage && requirement.Items.Count > 0)
-                                    {
-                                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => VerifyAsync(requirement.Items[0].Id)">Verify first item</button>
-                                    }
                                     @if (canManage && requirement.CanRecordReview)
                                     {
                                         <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => OpenReviewModal(requirement)">Record review...</button>
                                     }
-                                    @if (canApprove)
+                                    @if (canApprove &&
+                                         !requirement.IsComplete &&
+                                         !requirement.IsExceptioned &&
+                                         requirement.CanApplyRecommendedException)
                                     {
-                                        <button type="button" class="btn btn-outline-primary btn-sm" @onclick="() => ApproveExceptionAsync(requirement.RequirementId)">Approve exception</button>
+                                        <button type="button" class="btn btn-outline-primary btn-sm"
+                                                title="@requirement.RecommendedExceptionReason"
+                                                @onclick="() => ApplyRecommendedExceptionAsync(requirement.RequirementId)">
+                                            Apply exception
+                                        </button>
                                     }
                                 </div>
                             </td>
@@ -439,6 +442,7 @@ else
         </div>
         <div class="modal-backdrop fade show"></div>
     }
+
 }
 
 @code {
@@ -535,11 +539,6 @@ else
 
     private void CloseClientFolderPicker() => isClientFolderPickerOpen = false;
 
-    private async Task VerifyAsync(int itemId)
-    {
-        await ExecuteAsync(async () => await EvidenceService.VerifyEvidenceAsync(itemId, DateOnly.FromDateTime(DateTime.Today), DateOnly.FromDateTime(DateTime.Today.AddYears(1)), currentUser, reason ?? ""));
-    }
-
     private async Task VerifySelectedAsync()
     {
         await ExecuteAsync(async () =>
@@ -580,9 +579,12 @@ else
         }
     }
 
-    private async Task ApproveExceptionAsync(int requirementId)
+    private async Task ApplyRecommendedExceptionAsync(int requirementId)
     {
-        await ExecuteAsync(async () => await EvidenceService.CreateExceptionAsync(ClientId, requirementId, "Approved temporary evidence exception.", DateOnly.FromDateTime(DateTime.Today.AddMonths(3)), currentUser, reason ?? ""));
+        await ExecuteAsync(async () => await EvidenceService.CreateRecommendedExceptionAsync(
+            ClientId,
+            requirementId,
+            currentUser));
     }
 
     private void OpenReviewModal(ClientEvidenceRequirementStatusModel requirement)
