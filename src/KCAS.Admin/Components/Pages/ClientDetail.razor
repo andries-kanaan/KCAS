@@ -1287,7 +1287,7 @@ else
 
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "Not captured" : value;
 
-    private static string Money(decimal? value) => value is null ? "Not captured" : value.Value.ToString("C");
+    private static string Money(decimal? value) => value is null ? "Not captured" : $"R {value.Value:N2}";
 
     private static string ForeignMoney(decimal? value, string? currencyCode) =>
         value is null ? "Not captured" : $"{currencyCode ?? "Foreign"} {value.Value:N2}";

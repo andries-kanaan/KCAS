@@ -59,6 +59,23 @@
                 <th>Awaiting verification</th>
                 <th></th>
             </tr>
+            <tr class="filter-row">
+                <th>
+                    <input class="form-control form-control-sm"
+                           @bind="kanaanIdFilter"
+                           @bind:event="oninput"
+                           @bind:after="ApplyFilter"
+                           aria-label="Filter reviews by Kanaan ID" />
+                </th>
+                <th>
+                    <input class="form-control form-control-sm"
+                           @bind="clientFilter"
+                           @bind:event="oninput"
+                           @bind:after="ApplyFilter"
+                           aria-label="Filter reviews by client" />
+                </th>
+                <th colspan="4"></th>
+            </tr>
         </thead>
         <tbody>
             @foreach (var item in filteredItems)
@@ -102,6 +119,8 @@
 @code {
     private List<ClientOperationalPortfolioItem> allItems = [];
     private List<ClientOperationalPortfolioItem> filteredItems = [];
+    private string? kanaanIdFilter;
+    private string? clientFilter;
     private string? lifecycleFilter;
     private string sortColumn = "client";
     private bool sortDescending;
@@ -114,9 +133,17 @@
 
     private void ApplyFilter()
     {
-        var items = string.IsNullOrWhiteSpace(lifecycleFilter)
+        IEnumerable<ClientOperationalPortfolioItem> items = string.IsNullOrWhiteSpace(lifecycleFilter)
             ? allItems
             : allItems.Where(item => item.LifecycleStatus == lifecycleFilter);
+        if (!string.IsNullOrWhiteSpace(kanaanIdFilter))
+        {
+            items = items.Where(item => item.KanaanId?.Contains(kanaanIdFilter.Trim(), StringComparison.OrdinalIgnoreCase) == true);
+        }
+        if (!string.IsNullOrWhiteSpace(clientFilter))
+        {
+            items = items.Where(item => item.DisplayName.Contains(clientFilter.Trim(), StringComparison.OrdinalIgnoreCase));
+        }
         filteredItems = SortItems(items).ToList();
     }
 
