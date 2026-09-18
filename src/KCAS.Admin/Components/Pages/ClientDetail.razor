@@ -26,6 +26,9 @@ else
             <p class="text-muted mb-0">Kanaan ID: @(client.KanaanId ?? "Not captured")</p>
         </div>
         <div class="header-actions">
+            <AuthorizeView Policy="@KcasPermissions.AdviceView">
+                <Authorized><a class="btn btn-primary" href="@($"/clients/{Id}/advice")">Advice</a></Authorized>
+            </AuthorizeView>
             <a class="btn btn-primary" href="@($"/clients/{Id}/compliance-review")">@ComplianceReviewActionLabel</a>
             @if (client.ClientCategory is ClientCategories.Trust or ClientCategories.LegalPerson)
             {

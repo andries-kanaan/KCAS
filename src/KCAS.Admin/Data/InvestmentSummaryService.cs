@@ -444,7 +444,7 @@ public sealed class InvestmentSummaryService(ApplicationDbContext db)
         return $"\"{value.Replace("\"", "\"\"")}\"";
     }
 
-    private sealed class SimplePdfWriter
+    internal sealed class SimplePdfWriter
     {
         private const double PageWidth = 841.89;
         private const double PageHeight = 595.28;
@@ -455,15 +455,21 @@ public sealed class InvestmentSummaryService(ApplicationDbContext db)
         private readonly List<string> pages = [];
         private readonly string title;
         private readonly string subject;
+        private readonly string? pageMark;
         private StringBuilder content = new();
         private double y = PageHeight - Margin;
 
-        public SimplePdfWriter(string title, string subject)
+        public SimplePdfWriter(string title, string subject, string? pageMark = null)
         {
             this.title = title;
             this.subject = subject;
+            this.pageMark = pageMark;
             BeginPage();
         }
+
+        public void StartNewPage() => NewPage();
+
+        public void EnsureBlockSpace(double height) => EnsureSpace(height);
 
         public void WriteReportHeader(
             string value,
@@ -509,6 +515,19 @@ public sealed class InvestmentSummaryService(ApplicationDbContext db)
             Text(value, 8, Margin, y);
             Fill(0, 0, 0);
             y -= LineHeight;
+        }
+
+        public void WriteParagraph(string value)
+        {
+            var lines = Wrap(value, ContentWidth, maxLines: int.MaxValue, fontSize: 8.5);
+            foreach (var line in lines)
+            {
+                EnsureSpace(LineHeight);
+                Fill(0.08, 0.1, 0.12);
+                Text(line, 8.5, Margin, y, maxWidth: ContentWidth);
+                y -= LineHeight;
+            }
+            y -= 5;
         }
 
         public void WriteNote(string value)
@@ -773,6 +792,17 @@ public sealed class InvestmentSummaryService(ApplicationDbContext db)
         private string Footer(int pageNumber, int pageCount)
         {
             var footer = new StringBuilder();
+            if (!string.IsNullOrWhiteSpace(pageMark))
+            {
+                footer.Append("0.72 0.12 0.12 rg\n");
+                footer.Append("BT /F1 8 Tf ")
+                    .Append(Invariant(PageWidth / 2 - 78))
+                    .Append(' ')
+                    .Append(Invariant(22))
+                    .Append(" Td (")
+                    .Append(Escape(pageMark))
+                    .Append(") Tj ET\n");
+            }
             footer.Append("0.48 0.52 0.56 rg\n");
             footer.Append("BT /F1 7 Tf ")
                 .Append(Invariant(Margin))
@@ -793,10 +823,10 @@ public sealed class InvestmentSummaryService(ApplicationDbContext db)
             return footer.ToString();
         }
 
-        private static List<string> Wrap(string? value, double width, int maxLines)
+        private static List<string> Wrap(string? value, double width, int maxLines, double fontSize = 7.6)
         {
             value = string.IsNullOrWhiteSpace(value) ? "Not captured" : value.Trim();
-            var maxChars = Math.Max(8, (int)Math.Floor(width / 4.2));
+            var maxChars = Math.Max(8, (int)Math.Floor(width / (fontSize * 0.55)));
             if (value.Length <= maxChars)
             {
                 return [value];

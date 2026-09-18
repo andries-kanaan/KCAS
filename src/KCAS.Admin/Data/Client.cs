@@ -105,6 +105,12 @@ public class Client
     public ICollection<ClientRiskAssessment> RiskAssessments { get; } = [];
 
     public ICollection<ClientVerificationItem> VerificationItems { get; } = [];
+
+    public ICollection<ClientAdviceCase> AdviceCases { get; } = [];
+
+    public ICollection<ClientAdviceParticipant> AdviceParticipations { get; } = [];
+
+    public ICollection<ClientAdviceDocument> AdviceDocuments { get; } = [];
 }
 
 public static class ClientNameFormatter
