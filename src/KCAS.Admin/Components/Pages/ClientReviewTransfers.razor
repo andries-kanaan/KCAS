@@ -835,13 +835,7 @@
                     importBytes!, importPassphrase ?? "", user, importReason ?? "");
                 statusMessage =
                     $"Package applied to {result.ClientDisplayName}. Assessment #{result.AssessmentId} " +
-                    $"and {result.EvidenceImported} evidence item(s) imported." +
-                    (result.EvidenceVerificationScanRunId.HasValue
-                        ? $" Live evidence folder verified by scan {result.EvidenceVerificationScanRunId.Value}."
-                        : "") +
-                    (string.IsNullOrWhiteSpace(result.EvidenceVerificationWarning)
-                        ? ""
-                        : $" {result.EvidenceVerificationWarning}");
+                    $"and {result.EvidenceImported} evidence item(s) imported.";
             }
             preview = null;
             familyPreview = null;

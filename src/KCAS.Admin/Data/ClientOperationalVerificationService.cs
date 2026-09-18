@@ -24,6 +24,11 @@ public sealed class ClientOperationalVerificationService(ApplicationDbContext db
                 client.VerificationItems.Count(item => item.Status == ClientVerificationStatuses.Pending),
                 client.VerificationItems.Count(item =>
                     item.Status == ClientVerificationStatuses.Pending && item.IsBlocking),
+                client.RiskAssessments.Any() ||
+                client.LifecycleStatus != ClientLifecycleStatuses.Unreviewed ||
+                client.EvidenceItems.Any() ||
+                client.InvestmentReconciliationReviews.Any() ||
+                (client.ClientFolder != null && db.ClientEvidenceScanRuns.Any(run => run.RootPath == client.ClientFolder)),
                 client.RiskAssessments.Any(assessment =>
                     assessment.Status == ClientRiskAssessmentStatuses.Finalised ||
                     assessment.Status == ClientRiskAssessmentStatuses.Approved)))

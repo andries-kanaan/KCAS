@@ -38,6 +38,8 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
                 .SingleAsync(item => item.Id == methodologyId);
         }
         var today = DateOnly.FromDateTime(DateTime.Today);
+        var liveRoot = Path.Combine(Path.GetTempPath(), $"kcas-transfer-{Guid.NewGuid():N}");
+        var liveClientFolder = Path.Combine(liveRoot, "TRANSFER PILOT");
         var applicableRequirements = await db.ClientEvidenceRequirements
             .Where(item => item.Status == ClientEvidenceRequirementStatuses.Active &&
                 (item.ClientCategory == "All" || item.ClientCategory == ClientCategories.NaturalPerson))
@@ -133,7 +135,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         db.Clients.Add(client);
         db.ClientEvidenceScanRoots.Add(new ClientEvidenceScanRoot
         {
-            RootPath = @"E:\Userdata\Kanaan Trust\Clients",
+            RootPath = liveRoot,
             IsActive = true,
             UpdatedBy = "reviewer@example.test"
         });
@@ -179,11 +181,18 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         await db.SaveChangesAsync();
         db.ChangeTracker.Clear();
 
+        var missingFolderPreview = await service.PreviewAsync(encrypted, passphrase);
+        Assert.False(missingFolderPreview.CanApply);
+        Assert.Contains(missingFolderPreview.Conflicts, conflict =>
+            conflict.Contains("does not exist", StringComparison.OrdinalIgnoreCase));
+
+        var mappedLiveClientFolder = Assert.IsType<string>(missingFolderPreview.TargetClientFolder);
+        Directory.CreateDirectory(mappedLiveClientFolder);
         var preview = await service.PreviewAsync(encrypted, passphrase);
         Assert.True(preview.CanApply);
         Assert.Equal(client.Id, preview.TargetClientId);
         Assert.Equal(2, preview.NewEvidenceCount);
-        Assert.Equal(@"E:\Userdata\Kanaan Trust\Clients\TRANSFER PILOT", preview.TargetClientFolder);
+        Assert.Equal(mappedLiveClientFolder, preview.TargetClientFolder);
         Assert.Contains(preview.Warnings, warning =>
             warning.Contains("Client folder will map", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(preview.Warnings, warning =>
@@ -204,9 +213,15 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
 
         var restoredClient = await db.Clients.AsNoTracking().SingleAsync(item => item.Id == client.Id);
         Assert.Equal(ClientLifecycleStatuses.Current, restoredClient.LifecycleStatus);
-        Assert.Equal(@"E:\Userdata\Kanaan Trust\Clients\TRANSFER PILOT", restoredClient.ClientFolder);
+        Assert.Equal(mappedLiveClientFolder, restoredClient.ClientFolder);
         Assert.Equal(2, await db.ClientEvidenceItems.AsNoTracking()
             .CountAsync(item => item.ClientId == client.Id));
+        var expectedEvidencePath = ClientEvidenceFileResolver.PreferredServerPath(
+            null, null, "identity.pdf", mappedLiveClientFolder, liveRoot);
+        Assert.All(await db.ClientEvidenceItems.AsNoTracking()
+            .Where(item => item.ClientId == client.Id)
+            .Select(item => item.SourcePath)
+            .ToListAsync(), sourcePath => Assert.Equal(expectedEvidencePath, sourcePath));
         Assert.Equal(applicableRequirements.Count - 2, await db.ClientEvidenceExceptions.AsNoTracking()
             .CountAsync(item => item.ClientId == client.Id));
         Assert.Single(await db.ClientRiskAssessments.AsNoTracking()

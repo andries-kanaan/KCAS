@@ -273,11 +273,7 @@ public sealed class ClientReviewFamilyTransferService(
                     DisplayName = imported.ClientDisplayName,
                     AssessmentId = imported.AssessmentId,
                     EvidenceImported = imported.EvidenceImported,
-                    Status = "Applied",
-                    Message = imported.EvidenceVerificationWarning ??
-                        (imported.EvidenceVerificationScanRunId.HasValue
-                            ? $"Live evidence folder verified by scan {imported.EvidenceVerificationScanRunId.Value}."
-                            : null)
+                    Status = "Applied"
                 });
             }
             catch (InvalidOperationException exception)

@@ -23,10 +23,10 @@
 </div>
 
 <section class="summary-grid">
-    <article class="summary-card"><span>Unreviewed</span><strong>@Count(ClientLifecycleStatuses.Unreviewed)</strong></article>
-    <article class="summary-card"><span>Current</span><strong>@Count(ClientLifecycleStatuses.Current)</strong></article>
-    <article class="summary-card"><span>Other classifications</span><strong>@(allItems.Count - Count(ClientLifecycleStatuses.Unreviewed) - Count(ClientLifecycleStatuses.Current))</strong></article>
-    <article class="summary-card"><span>Pending verification</span><strong>@allItems.Sum(item => item.PendingVerificationCount)</strong></article>
+    <article class="summary-card"><span>Unreviewed:</span><strong class="ms-1">@Count(ClientLifecycleStatuses.Unreviewed)</strong></article>
+    <article class="summary-card"><span>Current:</span><strong class="ms-1">@Count(ClientLifecycleStatuses.Current)</strong></article>
+    <article class="summary-card"><span>Other classifications:</span><strong class="ms-1">@(allItems.Count - Count(ClientLifecycleStatuses.Unreviewed) - Count(ClientLifecycleStatuses.Current))</strong></article>
+    <article class="summary-card"><span>Pending verification:</span><strong class="ms-1">@allItems.Sum(item => item.PendingVerificationCount)</strong></article>
 </section>
 
 <section class="work-area">
@@ -103,7 +103,7 @@
                     </td>
                     <td>
                         <div class="btn-group btn-group-sm" role="group" aria-label="@($"{item.DisplayName} actions")">
-                            <a class="btn btn-primary" href="@($"/clients/{item.ClientId}/compliance-review")">Start / continue review</a>
+                            <a class="btn btn-primary" href="@($"/clients/{item.ClientId}/compliance-review")">@ReviewActionLabel(item)</a>
                             @if (CanTransfer(item))
                             {
                                 <a class="btn btn-outline-primary" href="@($"/compliance/review-transfers?clientId={item.ClientId}")">Transfer</a>
@@ -179,6 +179,12 @@
 
     private static bool CanTransfer(ClientOperationalPortfolioItem item) =>
         item.HasCompletedAssessment;
+
+    private static string ReviewActionLabel(ClientOperationalPortfolioItem item) => item.HasCompletedAssessment
+        ? "View review"
+        : item.HasStartedReview
+            ? "Continue review"
+            : "Start review";
 
     private static string LifecycleBadge(string status) => status switch
     {

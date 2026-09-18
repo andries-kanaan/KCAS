@@ -106,6 +106,7 @@ public sealed record ClientOperationalPortfolioItem(
     string LifecycleStatus,
     int PendingVerificationCount,
     int BlockingVerificationCount,
+    bool HasStartedReview,
     bool HasCompletedAssessment);
 
 public sealed class ClientOperationalReviewModel
