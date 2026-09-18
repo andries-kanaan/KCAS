@@ -38,3 +38,13 @@ These repository-specific checks are performed by Codex. The user should not nee
 - Before requesting escalation, exhaust safe sandbox-compatible alternatives and continue any independent work that does not require approval.
 - Routine KCAS checks—including `Report-KCAS-DatabaseInventory.ps1`, builds, tests, Git inspection, and local MySQL read-only queries—must use their tested sandbox-compatible forms and should not require user interaction.
 - If genuine escalation is unavoidable, explain the exact restricted operation and request it once with the narrowest practical scope.
+
+## Cross-platform tests and PR checks
+
+- GitHub PR checks run on Ubuntu while KCAS development and deployment are primarily Windows-based. Treat every filesystem, drive-mapping, evidence-path, and transfer test as cross-platform.
+- Keep Windows-path parsing separate from native filesystem operations. Do not assume `Path.GetFullPath`, `Path.Combine`, directory creation, or absolute-path detection will treat `C:`, `E:`, `Z:`, backslashes, and temporary paths identically on Windows and Linux.
+- In tests, assert against KCAS path-mapping and file-resolution contracts rather than hard-coded host-specific normalized paths. When a test needs a mapped folder to exist, create the exact mapped target returned by KCAS.
+- Use unique test records and assert on the records created by the test. Avoid exact global counts when shared seeded or collection-scoped database state can legitimately add records.
+- When testing transfers, explicitly model source and live as separate environments. Remove or replace source-only assessments, evidence, configuration, and reconciliation state before previewing the live import.
+- After any CI-only failure, inspect the entire affected test and related assertions for the same platform or isolation assumption; do not patch only the first failing line.
+- Before reporting a pull request as ready, wait for the current GitHub check run to complete and inspect its actual conclusion. If it fails, read the failed-step logs, fix the cause on the same PR, and verify the replacement run passes.

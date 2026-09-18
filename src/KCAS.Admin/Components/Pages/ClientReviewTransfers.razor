@@ -499,6 +499,7 @@
             exportClientId = requestedClientId!.Value;
             clientSearch = ClientOptionValue(clients.Single(client => client.Id == exportClientId));
             await LoadSelectedFamilyAsync();
+            exportAsFamily = selectedFamily is { Members.Count: > 1 };
         }
     }
 

@@ -81,6 +81,13 @@ public sealed class ClientComplianceReviewService(
                     item.AmbiguousFiles,
                     item.ErrorMessage))
                 .FirstOrDefaultAsync(cancellationToken);
+        var latestAppliedReviewPackage = await db.ClientReviewTransferRecords.AsNoTracking()
+            .Where(item => item.ClientId == clientId &&
+                item.Direction == ClientReviewTransferDirections.Incoming &&
+                item.Status == ClientReviewTransferStatuses.Applied)
+            .OrderByDescending(item => item.AppliedAtUtc)
+            .Select(item => item.AppliedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
 
         var linkedClients = await db.Clients.AsNoTracking()
             .Where(item => item.Id != clientId &&
@@ -111,13 +118,20 @@ public sealed class ClientComplianceReviewService(
         var factsComplete = pendingFacts.All(item => !item.IsBlocking);
         var evidenceComplete = evidenceRequirements.All(item => !item.IsBlocked) && evidence.OwnershipBlockers.Count == 0;
         var screeningComplete = screeningRequirements.All(item => !item.IsBlocked);
+        var completedFolderScan = latestFolderScan?.Status == ClientEvidenceScanStatuses.Completed;
+        var importedFolderMapping = clientFolderExists && latestAppliedReviewPackage.HasValue;
+        var folderComplete = !string.IsNullOrWhiteSpace(client.ClientFolder) &&
+            (completedFolderScan || importedFolderMapping);
+        var blockingFactCount = pendingFacts.Count(item => item.IsBlocking);
 
         var sections = new List<ClientComplianceReviewSectionModel>
         {
-            new("folder", "Client folder and scan", !string.IsNullOrWhiteSpace(client.ClientFolder) && latestFolderScan?.Status == ClientEvidenceScanStatuses.Completed,
+            new("folder", "Client folder and evidence mapping", folderComplete,
                 string.IsNullOrWhiteSpace(client.ClientFolder)
                     ? "Select the client's evidence folder."
-                    : latestFolderScan is null
+                    : importedFolderMapping
+                        ? "Folder mapped and reviewed evidence imported from the approved package; no repeat scan is required."
+                        : latestFolderScan is null
                         ? "Folder saved; scan required."
                         : latestFolderScan.Status == ClientEvidenceScanStatuses.Completed
                             ? $"Scan completed with {latestFolderScan.LinkedFiles} linked file(s)."
@@ -125,7 +139,11 @@ public sealed class ClientComplianceReviewService(
             new("context", "Client and relationship context", lifecycleComplete,
                 lifecycleComplete ? $"Lifecycle classified as {client.LifecycleStatus}." : $"Proposed lifecycle: {lifecycleProposal.Status}."),
             new("facts", "Facts and conflicts", factsComplete,
-                pendingFacts.Count == 0 ? "No facts require human verification." : $"{pendingFacts.Count} fact(s) require review; {pendingFacts.Count(item => item.IsBlocking)} blocking."),
+                pendingFacts.Count == 0
+                    ? "Client facts are consistent; no unresolved conflicts."
+                    : blockingFactCount == 0
+                        ? $"{pendingFacts.Count} non-blocking fact(s) remain for review."
+                        : $"{pendingFacts.Count} fact(s) require review; {blockingFactCount} blocking."),
             new("investments", "Investment reconciliation", investments.IsComplete,
                 investments.IsComplete ? $"All {investments.Accounts.Count} investment account(s) verified." : $"{investments.Accounts.Count(item => !item.IsVerified) + investments.UnmatchedIssues.Count} investment item(s) require verification."),
             new("evidence", "Evidence readiness", evidenceComplete,

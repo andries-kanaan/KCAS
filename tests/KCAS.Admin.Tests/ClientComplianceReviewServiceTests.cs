@@ -184,4 +184,55 @@ public sealed class ClientComplianceReviewServiceTests(KcasWebApplicationFactory
         Assert.Equal(8, progress.UnmatchedFiles);
         Assert.Equal(5, progress.AmbiguousFiles);
     }
+
+    [Fact]
+    public async Task Applied_review_package_satisfies_folder_mapping_without_repeat_scan()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = scope.ServiceProvider.GetRequiredService<ClientComplianceReviewService>();
+        var folder = Path.Combine(Path.GetTempPath(), "kcas-compliance-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+
+        try
+        {
+            var client = new Client
+            {
+                LegacyClientId = Random.Shared.Next(900000, 999999),
+                KanaanId = $"IMPORTED-{Guid.NewGuid():N}"[..30],
+                DisplayName = "Imported Review Client",
+                SurnameOrEntityName = "Client",
+                ClientFolder = folder
+            };
+            db.Clients.Add(client);
+            await db.SaveChangesAsync();
+            db.ClientReviewTransferRecords.Add(new ClientReviewTransferRecord
+            {
+                PackageId = Guid.NewGuid().ToString(),
+                Direction = ClientReviewTransferDirections.Incoming,
+                ContentSha256 = new string('a', 64),
+                ClientId = client.Id,
+                Status = ClientReviewTransferStatuses.Applied,
+                FileName = "imported.kcas-review",
+                StoragePath = Path.Combine(folder, "imported.kcas-review"),
+                SummaryJson = "{}",
+                AppliedAtUtc = DateTime.UtcNow,
+                AppliedBy = "importer@example.test"
+            });
+            await db.SaveChangesAsync();
+
+            var review = await service.LoadAsync(client.Id);
+
+            var folderSection = Assert.Single(review.Sections, item => item.Code == "folder");
+            Assert.True(folderSection.IsComplete);
+            Assert.Equal("Client folder and evidence mapping", folderSection.Title);
+            Assert.Contains("no repeat scan is required", folderSection.Summary, StringComparison.OrdinalIgnoreCase);
+            var factsSection = Assert.Single(review.Sections, item => item.Code == "facts");
+            Assert.Equal("Client facts are consistent; no unresolved conflicts.", factsSection.Summary);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
 }
