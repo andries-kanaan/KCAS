@@ -3,6 +3,7 @@ using System;
 using KCAS.Admin.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace KCAS.Admin.Data.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260918201716_AddSelectableAdviceRiskMethodology")]
+    partial class AddSelectableAdviceRiskMethodology
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -635,10 +638,6 @@ namespace KCAS.Admin.Data.Migrations
                         .IsRequired()
                         .HasColumnType("longtext");
 
-                    b.Property<string>("TransferKey")
-                        .HasMaxLength(36)
-                        .HasColumnType("varchar(36)");
-
                     b.Property<DateTime>("UpdatedAtUtc")
                         .HasColumnType("datetime(6)");
 
@@ -649,9 +648,6 @@ namespace KCAS.Admin.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("PreviousAdviceCaseId");
-
-                    b.HasIndex("TransferKey")
-                        .IsUnique();
 
                     b.HasIndex("ClientId", "Status", "AdviceDate");
 
@@ -935,77 +931,6 @@ namespace KCAS.Admin.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("ClientAdviceRiskResponses");
-                });
-
-            modelBuilder.Entity("KCAS.Admin.Data.ClientAdviceTransferRecord", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTime?>("AppliedAtUtc")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("AppliedBy")
-                        .HasMaxLength(191)
-                        .HasColumnType("varchar(191)");
-
-                    b.Property<int>("CaseCount")
-                        .HasColumnType("int");
-
-                    b.Property<int>("ClientId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("ContentSha256")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("Direction")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("varchar(16)");
-
-                    b.Property<int>("DocumentCount")
-                        .HasColumnType("int");
-
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasMaxLength(260)
-                        .HasColumnType("varchar(260)");
-
-                    b.Property<string>("PackageId")
-                        .IsRequired()
-                        .HasMaxLength(36)
-                        .HasColumnType("varchar(36)");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("varchar(32)");
-
-                    b.Property<string>("StoragePath")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("varchar(512)");
-
-                    b.Property<string>("SummaryJson")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ClientId", "CreatedAtUtc");
-
-                    b.HasIndex("Direction", "ContentSha256");
-
-                    b.HasIndex("Direction", "PackageId")
-                        .IsUnique();
-
-                    b.ToTable("ClientAdviceTransferRecords");
                 });
 
             modelBuilder.Entity("KCAS.Admin.Data.ClientContactPoint", b =>
@@ -5236,17 +5161,6 @@ namespace KCAS.Admin.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("AdviceCase");
-                });
-
-            modelBuilder.Entity("KCAS.Admin.Data.ClientAdviceTransferRecord", b =>
-                {
-                    b.HasOne("KCAS.Admin.Data.Client", "Client")
-                        .WithMany()
-                        .HasForeignKey("ClientId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Client");
                 });
 
             modelBuilder.Entity("KCAS.Admin.Data.ClientContactPoint", b =>

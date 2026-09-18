@@ -13,7 +13,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
     {
         ReferenceHandler = ReferenceHandler.IgnoreCycles
     };
-    private static readonly string[] SupportedExtensions = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".jpg", ".jpeg", ".png", ".txt", ".msg", ".eml"];
+    private static readonly string[] SupportedExtensions = [".pdf", ".doc", ".docx", ".docm", ".xls", ".xlsx", ".xlsm", ".jpg", ".jpeg", ".png", ".txt", ".msg", ".eml"];
 
     public async Task<ClientEvidenceDashboardModel> LoadDashboardAsync()
     {
@@ -2517,7 +2517,7 @@ public sealed class ClientEvidenceItemModel
     private static bool IsOpenableFile(string fileName)
     {
         var extension = Path.GetExtension(fileName).ToLowerInvariant();
-        return extension is ".pdf" or ".doc" or ".docx" or ".xls" or ".xlsx" or ".jpg" or ".jpeg" or ".png" or ".txt" or ".msg" or ".eml";
+        return extension is ".pdf" or ".doc" or ".docx" or ".docm" or ".xls" or ".xlsx" or ".xlsm" or ".jpg" or ".jpeg" or ".png" or ".txt" or ".msg" or ".eml";
     }
 
     private static bool IsImageFile(string fileName)

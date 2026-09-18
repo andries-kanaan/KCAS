@@ -82,6 +82,8 @@ builder.Services.AddScoped<ClientEntityOwnershipService>();
 builder.Services.AddScoped<ClientRiskAssessmentService>();
 builder.Services.AddScoped<ClientOperationalVerificationService>();
 builder.Services.AddScoped<ClientComplianceReviewService>();
+builder.Services.AddScoped<ClientAdviceService>();
+builder.Services.AddScoped<ClientAdviceTransferService>();
 builder.Services.AddSingleton<DocumentPathDisplayService>();
 builder.Services.AddScoped<BusinessRiskAssessmentService>();
 builder.Services.AddScoped<RmcpService>();
@@ -280,6 +282,62 @@ app.MapGet("/investments/summary.pdf", async Task<IResult> (
         "application/pdf",
         $"KCAS-investment-summary-{DateTime.Today:yyyy-MM-dd}.pdf");
 }).RequireAuthorization(KcasPermissions.InvestmentsView);
+
+app.MapGet("/advice/{caseId:int}/record.pdf", async Task<IResult> (
+    int caseId,
+    ClientAdviceService advice) =>
+{
+    var pdf = await advice.ExportPdfAsync(caseId);
+    return Results.File(pdf, "application/pdf", $"KCAS-advice-record-{caseId}-{DateTime.Today:yyyy-MM-dd}.pdf");
+}).RequireAuthorization(KcasPermissions.AdviceView);
+
+app.MapGet("/advice/{caseId:int}/draft-preview.pdf", async Task<IResult> (
+    int caseId,
+    HttpContext context,
+    ClientAdviceService advice) =>
+{
+    var pdf = await advice.ExportDraftPreviewPdfAsync(caseId, context.User.Identity?.Name);
+    return Results.File(pdf, "application/pdf", $"DRAFT-KCAS-advice-record-{caseId}-{DateTime.Today:yyyy-MM-dd}.pdf");
+}).RequireAuthorization(KcasPermissions.AdvicePrepare);
+
+app.MapGet("/advice/{caseId:int}/review-manifest.json", async Task<IResult> (
+    int caseId,
+    ClientAdviceService advice) =>
+{
+    var json = await advice.ExportReviewManifestAsync(caseId);
+    return Results.File(json, "application/json", $"KCAS-advice-review-{caseId}.json");
+}).RequireAuthorization(KcasPermissions.AdviceView);
+
+app.MapGet("/advice/documents/{id:int}/file", async Task<IResult> (
+    int id,
+    ApplicationDbContext db,
+    CancellationToken cancellationToken) =>
+{
+    var document = await db.ClientAdviceDocuments.AsNoTracking()
+        .Where(item => item.Id == id)
+        .Select(item => new { item.SourcePath, item.FileName, item.Client.ClientFolder })
+        .SingleOrDefaultAsync(cancellationToken);
+    var activeServerRoot = await db.ClientEvidenceScanRoots.AsNoTracking()
+        .Where(root => root.IsActive).OrderByDescending(root => root.Id)
+        .Select(root => root.RootPath).FirstOrDefaultAsync(cancellationToken);
+    var path = document is null ? null : ClientEvidenceFileResolver.ResolveExistingPath(
+        document.SourcePath, null, document.FileName, document.ClientFolder, activeServerRoot);
+    if (path is null) return Results.NotFound();
+    var contentTypes = new FileExtensionContentTypeProvider();
+    if (!contentTypes.TryGetContentType(path, out var contentType)) contentType = "application/octet-stream";
+    return Results.File(File.OpenRead(path), contentType, enableRangeProcessing: true);
+}).RequireAuthorization(KcasPermissions.AdviceView);
+
+app.MapGet("/advice/transfers/{packageId}/download", async Task<IResult> (
+    string packageId,
+    ClientAdviceTransferService transfers,
+    CancellationToken cancellationToken) =>
+{
+    var package = await transfers.OpenExportAsync(packageId, cancellationToken);
+    return package is null
+        ? Results.NotFound()
+        : Results.File(package.Path, "application/vnd.kcas.client-advice", package.FileName);
+}).RequireAuthorization(KcasPermissions.AdviceAudit);
 
 app.MapGet("/compliance/client-risk/register.csv", async Task<IResult> (
     HttpContext context,

@@ -73,10 +73,71 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<GoAmlDailyCheck> GoAmlDailyChecks => Set<GoAmlDailyCheck>();
     public DbSet<GoAmlTransferRecord> GoAmlTransferRecords => Set<GoAmlTransferRecord>();
     public DbSet<ComplianceProgrammeTransferRecord> ComplianceProgrammeTransferRecords => Set<ComplianceProgrammeTransferRecord>();
+    public DbSet<ClientAdviceCase> ClientAdviceCases => Set<ClientAdviceCase>();
+    public DbSet<ClientAdviceParticipant> ClientAdviceParticipants => Set<ClientAdviceParticipant>();
+    public DbSet<ClientAdviceRiskResponse> ClientAdviceRiskResponses => Set<ClientAdviceRiskResponse>();
+    public DbSet<ClientAdviceProduct> ClientAdviceProducts => Set<ClientAdviceProduct>();
+    public DbSet<ClientAdviceFactSource> ClientAdviceFactSources => Set<ClientAdviceFactSource>();
+    public DbSet<ClientAdviceInvestmentLink> ClientAdviceInvestmentLinks => Set<ClientAdviceInvestmentLink>();
+    public DbSet<ClientAdviceReviewFinding> ClientAdviceReviewFindings => Set<ClientAdviceReviewFinding>();
+    public DbSet<ClientAdviceApproval> ClientAdviceApprovals => Set<ClientAdviceApproval>();
+    public DbSet<ClientAdviceDocument> ClientAdviceDocuments => Set<ClientAdviceDocument>();
+    public DbSet<ClientAdviceTransferRecord> ClientAdviceTransferRecords => Set<ClientAdviceTransferRecord>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
+
+        builder.Entity<ClientAdviceCase>(entity =>
+        {
+            ConfigureDateOnly(entity.Property(item => item.AdviceDate));
+            entity.HasIndex(item => item.TransferKey).IsUnique();
+            entity.HasIndex(item => new { item.ClientId, item.Status, item.AdviceDate });
+            entity.HasOne(item => item.Client).WithMany(client => client.AdviceCases).HasForeignKey(item => item.ClientId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(item => item.PreviousAdviceCase).WithMany().HasForeignKey(item => item.PreviousAdviceCaseId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasMany(item => item.Participants).WithOne(item => item.AdviceCase).HasForeignKey(item => item.ClientAdviceCaseId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(item => item.RiskResponses).WithOne(item => item.AdviceCase).HasForeignKey(item => item.ClientAdviceCaseId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(item => item.Products).WithOne(item => item.AdviceCase).HasForeignKey(item => item.ClientAdviceCaseId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(item => item.FactSources).WithOne(item => item.AdviceCase).HasForeignKey(item => item.ClientAdviceCaseId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(item => item.InvestmentLinks).WithOne(item => item.AdviceCase).HasForeignKey(item => item.ClientAdviceCaseId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(item => item.ReviewFindings).WithOne(item => item.AdviceCase).HasForeignKey(item => item.ClientAdviceCaseId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(item => item.Approvals).WithOne(item => item.AdviceCase).HasForeignKey(item => item.ClientAdviceCaseId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(item => item.Documents).WithOne(item => item.AdviceCase).HasForeignKey(item => item.ClientAdviceCaseId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<ClientAdviceParticipant>(entity =>
+        {
+            entity.HasOne(item => item.Client).WithMany(client => client.AdviceParticipations).HasForeignKey(item => item.ClientId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.ClientAdviceCaseId, item.ClientId }).IsUnique();
+        });
+        builder.Entity<ClientAdviceRiskResponse>().HasIndex(item => new { item.ClientAdviceCaseId, item.QuestionCode }).IsUnique();
+        builder.Entity<ClientAdviceProduct>().HasIndex(item => new { item.ClientAdviceCaseId, item.ProductName });
+        builder.Entity<ClientAdviceFactSource>(entity =>
+        {
+            ConfigureDateOnly(entity.Property(item => item.SourceDate));
+            entity.HasIndex(item => new { item.ClientAdviceCaseId, item.FactName });
+        });
+        builder.Entity<ClientAdviceInvestmentLink>(entity =>
+        {
+            entity.HasOne(item => item.InvestmentAccount).WithMany().HasForeignKey(item => item.ClientInvestmentAccountId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.ClientAdviceCaseId, item.ClientInvestmentAccountId }).IsUnique();
+        });
+        builder.Entity<ClientAdviceReviewFinding>().HasIndex(item => new { item.ClientAdviceCaseId, item.Status });
+        builder.Entity<ClientAdviceApproval>().HasIndex(item => new { item.ClientAdviceCaseId, item.Reviewer });
+        builder.Entity<ClientAdviceDocument>(entity =>
+        {
+            entity.HasOne(item => item.Client).WithMany(client => client.AdviceDocuments).HasForeignKey(item => item.ClientId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.ClientAdviceCaseId, item.DocumentType });
+            entity.HasIndex(item => new { item.ClientId, item.DocumentType, item.FileSha256 });
+        });
+
+        builder.Entity<ClientAdviceTransferRecord>(entity =>
+        {
+            entity.HasOne(item => item.Client).WithMany().HasForeignKey(item => item.ClientId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.Direction, item.PackageId }).IsUnique();
+            entity.HasIndex(item => new { item.Direction, item.ContentSha256 });
+            entity.HasIndex(item => new { item.ClientId, item.CreatedAtUtc });
+        });
 
         builder.Entity<ApplicationUser>(entity =>
         {

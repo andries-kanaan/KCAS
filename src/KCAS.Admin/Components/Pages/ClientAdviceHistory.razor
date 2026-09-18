@@ -1,0 +1,70 @@
+@page "/clients/{ClientId:int}/advice"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.AdviceView)]
+@using KCAS.Admin.Data
+@inject ClientAdviceService AdviceService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>Client advice</PageTitle>
+
+@if (model is null)
+{
+    <p>Loading advice history...</p>
+}
+else
+{
+    <div class="page-header">
+        <div><p class="eyebrow">FAIS advice</p><h1>@model.ClientName</h1><p class="text-muted mb-0">Kanaan ID: @Display(model.KanaanId)</p></div>
+        <div class="header-actions"><a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}")">Back to client</a></div>
+    </div>
+
+    <AuthorizeView Policy="@KcasPermissions.AdvicePrepare">
+        <Authorized>
+            <section class="work-area">
+                <h2>Start advice case</h2>
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-5"><label class="form-label">Advice type</label><select class="form-select" @bind="adviceType">@foreach (var type in ClientAdviceTypes.All) { <option value="@type">@Label(type)</option> }</select></div>
+                    <div class="col-auto"><button type="button" class="btn btn-primary" @onclick="CreateAsync">Start case</button></div>
+                </div>
+            </section>
+        </Authorized>
+    </AuthorizeView>
+
+    <div class="table-responsive">
+        <table class="table align-middle"><thead><tr><th>Date</th><th>Type</th><th>Revision</th><th>Risk profile</th><th>Adviser</th><th>Status</th><th></th></tr></thead>
+            <tbody>@foreach (var item in model.Cases) { <tr><td>@item.AdviceDate.ToString("yyyy-MM-dd")</td><td>@Label(item.AdviceType)</td><td>@item.Revision</td><td>@Display(item.FinalRiskLevel ?? item.CalculatedRiskLevel)</td><td>@item.AdviserName</td><td>@Label(item.Status)</td><td class="text-end"><a class="btn btn-sm btn-outline-primary" href="@($"/clients/{ClientId}/advice/{item.Id}")">Open</a></td></tr> }</tbody>
+        </table>
+    </div>
+
+    <section class="work-area">
+        <div class="section-heading-row">
+            <div><h2>Historical advice documents</h2><p class="text-muted mb-0">Existing Risk Analysers and advice records indexed from the client folder. These are archive records, not completed KCAS workflows.</p></div>
+            <AuthorizeView Policy="@KcasPermissions.AdvicePrepare"><Authorized><button type="button" class="btn btn-outline-primary" @onclick="IndexHistoryAsync">Index client folder</button></Authorized></AuthorizeView>
+        </div>
+        @if (model.HistoricalDocuments.Count == 0)
+        {
+            <p class="text-muted mt-3 mb-0">No historical Risk Analyser or Client Advice Record has been indexed.</p>
+        }
+        else
+        {
+            <div class="table-responsive mt-3"><table class="table align-middle"><thead><tr><th>Document</th><th>Type</th><th>File date</th><th>Integrity</th><th></th></tr></thead><tbody>
+                @foreach (var item in model.HistoricalDocuments) { <tr><td>@item.FileName</td><td>@Label(item.DocumentType)</td><td>@item.FileLastWriteTimeUtc?.ToLocalTime().ToString("yyyy-MM-dd")</td><td class="small">@(string.IsNullOrWhiteSpace(item.FileSha256) ? "No hash" : item.FileSha256[..Math.Min(12, item.FileSha256.Length)] + "...")</td><td class="text-end"><a class="btn btn-sm btn-outline-primary" href="@($"/advice/documents/{item.Id}/file")" target="_blank">Open</a></td></tr> }
+            </tbody></table></div>
+        }
+    </section>
+
+    @if (!string.IsNullOrWhiteSpace(message)) { <div class="alert alert-info">@message</div> }
+}
+
+@code {
+    [Parameter] public int ClientId { get; set; }
+    private ClientAdviceClientModel? model;
+    private string adviceType = ClientAdviceTypes.NewInvestment;
+    private string? message;
+    protected override async Task OnParametersSetAsync() => model = await AdviceService.LoadClientAsync(ClientId);
+    private async Task CreateAsync() { var auth = await AuthenticationStateProvider.GetAuthenticationStateAsync(); var id = await AdviceService.CreateDraftAsync(ClientId, adviceType, auth.User.Identity?.Name); Navigation.NavigateTo($"/clients/{ClientId}/advice/{id}"); }
+    private async Task IndexHistoryAsync() { var auth = await AuthenticationStateProvider.GetAuthenticationStateAsync(); var added = await AdviceService.IndexHistoricalDocumentsAsync(ClientId, auth.User.Identity?.Name); message = added == 0 ? "No new historical advice documents were found in the latest linked scan records." : $"Indexed {added} historical advice document(s)."; model = await AdviceService.LoadClientAsync(ClientId); }
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+    private static string Label(string value) => string.Concat(value.Select((c, i) => i > 0 && char.IsUpper(c) ? $" {c}" : c.ToString()));
+}

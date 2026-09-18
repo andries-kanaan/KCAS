@@ -1,0 +1,244 @@
+@page "/clients/{ClientId:int}/advice/{CaseId:int}"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.AdviceView)]
+@using KCAS.Admin.Data
+@inject ClientAdviceService AdviceService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>Client advice case</PageTitle>
+
+@if (model is null)
+{
+    <p>Loading advice case...</p>
+}
+else
+{
+    <div class="page-header">
+        <div><p class="eyebrow">FAIS advice case</p><h1>@model.ClientName</h1><p class="text-muted mb-0">@Label(model.AdviceType) · Revision @model.Revision · @Label(model.Status)</p></div>
+        <div class="header-actions">
+            @if (IsApproved) { <a class="btn btn-primary" href="@($"/advice/{CaseId}/record.pdf")" target="_blank">Download approved PDF</a> }
+            @if (!IsApproved) { <a class="btn btn-primary" href="@($"/advice/{CaseId}/draft-preview.pdf")" target="_blank">Download draft preview</a> }
+            @if (CanRevise) { <button type="button" class="btn btn-outline-primary" @onclick="CreateRevisionAsync">Create revision</button> }
+            @if (!IsApproved) { <a class="btn btn-outline-primary" href="@($"/advice/{CaseId}/review-manifest.json")">Download review manifest</a> }
+            <AuthorizeView Policy="@KcasPermissions.AdviceAudit">
+                <Authorized><a class="btn btn-outline-primary" href="@($"/advice/transfers?clientId={ClientId}")">Transfer advice record</a></Authorized>
+            </AuthorizeView>
+            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/advice")">Advice history</a>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(message)) { <div class="alert @(error ? "alert-danger" : "alert-success")">@message</div> }
+
+    <EditForm Model="model" OnValidSubmit="SaveAsync">
+        <fieldset disabled="@(!IsEditable)">
+            <section class="work-area">
+                <h2>1. Advice scope and client facts</h2>
+                <div class="section-heading-row mb-3">
+                    <div><strong>Advice subjects</strong><div class="text-muted small">@string.Join(", ", model.Participants.Select(value => value.ClientName))</div></div>
+                    @if (IsEditable && !string.IsNullOrWhiteSpace(model.KanaanId))
+                    {
+                        <button type="button" class="btn btn-outline-primary" @onclick="AddFamilyAsync">Include Kanaan ID @model.KanaanId family</button>
+                    }
+                </div>
+                <div class="row g-3">
+                    <div class="col-md-4"><label class="form-label">Advice date</label><InputDate class="form-control" @bind-Value="model.AdviceDate" /></div>
+                    <div class="col-md-4"><label class="form-label">Advice type</label><InputSelect class="form-select" @bind-Value="model.AdviceType">@foreach (var type in ClientAdviceTypes.All) { <option value="@type">@Label(type)</option> }</InputSelect></div>
+                    <div class="col-md-4"><label class="form-label">Adviser</label><InputText class="form-control" @bind-Value="model.AdviserName" /></div>
+                    @TextArea("Advice scope", () => model.AdviceScope, value => model.AdviceScope = value)
+                    @TextArea("Meeting/contact summary", () => model.MeetingSummary, value => model.MeetingSummary = value)
+                    @TextArea("Needs and objectives", () => model.NeedsAndObjectives, value => model.NeedsAndObjectives = value)
+                    @TextArea("Financial situation", () => model.FinancialSituation, value => model.FinancialSituation = value)
+                    @TextArea("Advice limitations or information declined", () => model.AdviceLimitations, value => model.AdviceLimitations = value)
+                    @TextArea("Product knowledge and experience", () => model.ProductKnowledgeSummary, value => model.ProductKnowledgeSummary = value)
+                    <div class="col-md-3"><label class="form-label">Investment amount</label><InputNumber class="form-control" @bind-Value="model.InvestmentAmount" /></div>
+                    <div class="col-md-3"><label class="form-label">% of total portfolio</label><InputNumber class="form-control" @bind-Value="model.InvestmentPortfolioPercent" /></div>
+                    <div class="col-md-3"><label class="form-label">Domestic preference %</label><InputNumber class="form-control" @bind-Value="model.DomesticPreferencePercent" /></div>
+                    <div class="col-md-3"><label class="form-label">Offshore preference %</label><InputNumber class="form-control" @bind-Value="model.OffshorePreferencePercent" /></div>
+                </div>
+                <div class="section-heading-row mt-4"><div><h3>Material fact sources</h3><p class="text-muted mb-0">Identify the dated document or record supporting income, needs, objectives, liquidity and other facts relied upon.</p></div><button type="button" class="btn btn-outline-primary" @onclick="AddFactSource">Add source</button></div>
+                @foreach (var source in model.FactSources)
+                {
+                    <div class="row g-2 align-items-end border-bottom py-2">
+                        <div class="col-md-3"><label class="form-label">Fact</label><InputText class="form-control" @bind-Value="source.FactName" /></div>
+                        <div class="col-md-2"><label class="form-label">Source date</label><InputDate class="form-control" @bind-Value="source.SourceDate" /></div>
+                        <div class="col-md-4"><label class="form-label">Document path or reference</label><InputText class="form-control" @bind-Value="source.DocumentPath" /></div>
+                        <div class="col-md-2"><label class="form-label">Notes</label><InputText class="form-control" @bind-Value="source.Notes" /></div>
+                        <div class="col-md-1"><button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveFactSource(source)">Remove</button></div>
+                    </div>
+                }
+                @if (model.AvailableInvestments.Count > 0)
+                {
+                    <h3 class="mt-4">Existing investments considered</h3>
+                    <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Include</th><th>Client</th><th>Account</th><th>Product</th><th>Administrator</th><th>Status</th></tr></thead><tbody>
+                        @foreach (var investment in model.AvailableInvestments) { <tr><td><InputCheckbox class="form-check-input" @bind-Value="investment.Selected" /></td><td>@investment.ClientName</td><td>@Display(investment.AccountNumber)</td><td>@Display(investment.ProductName)</td><td>@Display(investment.Administrator)</td><td>@(investment.SurrenderDate.HasValue ? "Historical" : "Current")</td></tr> }
+                    </tbody></table></div>
+                }
+            </section>
+
+            <section class="work-area">
+                <h2>2. Investment Risk Analyser</h2>
+                <p class="text-muted">This investment-suitability profile is separate from the AML/CFT client-risk assessment.</p>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Risk Analyser methodology</label>
+                        <select class="form-select" value="@model.RiskMethodologyCode" @onchange="MethodologyChangedAsync">
+                            @foreach (var methodology in ClientAdviceService.Methodologies)
+                            {
+                                <option value="@methodology.Code">@methodology.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-6"><label class="form-label">Score bands</label><div class="form-control bg-light h-auto">@CurrentMethodology.BandDescription</div></div>
+                </div>
+                @foreach (var question in CurrentMethodology.Questions)
+                {
+                    var response = model.RiskResponses.Single(value => value.QuestionCode == question.Code);
+                    <div class="border-bottom py-3">
+                        <div class="row g-2 align-items-center"><div class="col-md-7"><strong>@question.Text</strong><div class="small text-muted">@question.Dimension</div></div>
+                            <div class="col-md-5"><select class="form-select" @bind="response.AnswerCode"><option value="">Select an answer</option>@foreach (var option in question.Options) { <option value="@option.Code">@option.Label (@option.Score)</option> }</select></div>
+                            <div class="col-12"><label class="form-label small text-muted">Evidence or confirmation note</label><InputText class="form-control" @bind-Value="response.Explanation" /></div>
+                        </div>
+                    </div>
+                }
+                <div class="row g-3 mt-2">
+                    <div class="col-md-3"><label class="form-label">Calculated score</label><div class="form-control bg-light">@(model.CalculatedRiskScore?.ToString() ?? "Save to calculate")</div></div>
+                    <div class="col-md-3"><label class="form-label">Calculated profile</label><div class="form-control bg-light">@Display(model.CalculatedRiskLevel)</div></div>
+                    <div class="col-md-3"><label class="form-label">Final profile</label><InputSelect class="form-select" @bind-Value="model.FinalRiskLevel"><option value="">Use calculated profile</option>@foreach (var level in RiskLevels) { <option value="@level">@level</option> }</InputSelect></div>
+                    <div class="col-md-3"><label class="form-label">Override reason</label><InputText class="form-control" @bind-Value="model.RiskOverrideReason" /></div>
+                </div>
+            </section>
+
+            <section class="work-area">
+                <div class="section-heading-row"><div><h2>3. Products considered and recommended</h2><p class="text-muted mb-0">Record alternatives, exact recommendations, allocation and product-specific motivation.</p></div><button type="button" class="btn btn-outline-primary" @onclick="AddProduct">Add product</button></div>
+                @foreach (var product in model.Products)
+                {
+                    <div class="border rounded p-3 mb-2"><div class="row g-2">
+                        <div class="col-md-3"><label class="form-label">Product/fund</label><InputText class="form-control" @bind-Value="product.ProductName" /></div>
+                        <div class="col-md-2"><label class="form-label">Provider</label><InputText class="form-control" @bind-Value="product.Provider" /></div>
+                        <div class="col-md-2"><label class="form-label">Type</label><InputText class="form-control" @bind-Value="product.ProductType" /></div>
+                        <div class="col-md-2"><label class="form-label">Amount</label><InputNumber class="form-control" @bind-Value="product.Amount" /></div>
+                        <div class="col-md-1"><label class="form-label">Allocation %</label><InputNumber class="form-control" @bind-Value="product.AllocationPercent" /></div>
+                        <div class="col-md-2 d-flex align-items-end"><label class="form-check"><InputCheckbox class="form-check-input" @bind-Value="product.IsRecommended" /> <span class="form-check-label">Recommended</span></label></div>
+                        <div class="col-12"><label class="form-label">Motivation</label><InputTextArea class="form-control" @bind-Value="product.Motivation" /></div>
+                        <div class="col-12"><label class="form-label">Supporting factsheet/quotation path</label><InputText class="form-control" @bind-Value="product.SupportingDocumentPath" /></div>
+                        <div class="col-12 text-end"><button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveProduct(product)">Remove</button></div>
+                    </div></div>
+                }
+            </section>
+
+            <section class="work-area"><h2>4. Client Advice Record</h2><div class="row g-3">
+                @TextArea("Recommendation", () => model.RecommendationSummary, value => model.RecommendationSummary = value)
+                @TextArea("Why the recommendation meets the client's needs", () => model.RecommendationRationale, value => model.RecommendationRationale = value)
+                @TextArea("Costs and fees", () => model.CostsAndFees, value => model.CostsAndFees = value)
+                @TextArea("Tax consequences", () => model.TaxConsequences, value => model.TaxConsequences = value)
+                @TextArea("Liquidity and restrictions", () => model.LiquidityAndRestrictions, value => model.LiquidityAndRestrictions = value)
+                @TextArea("Material risks", () => model.MaterialRisks, value => model.MaterialRisks = value)
+                <div class="col-12"><label class="form-check"><InputCheckbox class="form-check-input" @bind-Value="model.IsReplacement" /> <span class="form-check-label">This advice replaces an existing product</span></label></div>
+                @if (model.IsReplacement) { @TextArea("Replacement consequences, costs and benefits lost", () => model.ReplacementConsequences, value => model.ReplacementConsequences = value) }
+                @TextArea("Client departure from recommendation", () => model.ClientDeparture, value => model.ClientDeparture = value)
+                @TextArea("Warnings given", () => model.WarningsGiven, value => model.WarningsGiven = value)
+            </div></section>
+        </fieldset>
+
+        @if (IsEditable)
+        {
+            <div class="row-actions mb-4"><button type="submit" class="btn btn-primary">Save draft</button><button type="button" class="btn btn-outline-primary" @onclick="SubmitAsync">Submit for independent review</button></div>
+        }
+    </EditForm>
+
+    <section class="work-area">
+        <h2>5. Independent review findings</h2>
+        @if (model.Findings.Count == 0) { <p class="text-muted">No review findings recorded.</p> }
+        @foreach (var finding in model.Findings) { <div class="alert @(finding.Status == ClientAdviceFindingStatuses.Open ? "alert-warning" : "alert-light")"><strong>@finding.Severity · @finding.Category</strong><div>@finding.Finding</div><div class="small text-muted">Evidence: @Display(finding.EvidenceReference) · Performed by @finding.PerformedBy at @finding.PerformedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</div>@if (finding.Status == ClientAdviceFindingStatuses.Open) { <div class="mt-2"><input class="form-control mb-2" placeholder="Resolution" @bind="findingResolution" /><button type="button" class="btn btn-sm btn-outline-primary me-2" @onclick="() => ResolveAsync(finding.Id, false)">Resolved</button><button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => ResolveAsync(finding.Id, true)">Accept with reason</button></div> } else { <div class="small">@finding.Status: @finding.Resolution</div> }</div> }
+        @if (!IsApproved)
+        {
+            <div class="border rounded p-3 mb-3">
+                <label class="form-label">Import Codex review findings</label>
+                <InputFile class="form-control" accept="application/json,.json" OnChange="ImportFindingsAsync" />
+                <div class="form-text">Use the downloaded manifest and return findings in its JSON findings array. Findings remain subject to independent reviewer resolution and approval.</div>
+            </div>
+            <div class="border rounded p-3"><div class="row g-2"><div class="col-md-2"><label class="form-label">Severity</label><select class="form-select" @bind="newFinding.Severity">@foreach (var severity in ClientAdviceFindingSeverities.All) { <option value="@severity">@severity</option> }</select></div><div class="col-md-3"><label class="form-label">Category</label><input class="form-control" @bind="newFinding.Category" /></div><div class="col-md-3"><label class="form-label">Affected field</label><input class="form-control" @bind="newFinding.AffectedField" /></div><div class="col-md-4"><label class="form-label">Evidence reference</label><input class="form-control" @bind="newFinding.EvidenceReference" /></div><div class="col-12"><label class="form-label">Finding</label><textarea class="form-control" @bind="newFinding.Finding"></textarea></div><div class="col-12"><label class="form-label">Recommended correction</label><textarea class="form-control" @bind="newFinding.RecommendedCorrection"></textarea></div><div class="col-auto"><button type="button" class="btn btn-outline-primary" @onclick="AddFindingAsync">Record finding</button></div></div></div>
+        }
+    </section>
+
+    <section class="work-area"><h2>6. Approval, issue and signed record</h2>
+        @if (model.Status == ClientAdviceStatuses.ReadyForReview)
+        {
+            <AuthorizeView Policy="@KcasPermissions.AdviceReview"><Authorized><div class="row g-2"><div class="col"><input class="form-control" placeholder="Review decision reason" @bind="decisionReason" /></div><div class="col-auto"><button type="button" class="btn btn-primary" @onclick="ApproveAsync">Approve for issue</button></div><div class="col-auto"><button type="button" class="btn btn-outline-secondary" @onclick="ReturnAsync">Return</button></div></div></Authorized></AuthorizeView>
+        }
+        else if (model.Status == ClientAdviceStatuses.ApprovedForIssue)
+        {
+            <AuthorizeView Policy="@KcasPermissions.AdviceIssue"><Authorized><button type="button" class="btn btn-primary" @onclick="IssueAsync">Mark as issued</button></Authorized></AuthorizeView>
+        }
+        else if (model.Status == ClientAdviceStatuses.Issued)
+        {
+            <AuthorizeView Policy="@KcasPermissions.AdviceIssue"><Authorized><label class="form-label">Signed PDF path</label><div class="input-group"><input class="form-control" @bind="signedPath" /><button type="button" class="btn btn-primary" @onclick="RecordSignedAsync">Record signed PDF</button></div></Authorized></AuthorizeView>
+        }
+        else if (model.Status == ClientAdviceStatuses.Complete) { <div class="alert alert-success mb-0">The approved advice and signed client record are complete.</div> }
+    </section>
+}
+
+@code {
+    [Parameter] public int ClientId { get; set; }
+    [Parameter] public int CaseId { get; set; }
+    private ClientAdviceEditModel? model;
+    private string? message; private bool error; private string decisionReason = "Independent review completed."; private string signedPath = ""; private string findingResolution = "";
+    private ClientAdviceFindingEditModel newFinding = new();
+    private static readonly string[] RiskLevels = ["Very low", "Low", "Medium", "Medium to high", "High", "Very Conservative", "Conservative", "Moderate", "Moderately Aggressive", "Aggressive"];
+    private ClientAdviceMethodology CurrentMethodology => ClientAdviceService.Methodology(model!.RiskMethodologyCode);
+    private bool IsEditable => model?.Status is ClientAdviceStatuses.Draft or ClientAdviceStatuses.Returned;
+    private bool IsApproved => model?.Status is ClientAdviceStatuses.ApprovedForIssue or ClientAdviceStatuses.Issued or ClientAdviceStatuses.Complete or ClientAdviceStatuses.Superseded;
+    private bool CanRevise => model?.Status is ClientAdviceStatuses.ApprovedForIssue or ClientAdviceStatuses.Issued or ClientAdviceStatuses.Complete;
+    protected override async Task OnParametersSetAsync() => await ReloadAsync();
+    private async Task ReloadAsync() => model = await AdviceService.LoadCaseAsync(CaseId);
+    private void AddProduct() => model!.Products.Add(new());
+    private void RemoveProduct(ClientAdviceProductEditModel product) => model!.Products.Remove(product);
+    private void AddFactSource() => model!.FactSources.Add(new());
+    private void RemoveFactSource(ClientAdviceFactSourceEditModel source) => model!.FactSources.Remove(source);
+    private Task MethodologyChangedAsync(ChangeEventArgs args)
+    {
+        var code = args.Value?.ToString() ?? ClientAdviceMethodologies.KcasEvidenced;
+        var methodology = ClientAdviceService.Methodology(code);
+        var existing = model!.RiskResponses.ToDictionary(value => value.QuestionCode, StringComparer.OrdinalIgnoreCase);
+        model.RiskMethodologyCode = code;
+        model.RiskResponses = methodology.Questions.Select(question =>
+        {
+            if (existing.TryGetValue(question.Code, out var response) && question.Options.Any(option => option.Code == response.AnswerCode))
+                return response;
+            return new ClientAdviceRiskResponseEditModel { QuestionCode = question.Code };
+        }).ToList();
+        model.CalculatedRiskScore = null;
+        model.CalculatedRiskLevel = null;
+        model.FinalRiskLevel = null;
+        model.RiskOverrideReason = null;
+        return Task.CompletedTask;
+    }
+    private async Task CreateRevisionAsync() { var auth = await AuthenticationStateProvider.GetAuthenticationStateAsync(); var id = await AdviceService.CreateRevisionAsync(CaseId, auth.User.Identity?.Name); Navigation.NavigateTo($"/clients/{ClientId}/advice/{id}"); }
+    private async Task AddFamilyAsync() => await RunAsync(async user => { var added = await AdviceService.AddKanaanFamilyParticipantsAsync(CaseId, user); message = added == 0 ? "All Kanaan ID family members are already included." : $"Added {added} family member(s)."; }, "Family members included.");
+    private async Task SaveAsync() => await RunAsync(async user => await AdviceService.SaveDraftAsync(model!, user), "Draft saved and Risk Analyser recalculated.");
+    private async Task SubmitAsync() => await RunAsync(async user => { await AdviceService.SaveDraftAsync(model!, user); await AdviceService.SubmitForReviewAsync(CaseId, user); }, "Advice submitted for independent review.");
+    private async Task ApproveAsync() => await RunAsync(user => AdviceService.ApproveAsync(CaseId, user, decisionReason), "Advice approved for issue.");
+    private async Task ReturnAsync() => await RunAsync(user => AdviceService.ReturnAsync(CaseId, user, decisionReason), "Advice returned to the preparer.");
+    private async Task IssueAsync() => await RunAsync(user => AdviceService.MarkIssuedAsync(CaseId, user), "Advice marked as issued.");
+    private async Task RecordSignedAsync() => await RunAsync(user => AdviceService.RecordSignedDocumentAsync(CaseId, signedPath, user), "Signed advice record linked and case completed.");
+    private async Task AddFindingAsync() => await RunAsync(async user => { await AdviceService.AddFindingAsync(CaseId, newFinding, user); newFinding = new(); }, "Review finding recorded.");
+    private async Task ImportFindingsAsync(InputFileChangeEventArgs args)
+    {
+        try
+        {
+            await using var stream = args.File.OpenReadStream(1_000_000);
+            using var memory = new MemoryStream();
+            await stream.CopyToAsync(memory);
+            var auth = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            var count = await AdviceService.ImportFindingsAsync(CaseId, memory.ToArray(), auth.User.Identity?.Name);
+            message = $"Imported {count} review finding(s)."; error = false; await ReloadAsync();
+        }
+        catch (Exception ex) { message = ex.Message; error = true; }
+    }
+    private async Task ResolveAsync(int id, bool accept) => await RunAsync(user => AdviceService.ResolveFindingAsync(id, accept, findingResolution, user), "Review finding updated.");
+    private async Task RunAsync(Func<string?, Task> action, string success) { try { var auth = await AuthenticationStateProvider.GetAuthenticationStateAsync(); await action(auth.User.Identity?.Name); message = success; error = false; findingResolution = ""; await ReloadAsync(); } catch (Exception ex) { message = ex.Message; error = true; } }
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+    private static string Label(string value) => string.Concat(value.Select((c, i) => i > 0 && char.IsUpper(c) ? $" {c}" : c.ToString()));
+    private static RenderFragment TextArea(string label, Func<string> getter, Action<string> setter) => builder => { var sequence = 0; builder.OpenElement(sequence++, "div"); builder.AddAttribute(sequence++, "class", "col-md-6"); builder.OpenElement(sequence++, "label"); builder.AddAttribute(sequence++, "class", "form-label"); builder.AddContent(sequence++, label); builder.CloseElement(); builder.OpenElement(sequence++, "textarea"); builder.AddAttribute(sequence++, "class", "form-control"); builder.AddAttribute(sequence++, "rows", "4"); builder.AddAttribute(sequence++, "value", getter()); builder.AddAttribute(sequence++, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(getter, args => setter(args.Value?.ToString() ?? ""))); builder.CloseElement(); builder.CloseElement(); };
+}

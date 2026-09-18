@@ -1,0 +1,48 @@
+@page "/advice"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.AdviceView)]
+@using KCAS.Admin.Data
+@inject ClientAdviceService AdviceService
+
+<PageTitle>Client advice</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">FAIS advice</p>
+        <h1>Client advice register</h1>
+        <p class="text-muted mb-0">Investment Risk Analysers, Client Advice Records, independent reviews and signed records.</p>
+    </div>
+    <div class="header-actions"><a class="btn btn-outline-secondary" href="/clients">Clients</a></div>
+</div>
+
+<section class="work-area">
+    <label class="form-label" for="advice-search">Search client, Kanaan ID or adviser</label>
+    <input id="advice-search" class="form-control" style="max-width:32rem" @bind="search" @bind:event="oninput" @bind:after="LoadAsync" />
+</section>
+
+<div class="table-responsive">
+    <table class="table align-middle">
+        <thead><tr><th>Date</th><th>Kanaan ID</th><th>Client</th><th>Type</th><th>Risk profile</th><th>Adviser</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+        @foreach (var item in items)
+        {
+            <tr>
+                <td>@item.AdviceDate.ToString("yyyy-MM-dd")</td><td>@Display(item.KanaanId)</td>
+                <td><a href="@($"/clients/{item.ClientId}/advice")">@item.ClientName</a></td>
+                <td>@Label(item.AdviceType)</td><td>@Display(item.FinalRiskLevel ?? item.CalculatedRiskLevel)</td>
+                <td>@item.AdviserName</td><td>@Label(item.Status)</td>
+                <td class="text-end"><a class="btn btn-sm btn-outline-primary" href="@($"/clients/{item.ClientId}/advice/{item.Id}")">Open</a></td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
+
+@code {
+    private string search = "";
+    private IReadOnlyList<ClientAdviceRegisterItem> items = [];
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+    private async Task LoadAsync() => items = await AdviceService.LoadRegisterAsync(search);
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+    private static string Label(string value) => string.Concat(value.Select((c, i) => i > 0 && char.IsUpper(c) ? $" {c}" : c.ToString()));
+}

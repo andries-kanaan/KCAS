@@ -26,6 +26,11 @@ public static class KcasPermissions
     public const string InspectionsView = "Inspections.View";
     public const string InspectionsManage = "Inspections.Manage";
     public const string InspectionsExport = "Inspections.Export";
+    public const string AdviceView = "Advice.View";
+    public const string AdvicePrepare = "Advice.Prepare";
+    public const string AdviceReview = "Advice.Review";
+    public const string AdviceIssue = "Advice.Issue";
+    public const string AdviceAudit = "Advice.Audit";
 
     public static readonly IReadOnlyList<string> All =
     [
@@ -52,6 +57,11 @@ public static class KcasPermissions
         RiskAssessmentsApprove,
         InspectionsView,
         InspectionsManage,
-        InspectionsExport
+        InspectionsExport,
+        AdviceView,
+        AdvicePrepare,
+        AdviceReview,
+        AdviceIssue,
+        AdviceAudit
     ];
 }
