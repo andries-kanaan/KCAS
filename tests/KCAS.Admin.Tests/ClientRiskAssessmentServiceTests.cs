@@ -123,11 +123,29 @@ public sealed class ClientRiskAssessmentServiceTests(KcasWebApplicationFactory f
         var service = scope.ServiceProvider.GetRequiredService<ClientRiskAssessmentService>();
         await ActivateMethodologyAsync(compliance, db, "Elevated methodology");
         var clientId = await CreateReadyClientAsync(db, evidence, "Elevated Risk Client");
+        var pepRequirementId = await db.ClientEvidenceRequirements
+            .Where(item => item.EvidenceType == "PepPip" && item.Status == ClientEvidenceRequirementStatuses.Active)
+            .Select(item => item.Id)
+            .FirstAsync();
+        db.ClientEvidenceItems.Add(new ClientEvidenceItem
+        {
+            ClientId = clientId,
+            ClientEvidenceRequirementId = pepRequirementId,
+            EvidenceType = "PepPip",
+            Title = "PEP/PIP screening review",
+            VerifiedDate = DateOnly.FromDateTime(DateTime.Today),
+            OwnershipStatus = ClientEvidenceOwnershipStatuses.Confirmed,
+            SelectionStatus = ClientEvidenceSelectionStatuses.Current,
+            ScreeningReviewDate = DateOnly.FromDateTime(DateTime.Today),
+            ScreeningOutcome = ClientEvidenceScreeningOutcomes.PossibleMatch,
+            ScreeningRiskSignal = ClientEvidenceRiskSignals.High,
+            EscalationRequired = true
+        });
+        await db.SaveChangesAsync();
 
         var assessmentId = await service.CreateDraftAsync(clientId, "rep@example.test", "Start elevated assessment.");
         var page = await service.LoadAsync(clientId);
         var edit = BuildEdit(page, useHighOption: true);
-        edit.HasPepExposure = true;
         await service.SaveDraftAsync(assessmentId, edit, "rep@example.test", "Complete elevated assessment.");
         await service.FinaliseAsync(assessmentId, "rep@example.test", "Escalate elevated assessment.");
 
@@ -162,6 +180,11 @@ public sealed class ClientRiskAssessmentServiceTests(KcasWebApplicationFactory f
         var edit = BuildEdit(page, useHighOption: false);
         edit.HasSanctionsConcern = true;
         await service.SaveDraftAsync(assessmentId, edit, "rep@example.test", "Record sanctions concern.");
+
+        Assert.False(await db.ClientRiskAssessments.AsNoTracking()
+            .Where(item => item.Id == assessmentId)
+            .Select(item => item.HasSanctionsConcern)
+            .SingleAsync());
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.FinaliseAsync(assessmentId, "rep@example.test", "Attempt finalisation."));

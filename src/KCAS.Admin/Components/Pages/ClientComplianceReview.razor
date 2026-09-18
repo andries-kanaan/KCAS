@@ -170,10 +170,10 @@ else
         <p class="eyebrow mb-1">Step 2</p>
         <h2>Client and relationship context</h2>
         <div class="summary-grid">
-            <article class="summary-card"><span>Lifecycle</span><strong>@model.LifecycleStatus</strong></article>
-            <article class="summary-card"><span>Current investments</span><strong>@model.CurrentInvestmentCount · @Money(model.CurrentInvestmentValueZar)</strong></article>
-            <article class="summary-card"><span>Retirement age</span><strong>@(model.RetirementAge?.ToString() ?? "Not recorded")</strong></article>
-            <article class="summary-card"><span>Latest client note</span><strong>@Date(model.LatestNoteDate)</strong></article>
+            <article class="summary-card"><span>Lifecycle:</span><strong class="ms-1">@model.LifecycleStatus</strong></article>
+            <article class="summary-card"><span>Current investments:</span><strong class="ms-1">@model.CurrentInvestmentCount · @Money(model.CurrentInvestmentValueZar)</strong></article>
+            <article class="summary-card"><span>Retirement age:</span><strong class="ms-1">@(model.RetirementAge?.ToString() ?? "Not recorded")</strong></article>
+            <article class="summary-card"><span>Latest client note:</span><strong class="ms-1">@Date(model.LatestNoteDate)</strong></article>
         </div>
         @if (model.LifecycleStatus == ClientLifecycleStatuses.Unreviewed)
         {

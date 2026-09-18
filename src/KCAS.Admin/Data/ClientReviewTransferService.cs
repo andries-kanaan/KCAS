@@ -548,6 +548,13 @@ public sealed class ClientReviewTransferService(
                         $"Investment {source.AccountNumber}: live has matching current valuation rows but no account row; KCAS will create the account row during import.");
                     liveAccounts.Add(match);
                 }
+                var previewAccountNumberChange = AlignCurrentAccountNumberToReviewedValuations(
+                    match, source, liveValuations);
+                if (previewAccountNumberChange is not null)
+                {
+                    warnings.Add(
+                        $"Investment {previewAccountNumberChange.Value.OldAccountNumber}: account number will change to {previewAccountNumberChange.Value.NewAccountNumber} to match the reviewed package and live current valuations.");
+                }
                 if (match.SurrenderDate != source.SurrenderDate)
                 {
                     warnings.Add($"Investment {match.AccountNumber}: surrender/transfer date will change from {match.SurrenderDate?.ToString("yyyy-MM-dd") ?? "blank"} to {source.SurrenderDate?.ToString("yyyy-MM-dd") ?? "blank"}.");
@@ -835,6 +842,25 @@ public sealed class ClientReviewTransferService(
                 client.InvestmentAccounts.Add(account);
                 db.ClientInvestmentAccounts.Add(account);
                 await db.SaveChangesAsync(cancellationToken);
+            }
+            var accountNumberChange = AlignCurrentAccountNumberToReviewedValuations(
+                account, source, client.FundValuations);
+            if (accountNumberChange is not null)
+            {
+                db.ComplianceAuditEvents.Add(new ComplianceAuditEvent
+                {
+                    EntityType = nameof(ClientInvestmentAccount),
+                    EntityId = account.Id,
+                    Action = "InvestmentAccountNumberImported",
+                    OldValueJson = JsonSerializer.Serialize(new { AccountNumber = accountNumberChange.Value.OldAccountNumber }),
+                    NewValueJson = JsonSerializer.Serialize(new
+                    {
+                        AccountNumber = accountNumberChange.Value.NewAccountNumber,
+                        SourcePackageId = package.PackageId
+                    }),
+                    UserName = user,
+                    Reason = reason
+                });
             }
             ClientInvestmentAccount? related = null;
             if (source.RelatedLegacyInvestmentAccountId.HasValue || !string.IsNullOrWhiteSpace(source.RelatedAccountNumber))
@@ -2497,6 +2523,43 @@ public sealed class ClientReviewTransferService(
             .ThenBy(valuation => valuation.ValuationDate)
             .ThenBy(valuation => valuation.FundName)
             .ToList();
+    }
+
+    internal static (string? OldAccountNumber, string NewAccountNumber)? AlignCurrentAccountNumberToReviewedValuations(
+        ClientInvestmentAccount account,
+        ClientReviewInvestmentReconciliationPackage source,
+        IEnumerable<ClientFundValuation> valuations)
+    {
+        if (source.Outcome != ClientInvestmentReconciliationOutcomes.Current ||
+            !source.LegacyInvestmentAccountId.HasValue ||
+            account.LegacyInvestmentAccountId != source.LegacyInvestmentAccountId ||
+            string.IsNullOrWhiteSpace(source.AccountNumber))
+        {
+            return null;
+        }
+
+        var reviewedNumber = source.AccountNumber.Trim();
+        var reviewedNormalized = ClientInvestmentStatusClassifier.NormalizeAccountNumber(reviewedNumber);
+        var liveNormalized = ClientInvestmentStatusClassifier.NormalizeAccountNumber(account.AccountNumber);
+        if (reviewedNormalized is null ||
+            string.Equals(reviewedNormalized, liveNormalized, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var matchingValuations = valuations.Where(valuation => string.Equals(
+            ClientInvestmentStatusClassifier.NormalizeAccountNumber(valuation.InvestmentUniqueNumber),
+            reviewedNormalized,
+            StringComparison.OrdinalIgnoreCase)).ToList();
+        if (matchingValuations.Count == 0 || !matchingValuations.Any(valuation =>
+                valuation.AmountZar.HasValue || valuation.AmountForeign.HasValue))
+        {
+            return null;
+        }
+
+        var oldAccountNumber = account.AccountNumber;
+        account.AccountNumber = reviewedNumber;
+        return (oldAccountNumber, reviewedNumber);
     }
 
     private static ClientInvestmentAccount BuildCurrentAccountFromValuations(

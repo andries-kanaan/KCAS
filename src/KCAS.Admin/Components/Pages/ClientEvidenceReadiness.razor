@@ -160,7 +160,7 @@ else
         </section>
     }
 
-    <section class="work-area">
+    <section class="work-area" id="screening">
         <h2>Evidence requirements and details</h2>
         <div class="table-responsive">
             <table class="table align-middle">
@@ -348,7 +348,15 @@ else
                                 <div class="row-actions">
                                     @if (canManage && requirement.CanRecordReview)
                                     {
-                                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => OpenReviewModal(requirement)">Record review...</button>
+                                        var screeningReminder = ScreeningReminder(requirement);
+                                        <div class="small">
+                                            <span class="@screeningReminder.BadgeClass">@screeningReminder.Label</span>
+                                            @if (screeningReminder.DueDate.HasValue)
+                                            {
+                                                <div class="text-muted mt-1">Next check: @Date(screeningReminder.DueDate)</div>
+                                            }
+                                        </div>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => OpenReviewModal(requirement)">Record external check...</button>
                                     }
                                     @if (canApprove &&
                                          !requirement.IsComplete &&
@@ -437,7 +445,7 @@ else
             <div class="modal-dialog modal-lg modal-dialog-centered">
                 <div class="modal-content">
                     <div class="modal-header">
-                        <h2 class="modal-title h5">Record screening review</h2>
+                        <h2 class="modal-title h5">Record external screening check</h2>
                         <button type="button" class="btn-close" aria-label="Close" @onclick="CloseReviewModal"></button>
                     </div>
                     <EditForm Model="@reviewForm" OnValidSubmit="SaveReviewAsync">
@@ -506,7 +514,7 @@ else
                         </div>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-outline-secondary" @onclick="CloseReviewModal">Cancel</button>
-                            <button type="submit" class="btn btn-primary">Save review</button>
+                            <button type="submit" class="btn btn-primary">Save external check</button>
                         </div>
                     </EditForm>
                 </div>
@@ -774,6 +782,32 @@ else
     private static string Date(DateOnly? value) => value is null ? "-" : value.Value.ToString("yyyy-MM-dd");
     private static string DateTimeValue(DateTime? value) => value is null ? "-" : value.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz");
 
+    private static ScreeningReminderModel ScreeningReminder(ClientEvidenceRequirementStatusModel requirement)
+    {
+        var latestReviewDate = requirement.Items
+            .Where(item => item.ScreeningReviewDate.HasValue)
+            .OrderByDescending(item => item.ScreeningReviewDate)
+            .ThenByDescending(item => item.Id)
+            .Select(item => item.ScreeningReviewDate)
+            .FirstOrDefault();
+        if (!latestReviewDate.HasValue)
+        {
+            return new("Codex screening required", "badge text-bg-warning", null);
+        }
+
+        var dueDate = latestReviewDate.Value.AddYears(1);
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        if (dueDate < today)
+        {
+            return new("Codex rescreening required", "badge text-bg-danger", dueDate);
+        }
+        if (dueDate <= today.AddDays(30))
+        {
+            return new("Codex rescreening needed soon", "badge text-bg-warning", dueDate);
+        }
+        return new("Screening current", "badge text-bg-success", dueDate);
+    }
+
     private static IEnumerable<ClientEvidenceItemModel> CurrentEvidenceItems(ClientEvidenceRequirementStatusModel requirement)
     {
         if (requirement.EvidenceType == "SourceOfFunds")
@@ -870,10 +904,12 @@ else
         : reason;
 
     private string ReviewReason => string.IsNullOrWhiteSpace(reason)
-        ? "Record screening review completed."
+        ? "Record external screening check completed."
         : reason;
 
     private string? ClientFolderPickerInitialPath => model?.ClientFolderExists == true
         ? selectedClientFolder
         : model?.ActiveScanRoot ?? selectedClientFolder;
+
+    private sealed record ScreeningReminderModel(string Label, string BadgeClass, DateOnly? DueDate);
 }
