@@ -10,8 +10,7 @@ namespace KCAS.Admin.Data;
 public sealed class ClientReviewTransferService(
     ApplicationDbContext db,
     IConfiguration configuration,
-    IHostEnvironment environment,
-    ClientEvidenceReadinessService evidenceReadiness)
+    IHostEnvironment environment)
 {
     private const string PackageMagic = "KCAS-CLIENT-REVIEW-1";
     private const int PackageVersion = 2;
@@ -486,6 +485,11 @@ public sealed class ClientReviewTransferService(
                     {
                         conflicts.Add(
                             $"Client folder '{package.Client.ClientFolder}' is outside the recognised local/live client roots and cannot be mapped safely.");
+                    }
+                    else if (!Directory.Exists(targetClientFolder))
+                    {
+                        conflicts.Add(
+                            $"Mapped client folder '{targetClientFolder}' does not exist on this KCAS server.");
                     }
                     else if (!string.Equals(client.ClientFolder, targetClientFolder, StringComparison.OrdinalIgnoreCase))
                     {
@@ -1328,29 +1332,9 @@ public sealed class ClientReviewTransferService(
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        int? verificationScanRunId = null;
-        string? verificationScanWarning = null;
-        if (!string.IsNullOrWhiteSpace(client.ClientFolder))
-        {
-            try
-            {
-                verificationScanRunId = await evidenceReadiness.RunImportedFolderVerificationAsync(
-                    client.Id,
-                    user,
-                    "Verify live client folder after review package import.",
-                    cancellationToken);
-            }
-            catch (Exception exception)
-            {
-                verificationScanWarning =
-                    $"The package was applied, but live folder verification could not complete: {exception.Message}";
-            }
-        }
-
         return new ClientReviewImportResult(
             package.PackageId, client.Id, client.DisplayName, assessment.Id,
-            preview.NewEvidenceCount, fileName, storagePath,
-            verificationScanRunId, verificationScanWarning);
+            preview.NewEvidenceCount, fileName, storagePath);
     }
 
     private static ClientReviewPackage BuildPackage(
@@ -3163,6 +3147,4 @@ public sealed record ClientReviewImportResult(
     int AssessmentId,
     int EvidenceImported,
     string FileName,
-    string StoragePath,
-    int? EvidenceVerificationScanRunId,
-    string? EvidenceVerificationWarning);
+    string StoragePath);
