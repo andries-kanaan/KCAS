@@ -397,9 +397,10 @@ public sealed class ClientRiskAssessmentService(
             response.ConfirmedBy = response.ConfirmedAtUtc.HasValue ? user : null;
         }
 
-        assessment.HasPepExposure = model.HasPepExposure;
-        assessment.HasSanctionsConcern = model.HasSanctionsConcern;
-        assessment.HasAdverseInformation = model.HasAdverseInformation;
+        var screening = await LoadScreeningConclusionsAsync(assessment.ClientId);
+        assessment.HasPepExposure = screening.HasPepExposure;
+        assessment.HasSanctionsConcern = screening.HasSanctionsConcern;
+        assessment.HasAdverseInformation = screening.HasAdverseInformation;
         assessment.StandardControlsApplied = model.StandardControlsApplied;
         assessment.Narrative = Normalize(model.Narrative);
         assessment.IsOverride = model.IsOverride;
@@ -417,6 +418,11 @@ public sealed class ClientRiskAssessmentService(
         var user = RequireUser(userName);
         var assessment = await LoadAssessmentForMutationAsync(assessmentId);
         EnsureDraft(assessment);
+
+        var screening = await LoadScreeningConclusionsAsync(assessment.ClientId);
+        assessment.HasPepExposure = screening.HasPepExposure;
+        assessment.HasSanctionsConcern = screening.HasSanctionsConcern;
+        assessment.HasAdverseInformation = screening.HasAdverseInformation;
 
         var readiness = await evidenceReadinessService.LoadClientReadinessAsync(assessment.ClientId);
         if (!readiness.IsReadyForRiskAssessment)
@@ -1090,6 +1096,26 @@ public sealed class ClientRiskAssessmentService(
             .ThenByDescending(item => item.Id)
             .FirstOrDefault();
 
+    private async Task<ScreeningConclusions> LoadScreeningConclusionsAsync(int clientId)
+    {
+        var reviews = await db.ClientEvidenceItems.AsNoTracking()
+            .Where(item => item.ClientId == clientId &&
+                           item.VerifiedDate != null &&
+                           item.OwnershipStatus == ClientEvidenceOwnershipStatuses.Confirmed &&
+                           item.ScreeningReviewDate.HasValue &&
+                           (item.EvidenceType == "PepPip" ||
+                            item.EvidenceType == "SanctionsTfs" ||
+                            item.EvidenceType == "AdverseInformation"))
+            .ToListAsync();
+        var pepReview = ScreeningReview(reviews, "PepPip");
+        var sanctionsReview = ScreeningReview(reviews, "SanctionsTfs");
+        var adverseReview = ScreeningReview(reviews, "AdverseInformation");
+        return new ScreeningConclusions(
+            IsScreeningConcern(pepReview, ClientEvidenceScreeningOutcomes.NoMatch),
+            IsScreeningConcern(sanctionsReview, ClientEvidenceScreeningOutcomes.NoMatch),
+            IsScreeningConcern(adverseReview, ClientEvidenceScreeningOutcomes.NoneFound));
+    }
+
     private static bool IsScreeningConcern(ClientEvidenceItem? item, string clearOutcome)
         => item is not null &&
            (item.EscalationRequired || !string.Equals(item.ScreeningOutcome, clearOutcome, StringComparison.OrdinalIgnoreCase));
@@ -1309,6 +1335,7 @@ public sealed class ClientRiskAssessmentService(
         string Narrative);
 
     private sealed record ClientRiskGeneratedFactor(RiskFactorOption Option, int? EvidenceItemId, string Explanation);
+    private sealed record ScreeningConclusions(bool HasPepExposure, bool HasSanctionsConcern, bool HasAdverseInformation);
 }
 
 public sealed class ClientRiskAssessmentPageModel

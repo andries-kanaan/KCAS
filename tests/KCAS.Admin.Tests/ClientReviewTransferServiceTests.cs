@@ -1148,6 +1148,60 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         Assert.Contains("package", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Current_review_can_align_legacy_matched_account_number_to_live_valuations()
+    {
+        var account = new ClientInvestmentAccount
+        {
+            LegacyInvestmentAccountId = 1709,
+            AccountNumber = "PLA50018823"
+        };
+        var package = new ClientReviewInvestmentReconciliationPackage
+        {
+            LegacyInvestmentAccountId = 1709,
+            AccountNumber = "LA50018823",
+            Outcome = ClientInvestmentReconciliationOutcomes.Current
+        };
+        var valuations = new[]
+        {
+            new ClientFundValuation
+            {
+                InvestmentUniqueNumber = "LA50018823",
+                AmountZar = 1_216_653.21m
+            }
+        };
+
+        var change = ClientReviewTransferService.AlignCurrentAccountNumberToReviewedValuations(
+            account, package, valuations);
+
+        Assert.NotNull(change);
+        Assert.Equal("PLA50018823", change.Value.OldAccountNumber);
+        Assert.Equal("LA50018823", change.Value.NewAccountNumber);
+        Assert.Equal("LA50018823", account.AccountNumber);
+    }
+
+    [Fact]
+    public void Account_number_is_not_aligned_without_supporting_current_valuation()
+    {
+        var account = new ClientInvestmentAccount
+        {
+            LegacyInvestmentAccountId = 1709,
+            AccountNumber = "PLA50018823"
+        };
+        var package = new ClientReviewInvestmentReconciliationPackage
+        {
+            LegacyInvestmentAccountId = 1709,
+            AccountNumber = "LA50018823",
+            Outcome = ClientInvestmentReconciliationOutcomes.Current
+        };
+
+        var change = ClientReviewTransferService.AlignCurrentAccountNumberToReviewedValuations(
+            account, package, []);
+
+        Assert.Null(change);
+        Assert.Equal("PLA50018823", account.AccountNumber);
+    }
+
     private static Client ReviewedNaturalPerson(
         int legacyClientId,
         string kanaanId,
