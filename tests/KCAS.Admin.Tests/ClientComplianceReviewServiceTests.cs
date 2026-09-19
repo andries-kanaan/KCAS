@@ -237,6 +237,48 @@ public sealed class ClientComplianceReviewServiceTests(KcasWebApplicationFactory
     }
 
     [Fact]
+    public void Individually_verified_files_satisfy_mapping_only_when_present_in_client_folder()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "kcas-compliance-tests", Guid.NewGuid().ToString("N"));
+        var folder = Directory.CreateDirectory(Path.Combine(root, "client")).FullName;
+        var otherFolder = Directory.CreateDirectory(Path.Combine(root, "other")).FullName;
+        var identityPath = Path.Combine(folder, "identity.pdf");
+        var addressPath = Path.Combine(folder, "address.pdf");
+        var outsidePath = Path.Combine(otherFolder, "address.pdf");
+
+        try
+        {
+            File.WriteAllText(identityPath, "identity");
+            File.WriteAllText(addressPath, "address");
+            File.WriteAllText(outsidePath, "other");
+            var requirements = new List<ClientEvidenceRequirementStatusModel>
+            {
+                new() { EvidenceType = "Identity", VerifiedItemCount = 1 },
+                new() { EvidenceType = "Address", VerifiedItemCount = 1 },
+                new() { EvidenceType = "SourceOfWealth", IsExceptioned = true }
+            };
+            var evidence = new List<ClientEvidenceItem>
+            {
+                new() { EvidenceType = "Identity", SourcePath = identityPath, Status = ClientEvidenceStatuses.Verified, SelectionStatus = ClientEvidenceSelectionStatuses.Current },
+                new() { EvidenceType = "Address", SourcePath = addressPath, Status = ClientEvidenceStatuses.Verified, SelectionStatus = ClientEvidenceSelectionStatuses.Current }
+            };
+
+            Assert.True(ClientComplianceReviewService.HasVerifiedLocalEvidenceMapping(folder, requirements, evidence));
+
+            evidence[1].SourcePath = outsidePath;
+            Assert.False(ClientComplianceReviewService.HasVerifiedLocalEvidenceMapping(folder, requirements, evidence));
+
+            evidence[1].SourcePath = addressPath;
+            File.Delete(addressPath);
+            Assert.False(ClientComplianceReviewService.HasVerifiedLocalEvidenceMapping(folder, requirements, evidence));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Duplicate_record_is_resolved_without_a_separate_risk_assessment()
     {
         using var scope = factory.Services.CreateScope();

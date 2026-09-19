@@ -59,6 +59,11 @@ else
             {
                 <a class="btn btn-primary" href="@($"/clients/{model.DuplicateOfClientId}/compliance-review")">View canonical client review</a>
             }
+            <AuthorizeView Policy="@KcasPermissions.ComplianceManage">
+                <Authorized>
+                    <a class="btn btn-outline-primary" href="@($"/compliance/duplicate-transfers?clientId={ClientId}")">Transfer duplicate reconciliation</a>
+                </Authorized>
+            </AuthorizeView>
         </section>
     }
     else

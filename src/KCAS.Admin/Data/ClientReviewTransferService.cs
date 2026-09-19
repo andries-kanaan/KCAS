@@ -2011,7 +2011,7 @@ public sealed class ClientReviewTransferService(
         }
     }
 
-    private static byte[] Encrypt(byte[] plaintext, string passphrase)
+    internal static byte[] Encrypt(byte[] plaintext, string passphrase)
     {
         var salt = RandomNumberGenerator.GetBytes(16);
         var nonce = RandomNumberGenerator.GetBytes(12);
@@ -2040,7 +2040,7 @@ public sealed class ClientReviewTransferService(
         return stream.ToArray();
     }
 
-    private static byte[] Decrypt(byte[] encrypted, string passphrase)
+    internal static byte[] Decrypt(byte[] encrypted, string passphrase)
     {
         using var stream = new MemoryStream(encrypted);
         using var reader = new BinaryReader(stream, Encoding.UTF8);
@@ -2728,7 +2728,7 @@ public sealed class ClientReviewTransferService(
         return administratorMatches.Count == 1 ? administratorMatches[0] : null;
     }
 
-    private static void ValidatePassphrase(string passphrase)
+    internal static void ValidatePassphrase(string passphrase)
     {
         if (string.IsNullOrWhiteSpace(passphrase) || passphrase.Length < 7)
         {
