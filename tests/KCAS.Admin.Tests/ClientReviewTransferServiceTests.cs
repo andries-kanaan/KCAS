@@ -1,3 +1,4 @@
+using System.Text.Json;
 using KCAS.Admin.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -498,7 +499,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
     }
 
     [Fact]
-    public async Task Import_allows_transferred_investment_to_reference_linked_family_account()
+    public async Task Import_matches_related_investment_by_owner_when_live_folders_differ()
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -534,6 +535,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
             .ToListAsync();
         var identityRequirement = applicableRequirements.Single(item => item.EvidenceType == "Identity");
         var today = DateOnly.FromDateTime(DateTime.Today);
+        var sourceFolder = Path.Combine(Path.GetTempPath(), "kcas-related-transfer", Guid.NewGuid().ToString("N"));
         var client = new Client
         {
             LegacyClientId = 99126,
@@ -545,16 +547,18 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
             LifecycleReason = "Current relationship confirmed for linked transfer test.",
             LifecycleReviewedAtUtc = DateTime.UtcNow,
             LifecycleReviewedBy = "reviewer@example.test",
+            ClientFolder = sourceFolder,
             IsActive = true
         };
         var linkedClient = new Client
         {
             LegacyClientId = 99127,
-            KanaanId = client.KanaanId,
+            KanaanId = $"RELATED-{Guid.NewGuid():N}"[..30],
             DisplayName = "Family Transfer Joint",
             SurnameOrEntityName = "Family Transfer Joint",
             ClientCategory = ClientCategories.NaturalPerson,
             LifecycleStatus = ClientLifecycleStatuses.Current,
+            ClientFolder = sourceFolder,
             IsActive = true
         };
         var evidence = new ClientEvidenceItem
@@ -636,12 +640,24 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
             "family-related-passphrase",
             "reviewer@example.test",
             "Prepare package with linked family transfer.");
-        var encrypted = await File.ReadAllBytesAsync(export.StoragePath);
+        var jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var package = JsonSerializer.Deserialize<ClientReviewPackage>(
+            ClientReviewTransferService.Decrypt(
+                await File.ReadAllBytesAsync(export.StoragePath), "family-related-passphrase"),
+            jsonOptions)!;
+        var packagedReview = Assert.Single(package.InvestmentReconciliations);
+        Assert.Equal(linkedClient.LegacyClientId, packagedReview.RelatedClientLegacyId);
+        Assert.Equal(linkedClient.KanaanId, packagedReview.RelatedClientKanaanId);
+        package.Client.ClientFolder = null;
+        var encrypted = ClientReviewTransferService.Encrypt(
+            JsonSerializer.SerializeToUtf8Bytes(package, jsonOptions), "family-related-passphrase");
 
         db.ClientRiskAssessments.Remove(assessment);
         db.ClientInvestmentReconciliationReviews.RemoveRange(
             await db.ClientInvestmentReconciliationReviews.Where(item => item.ClientId == client.Id).ToListAsync());
         sourceAccount.SurrenderDate = null;
+        client.ClientFolder = null;
+        linkedClient.ClientFolder = Path.Combine(Path.GetTempPath(), "kcas-related-transfer", Guid.NewGuid().ToString("N"));
         await db.SaveChangesAsync();
         db.ChangeTracker.Clear();
 
