@@ -146,7 +146,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         var export = await service.ExportAsync(
             client.Id, passphrase, "reviewer@example.test", "Prepare live transfer test.");
         Assert.Matches(
-            @"^KCAS-review-C\d+-Transfer-Pilot-Unsafe-\d{8}-[a-f0-9]{12}\.kcas-review$",
+            @"^KCAS-review-KTRANSFER-99123-C\d+-Transfer-Pilot-Unsafe-\d{8}-[a-f0-9]{12}\.kcas-review$",
             export.FileName);
         var encrypted = await File.ReadAllBytesAsync(export.StoragePath);
 
