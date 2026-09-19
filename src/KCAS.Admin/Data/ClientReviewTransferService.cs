@@ -399,6 +399,7 @@ public sealed class ClientReviewTransferService(
         var encrypted = Encrypt(plaintext, passphrase);
         var fileName = BuildPackageFileName(
             client.Id,
+            client.KanaanId,
             client.SurnameOrEntityName,
             package.CreatedAtUtc,
             package.PackageId);
@@ -538,7 +539,8 @@ public sealed class ClientReviewTransferService(
             var previewReviews = new List<PreviewInvestmentReconciliationReview>();
             foreach (var source in package.InvestmentReconciliations)
             {
-                var match = MatchInvestmentAccount(liveAccounts, source.LegacyInvestmentAccountId, source.AccountNumber, source.Administrator);
+                var match = MatchInvestmentAccount(liveAccounts, source.LegacyInvestmentAccountId, source.AccountNumber, source.Administrator,
+                    source.InvestmentDate, source.ProductName, source.FundName);
                 if (match is null)
                 {
                     var creatableValuations = FindCurrentAccountCreationValuations(source, liveAccounts, liveValuations);
@@ -622,7 +624,10 @@ public sealed class ClientReviewTransferService(
                         liveAccounts,
                         coverage.LegacyInvestmentAccountId,
                         coverage.AccountNumber,
-                        coverage.Administrator) is null)
+                        coverage.Administrator,
+                        coverage.InvestmentDate,
+                        coverage.ProductName,
+                        coverage.FundName) is null)
                 {
                     conflicts.Add(
                         $"Source-of-funds investment '{coverage.AccountNumber ?? coverage.LegacyInvestmentAccountId?.ToString() ?? "unknown"}' could not be matched uniquely on live.");
@@ -831,7 +836,8 @@ public sealed class ClientReviewTransferService(
 
         foreach (var source in package.InvestmentReconciliations)
         {
-            var account = MatchInvestmentAccount(client.InvestmentAccounts, source.LegacyInvestmentAccountId, source.AccountNumber, source.Administrator);
+            var account = MatchInvestmentAccount(client.InvestmentAccounts, source.LegacyInvestmentAccountId, source.AccountNumber, source.Administrator,
+                source.InvestmentDate, source.ProductName, source.FundName);
             if (account is null)
             {
                 var creatableValuations = FindCurrentAccountCreationValuations(source, client.InvestmentAccounts, client.FundValuations);
@@ -1048,7 +1054,10 @@ public sealed class ClientReviewTransferService(
                     client.InvestmentAccounts,
                     accountReference.LegacyInvestmentAccountId,
                     accountReference.AccountNumber,
-                    accountReference.Administrator)
+                    accountReference.Administrator,
+                    accountReference.InvestmentDate,
+                    accountReference.ProductName,
+                    accountReference.FundName)
                     ?? throw new InvalidOperationException(
                         $"Source-of-funds investment '{accountReference.AccountNumber ?? accountReference.LegacyInvestmentAccountId?.ToString() ?? "unknown"}' could not be matched uniquely on live.");
                 db.ClientEvidenceInvestmentLinks.Add(new ClientEvidenceInvestmentLink
@@ -1294,6 +1303,7 @@ public sealed class ClientReviewTransferService(
         Directory.CreateDirectory(incomingDirectory);
         var fileName = BuildPackageFileName(
             client.Id,
+            client.KanaanId,
             client.SurnameOrEntityName,
             package.CreatedAtUtc,
             package.PackageId);
@@ -1406,7 +1416,10 @@ public sealed class ClientReviewTransferService(
                 {
                     LegacyInvestmentAccountId = link.InvestmentAccount.LegacyInvestmentAccountId,
                     AccountNumber = link.InvestmentAccount.AccountNumber,
-                    Administrator = link.InvestmentAccount.Administrator
+                    Administrator = link.InvestmentAccount.Administrator,
+                    InvestmentDate = link.InvestmentAccount.InvestmentDate,
+                    ProductName = link.InvestmentAccount.ProductName,
+                    FundName = link.InvestmentAccount.FundName
                 }).ToList()
             })
             .ToList();
@@ -1546,6 +1559,9 @@ public sealed class ClientReviewTransferService(
                         LegacyInvestmentAccountId = entry.Account.LegacyInvestmentAccountId,
                         AccountNumber = entry.Account.AccountNumber,
                         Administrator = entry.Account.Administrator,
+                        InvestmentDate = entry.Account.InvestmentDate,
+                        ProductName = entry.Account.ProductName,
+                        FundName = entry.Account.FundName,
                         Outcome = entry.Review.Outcome,
                         SurrenderDate = entry.Account.SurrenderDate,
                         PortableSnapshotSha256 = CalculatePortableInvestmentSnapshot(
@@ -1553,6 +1569,9 @@ public sealed class ClientReviewTransferService(
                         RelatedLegacyInvestmentAccountId = related?.LegacyInvestmentAccountId,
                         RelatedAccountNumber = related?.AccountNumber,
                         RelatedAdministrator = related?.Administrator,
+                        RelatedInvestmentDate = related?.InvestmentDate,
+                        RelatedProductName = related?.ProductName,
+                        RelatedFundName = related?.FundName,
                         RelatedClientLegacyId = related?.Client.LegacyClientId,
                         RelatedClientKanaanId = related?.Client.KanaanId,
                         EvidenceReference = entry.Review.EvidenceReference,
@@ -1884,7 +1903,10 @@ public sealed class ClientReviewTransferService(
             RelatedInvestmentCandidates(source.Outcome, clientAccounts, linkedAccounts),
             source.RelatedLegacyInvestmentAccountId,
             source.RelatedAccountNumber,
-            source.RelatedAdministrator);
+            source.RelatedAdministrator,
+            source.RelatedInvestmentDate,
+            source.RelatedProductName,
+            source.RelatedFundName);
         if (scoped is not null && RelatedOwnerMatches(scoped, source))
         {
             return scoped;
@@ -1907,7 +1929,10 @@ public sealed class ClientReviewTransferService(
             ownerAccounts.Where(account => RelatedOwnerMatches(account, source)),
             source.RelatedLegacyInvestmentAccountId,
             source.RelatedAccountNumber,
-            source.RelatedAdministrator);
+            source.RelatedAdministrator,
+            source.RelatedInvestmentDate,
+            source.RelatedProductName,
+            source.RelatedFundName);
     }
 
     private static bool RelatedOwnerMatches(
@@ -2743,7 +2768,10 @@ public sealed class ClientReviewTransferService(
         IEnumerable<ClientInvestmentAccount> accounts,
         int? legacyInvestmentAccountId,
         string? accountNumber,
-        string? administrator)
+        string? administrator,
+        DateOnly? investmentDate = null,
+        string? productName = null,
+        string? fundName = null)
     {
         var list = accounts.ToList();
         if (legacyInvestmentAccountId.HasValue)
@@ -2763,17 +2791,34 @@ public sealed class ClientReviewTransferService(
             ClientInvestmentStatusClassifier.NormalizeAccountNumber(item.AccountNumber),
             normalized,
             StringComparison.OrdinalIgnoreCase)).ToList();
-        if (matches.Count == 1)
-        {
-            return matches[0];
-        }
+        if (matches.Count == 1) return matches[0];
         var administratorMatches = matches.Where(item =>
             !string.IsNullOrWhiteSpace(administrator) &&
             !string.IsNullOrWhiteSpace(item.Administrator) &&
             (item.Administrator.Equals(administrator, StringComparison.OrdinalIgnoreCase) ||
              item.Administrator.Contains(administrator, StringComparison.OrdinalIgnoreCase) ||
              administrator.Contains(item.Administrator, StringComparison.OrdinalIgnoreCase))).ToList();
-        return administratorMatches.Count == 1 ? administratorMatches[0] : null;
+        if (administratorMatches.Count == 1) return administratorMatches[0];
+
+        var candidates = administratorMatches.Count > 1 ? administratorMatches : matches;
+        if (investmentDate.HasValue)
+        {
+            var dated = candidates.Where(item => item.InvestmentDate == investmentDate).ToList();
+            if (dated.Count == 1) return dated[0];
+            if (dated.Count > 1) candidates = dated;
+        }
+        if (!string.IsNullOrWhiteSpace(productName))
+        {
+            var products = candidates.Where(item => string.Equals(item.ProductName, productName, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (products.Count == 1) return products[0];
+            if (products.Count > 1) candidates = products;
+        }
+        if (!string.IsNullOrWhiteSpace(fundName))
+        {
+            var funds = candidates.Where(item => string.Equals(item.FundName, fundName, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (funds.Count == 1) return funds[0];
+        }
+        return null;
     }
 
     internal static void ValidatePassphrase(string passphrase)
@@ -2789,13 +2834,16 @@ public sealed class ClientReviewTransferService(
 
     private static string BuildPackageFileName(
         int clientId,
+        string? kanaanId,
         string clientLabel,
         DateTime createdAtUtc,
         string packageId)
     {
         var label = SafeFileNameSegment(clientLabel, 60);
+        var familyId = SafeFileNameSegment(kanaanId, 30);
         var packageToken = SafeFileNameSegment(packageId.Replace("-", ""), 12);
-        return $"KCAS-review-C{clientId}-{label}-{createdAtUtc:yyyyMMdd}-{packageToken}.kcas-review";
+        var familySegment = string.IsNullOrWhiteSpace(familyId) ? "" : $"-K{familyId}";
+        return $"KCAS-review{familySegment}-C{clientId}-{label}-{createdAtUtc:yyyyMMdd}-{packageToken}.kcas-review";
     }
 
     private static string SafeFileNameSegment(string? value, int maximumLength)
@@ -2956,6 +3004,9 @@ public sealed class ClientReviewEvidenceInvestmentPackage
     public int? LegacyInvestmentAccountId { get; set; }
     public string? AccountNumber { get; set; }
     public string? Administrator { get; set; }
+    public DateOnly? InvestmentDate { get; set; }
+    public string? ProductName { get; set; }
+    public string? FundName { get; set; }
 }
 
 public sealed class ClientReviewExceptionPackage
@@ -2994,12 +3045,18 @@ public sealed class ClientReviewInvestmentReconciliationPackage
     public int? LegacyInvestmentAccountId { get; set; }
     public string? AccountNumber { get; set; }
     public string? Administrator { get; set; }
+    public DateOnly? InvestmentDate { get; set; }
+    public string? ProductName { get; set; }
+    public string? FundName { get; set; }
     public string Outcome { get; set; } = "";
     public DateOnly? SurrenderDate { get; set; }
     public string PortableSnapshotSha256 { get; set; } = "";
     public int? RelatedLegacyInvestmentAccountId { get; set; }
     public string? RelatedAccountNumber { get; set; }
     public string? RelatedAdministrator { get; set; }
+    public DateOnly? RelatedInvestmentDate { get; set; }
+    public string? RelatedProductName { get; set; }
+    public string? RelatedFundName { get; set; }
     public int? RelatedClientLegacyId { get; set; }
     public string? RelatedClientKanaanId { get; set; }
     public string EvidenceReference { get; set; } = "";
