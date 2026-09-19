@@ -162,6 +162,107 @@ public sealed class InvestmentReconciliationReviewServiceTests(KcasWebApplicatio
     }
 
     [Fact]
+    public async Task Historical_surrender_allows_a_valuation_that_predates_the_effective_date()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = new InvestmentReconciliationService(db);
+        var valuationDate = new DateOnly(2026, 7, 31);
+        var surrenderDate = new DateOnly(2026, 9, 9);
+        var client = new Client
+        {
+            LegacyClientId = 99871,
+            KanaanId = "RECON-PRE-SURRENDER",
+            DisplayName = "Pre-surrender valuation client",
+            SurnameOrEntityName = "Pre-surrender valuation client",
+            InvestmentAccounts =
+            {
+                new ClientInvestmentAccount
+                {
+                    LegacyInvestmentAccountId = 99871,
+                    AccountNumber = "CLOSED-998",
+                    Administrator = "Test Platform"
+                }
+            },
+            FundValuations =
+            {
+                new ClientFundValuation
+                {
+                    LegacyFundId = 99871,
+                    InvestmentUniqueNumber = "CLOSED998",
+                    Administrator = "Test Platform",
+                    AmountForeign = 10_000m,
+                    ValuationDate = valuationDate
+                }
+            }
+        };
+        db.Clients.Add(client);
+        await db.SaveChangesAsync();
+
+        var accountId = client.InvestmentAccounts.Single().Id;
+        await service.ReviewAccountAsync(client.Id, accountId, new ClientInvestmentReconciliationReviewRequest
+        {
+            Outcome = ClientInvestmentReconciliationOutcomes.HistoricalSurrendered,
+            SurrenderDate = surrenderDate,
+            EvidenceReference = "Signed full surrender and settlement confirmation.",
+            Reason = "The final valuation predates the effective surrender date."
+        }, "reviewer@example.test");
+
+        var review = await service.LoadClientReviewAsync(client.Id);
+        Assert.True(review.IsComplete);
+        Assert.DoesNotContain(InvestmentReconciliationService.BuildIssues(client), issue =>
+            issue.IssueType == InvestmentReconciliationIssueTypes.CurrentValuationAfterSurrender);
+    }
+
+    [Fact]
+    public async Task Historical_surrender_rejects_a_valuation_on_or_after_the_effective_date()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = new InvestmentReconciliationService(db);
+        var surrenderDate = new DateOnly(2026, 9, 9);
+        var client = new Client
+        {
+            LegacyClientId = 99872,
+            KanaanId = "RECON-POST-SURRENDER",
+            DisplayName = "Post-surrender valuation client",
+            SurnameOrEntityName = "Post-surrender valuation client",
+            InvestmentAccounts =
+            {
+                new ClientInvestmentAccount
+                {
+                    LegacyInvestmentAccountId = 99872,
+                    AccountNumber = "OPEN-998",
+                    Administrator = "Test Platform"
+                }
+            },
+            FundValuations =
+            {
+                new ClientFundValuation
+                {
+                    LegacyFundId = 99872,
+                    InvestmentUniqueNumber = "OPEN998",
+                    Administrator = "Test Platform",
+                    AmountForeign = 10_000m,
+                    ValuationDate = surrenderDate
+                }
+            }
+        };
+        db.Clients.Add(client);
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<System.ComponentModel.DataAnnotations.ValidationException>(() =>
+            service.ReviewAccountAsync(client.Id, client.InvestmentAccounts.Single().Id,
+                new ClientInvestmentReconciliationReviewRequest
+                {
+                    Outcome = ClientInvestmentReconciliationOutcomes.HistoricalSurrendered,
+                    SurrenderDate = surrenderDate,
+                    EvidenceReference = "Signed full surrender.",
+                    Reason = "Attempted closure with a current value."
+                }, "reviewer@example.test"));
+    }
+
+    [Fact]
     public async Task Wrong_client_duplicate_requires_related_account_on_linked_client()
     {
         using var scope = factory.Services.CreateScope();
