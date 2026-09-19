@@ -110,7 +110,7 @@
                             <a class="btn btn-primary" href="@($"/clients/{item.ClientId}/compliance-review")">@ReviewActionLabel(item)</a>
                             @if (CanTransfer(item))
                             {
-                                <a class="btn btn-outline-primary" href="@($"/compliance/review-transfers?clientId={item.ClientId}")">Transfer</a>
+                                <a class="btn btn-outline-primary" href="@TransferUrl(item)">Transfer</a>
                             }
                         </div>
                     </td>
@@ -182,7 +182,13 @@
         sortColumn == column ? sortDescending ? "down" : "up" : "";
 
     private static bool CanTransfer(ClientOperationalPortfolioItem item) =>
-        item.HasCompletedAssessment;
+        item.HasCompletedAssessment ||
+        (item.LifecycleStatus == ClientLifecycleStatuses.Duplicate && item.HasCanonicalClient);
+
+    private static string TransferUrl(ClientOperationalPortfolioItem item) =>
+        item.HasCompletedAssessment
+            ? $"/compliance/review-transfers?clientId={item.ClientId}"
+            : $"/compliance/duplicate-transfers?clientId={item.ClientId}";
 
     private static string ReviewActionLabel(ClientOperationalPortfolioItem item) =>
         item.LifecycleStatus == ClientLifecycleStatuses.Duplicate

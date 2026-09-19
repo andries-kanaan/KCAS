@@ -31,7 +31,9 @@ public sealed class ClientOperationalVerificationService(ApplicationDbContext db
                 (client.ClientFolder != null && db.ClientEvidenceScanRuns.Any(run => run.RootPath == client.ClientFolder)),
                 client.RiskAssessments.Any(assessment =>
                     assessment.Status == ClientRiskAssessmentStatuses.Finalised ||
-                    assessment.Status == ClientRiskAssessmentStatuses.Approved)))
+                    assessment.Status == ClientRiskAssessmentStatuses.Approved),
+                client.DuplicateOfClientId != null &&
+                    db.Clients.Any(canonical => canonical.Id == client.DuplicateOfClientId)))
             .ToListAsync();
     }
 

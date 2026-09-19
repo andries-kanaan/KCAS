@@ -1,0 +1,277 @@
+@page "/compliance/duplicate-transfers"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ComplianceManage)]
+@using System.ComponentModel.DataAnnotations
+@using KCAS.Admin.Data
+@inject ClientDuplicateReviewTransferService DuplicateTransfers
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Duplicate review transfer</PageTitle>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Controlled operational transfer</p>
+        <h1>Duplicate review transfer</h1>
+        <p class="lede">Transfer a resolved duplicate classification without creating a separate risk assessment.</p>
+    </div>
+    <div class="header-actions">
+        <a class="btn btn-outline-secondary" href="/clients/operational-review">Client reviews</a>
+        <a class="btn btn-outline-secondary" href="/compliance/review-transfers">Review transfers</a>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(message))
+{
+    <div class="alert @(isError ? "alert-danger" : "alert-success")">@message</div>
+}
+
+<section class="detail-grid review-transfer-grid">
+    <article class="detail-panel form-panel">
+        <h2>Export resolved duplicate</h2>
+        @if (requestedClientId <= 0)
+        {
+            <p class="text-muted">Select a resolved duplicate from <a href="/clients/operational-review">Client reviews</a>, or enter its KCAS client ID.</p>
+            <div class="import-grid">
+                <label>
+                    KCAS client ID
+                    <InputNumber class="form-control" @bind-Value="lookupClientId" />
+                </label>
+                <div class="form-actions align-self-end">
+                    <button class="btn btn-outline-primary" type="button" @onclick="LoadSelectedSourceAsync"
+                            disabled="@(busy || lookupClientId <= 0)">Load duplicate</button>
+                </div>
+            </div>
+        }
+        @if (source is not null)
+        {
+            <h3>Record being transferred</h3>
+            <dl class="detail-list">
+                <dt>Duplicate client</dt>
+                <dd><a href="@($"/clients/{source.ClientId}/compliance-review")">@source.Duplicate.DisplayName</a></dd>
+                <dt>Duplicate IDs</dt>
+                <dd>Kanaan @Display(source.Duplicate.KanaanId) · Legacy @source.Duplicate.LegacyClientId · KCAS @source.ClientId</dd>
+                <dt>Canonical client</dt>
+                <dd><a href="@($"/clients/{source.CanonicalClientId}/compliance-review")">@source.Canonical.DisplayName</a></dd>
+                <dt>Canonical IDs</dt>
+                <dd>Kanaan @Display(source.Canonical.KanaanId) · Legacy @source.Canonical.LegacyClientId · KCAS @source.CanonicalClientId</dd>
+                <dt>Classification</dt><dd>Duplicate of the canonical client above</dd>
+                <dt>Recorded reason</dt><dd>@source.Reason</dd>
+                <dt>Reviewed</dt><dd>@ReviewDate(source.ReviewedAtUtc) by @Display(source.ReviewedBy)</dd>
+            </dl>
+            <p class="text-muted">On live, this package marks only the duplicate record and links it to the canonical client. It does not transfer an assessment or document files.</p>
+            <label>
+                Export reason
+                <textarea class="form-control" @bind="exportReason"></textarea>
+            </label>
+            <label>
+                Package passphrase
+                <input class="form-control" type="password" autocomplete="new-password" @bind="exportPassphrase" />
+            </label>
+            <label>
+                Confirm passphrase
+                <input class="form-control" type="password" autocomplete="new-password" @bind="exportPassphraseConfirm" />
+            </label>
+            <button class="btn btn-primary" type="button" @onclick="ExportAsync" disabled="@busy">
+                Create encrypted package for @source.Duplicate.DisplayName
+            </button>
+        }
+        @if (exported is not null)
+        {
+            <div class="alert alert-success mt-3">
+                <strong>@exported.FileName</strong>
+                <div>@exported.SizeBytes.ToString("N0") bytes</div>
+                <a class="btn btn-outline-primary btn-sm mt-2"
+                   href="@($"/compliance/review-transfers/{exported.PackageId}/download")">Download package</a>
+            </div>
+        }
+    </article>
+
+    <article class="detail-panel form-panel">
+        <h2>Preview and apply on live</h2>
+        <label>
+            Encrypted duplicate package
+            <InputFile class="form-control" OnChange="SelectImportFileAsync" accept=".kcas-duplicate-review" />
+        </label>
+        @if (!string.IsNullOrWhiteSpace(importFileName))
+        {
+            <div class="small text-muted">Selected: @importFileName</div>
+        }
+        <label>
+            Package passphrase
+            <input class="form-control" type="password" autocomplete="new-password" @bind="importPassphrase" />
+        </label>
+        <button class="btn btn-outline-primary" type="button" @onclick="PreviewAsync"
+                disabled="@(busy || importBytes is null)">Preview package</button>
+        @if (preview is not null)
+        {
+            <h3 class="mt-3">Preview</h3>
+            <p>This will mark the duplicate record below as a duplicate of the matched canonical record on live. No assessment or document files are imported.</p>
+            <dl class="detail-list">
+                <dt>Duplicate in package</dt><dd>@preview.Package.Duplicate.DisplayName (Kanaan @Display(preview.Package.Duplicate.KanaanId) · Legacy @preview.Package.Duplicate.LegacyClientId)</dd>
+                <dt>Matched live duplicate</dt><dd>@(preview.DuplicateClientName ?? "Not found") @(preview.DuplicateClientId.HasValue ? $"(KCAS {preview.DuplicateClientId})" : "")</dd>
+                <dt>Canonical in package</dt><dd>@preview.Package.Canonical.DisplayName (Kanaan @Display(preview.Package.Canonical.KanaanId) · Legacy @preview.Package.Canonical.LegacyClientId)</dd>
+                <dt>Matched live canonical</dt><dd>@(preview.CanonicalClientName ?? "Not found") @(preview.CanonicalClientId.HasValue ? $"(KCAS {preview.CanonicalClientId})" : "")</dd>
+                <dt>Recorded reason</dt><dd>@preview.Package.Reason</dd>
+            </dl>
+            @if (preview.AlreadyApplied)
+            {
+                <div class="alert alert-info">This package has already been applied.</div>
+            }
+            @foreach (var conflict in preview.Conflicts)
+            {
+                <div class="alert alert-danger">@conflict</div>
+            }
+            @if (preview.CanApply)
+            {
+                <label>
+                    Live import approval reason
+                    <textarea class="form-control" @bind="importReason"></textarea>
+                </label>
+                <div class="form-check my-2">
+                    <input class="form-check-input" type="checkbox" id="confirm-duplicate-transfer" @bind="confirmApply" />
+                    <label class="form-check-label" for="confirm-duplicate-transfer">
+                        I confirm both live clients and their duplicate relationship.
+                    </label>
+                </div>
+                <button class="btn btn-primary" type="button" @onclick="ApplyAsync"
+                        disabled="@(busy || !confirmApply)">Apply duplicate reconciliation</button>
+            }
+        }
+    </article>
+</section>
+
+@code {
+    [SupplyParameterFromQuery(Name = "clientId")]
+    private int requestedClientId { get; set; }
+
+    private int lookupClientId;
+    private ClientDuplicateSource? source;
+    private string exportReason = "Transfer resolved duplicate review from local KCAS to live KCAS.";
+    private string importReason = "Approve resolved duplicate review on live KCAS.";
+    private string? exportPassphrase;
+    private string? exportPassphraseConfirm;
+    private string? importPassphrase;
+    private string? importFileName;
+    private byte[]? importBytes;
+    private ClientDuplicateExportResult? exported;
+    private ClientDuplicateReviewPreview? preview;
+    private bool confirmApply;
+    private bool busy;
+    private bool isError;
+    private string? message;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (requestedClientId > 0)
+        {
+            lookupClientId = requestedClientId;
+            await LoadSelectedSourceAsync();
+        }
+        else
+        {
+            lookupClientId = 0;
+            source = null;
+            exported = null;
+        }
+    }
+
+    private async Task LoadSelectedSourceAsync()
+    {
+        await RunAsync(async _ =>
+        {
+            source = null;
+            exported = null;
+            source = await DuplicateTransfers.LoadSourceAsync(lookupClientId);
+        });
+    }
+
+    private async Task ExportAsync()
+    {
+        if (source is null)
+        {
+            ShowError("Load and confirm the duplicate record first.");
+            return;
+        }
+        if (exportPassphrase != exportPassphraseConfirm)
+        {
+            ShowError("The export passphrases do not match.");
+            return;
+        }
+        await RunAsync(async user =>
+        {
+            exported = await DuplicateTransfers.ExportAsync(
+                source.ClientId, exportPassphrase ?? "", user, exportReason);
+            message = "Encrypted duplicate reconciliation package created.";
+        });
+    }
+
+    private async Task SelectImportFileAsync(InputFileChangeEventArgs args)
+    {
+        importBytes = null;
+        preview = null;
+        confirmApply = false;
+        importFileName = args.File.Name;
+        if (!importFileName.EndsWith(".kcas-duplicate-review", StringComparison.OrdinalIgnoreCase) ||
+            args.File.Size > 1024 * 1024)
+        {
+            ShowError("Select a duplicate review package smaller than 1 MB.");
+            return;
+        }
+        await using var stream = args.File.OpenReadStream(1024 * 1024);
+        using var memory = new MemoryStream();
+        await stream.CopyToAsync(memory);
+        importBytes = memory.ToArray();
+    }
+
+    private async Task PreviewAsync() => await RunAsync(async _ =>
+    {
+        preview = await DuplicateTransfers.PreviewAsync(importBytes!, importPassphrase ?? "");
+        confirmApply = false;
+        message = preview.CanApply ? "Preview ready. Confirm both live matches before applying."
+            : "Preview contains conflicts or was already applied.";
+        isError = !preview.CanApply && !preview.AlreadyApplied;
+    });
+
+    private async Task ApplyAsync() => await RunAsync(async user =>
+    {
+        if (!confirmApply || preview is null || !preview.CanApply)
+            throw new ValidationException("Preview and confirm the live duplicate relationship first.");
+        var applied = await DuplicateTransfers.ApplyAsync(
+            importBytes!, importPassphrase ?? "", user, importReason);
+        message = $"Duplicate reconciliation applied to {applied.DuplicateClientName}; canonical client: {applied.CanonicalClientName}.";
+        preview = null;
+        confirmApply = false;
+    });
+
+    private async Task RunAsync(Func<string?, Task> action)
+    {
+        busy = true;
+        isError = false;
+        message = null;
+        try
+        {
+            var auth = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            await action(auth.User.Identity?.Name);
+        }
+        catch (Exception exception) when (exception is ValidationException or InvalidOperationException or KeyNotFoundException)
+        {
+            ShowError(exception.Message);
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private void ShowError(string error)
+    {
+        isError = true;
+        message = error;
+    }
+
+    private static string Display(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "Not captured" : value;
+
+    private static string ReviewDate(DateTime? value) =>
+        value.HasValue ? value.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm") : "Date not recorded";
+}

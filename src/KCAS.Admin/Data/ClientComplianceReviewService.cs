@@ -126,8 +126,20 @@ public sealed class ClientComplianceReviewService(
         var screeningComplete = screeningRequirements.All(item => !item.IsBlocked);
         var completedFolderScan = latestFolderScan?.Status == ClientEvidenceScanStatuses.Completed;
         var importedFolderMapping = clientFolderExists && latestAppliedReviewPackage.HasValue;
+        var verifiedFolderMapping = false;
+        if (clientFolderExists && evidenceComplete && !completedFolderScan && !importedFolderMapping)
+        {
+            var selectedEvidence = await db.ClientEvidenceItems.AsNoTracking()
+                .Where(item => item.ClientId == clientId &&
+                    item.Status == ClientEvidenceStatuses.Verified &&
+                    item.SelectionStatus == ClientEvidenceSelectionStatuses.Current &&
+                    item.SourcePath != null)
+                .ToListAsync(cancellationToken);
+            verifiedFolderMapping = HasVerifiedLocalEvidenceMapping(
+                client.ClientFolder!, evidenceRequirements, selectedEvidence);
+        }
         var folderComplete = !string.IsNullOrWhiteSpace(client.ClientFolder) &&
-            (completedFolderScan || importedFolderMapping);
+            (completedFolderScan || importedFolderMapping || verifiedFolderMapping);
         var blockingFactCount = pendingFacts.Count(item => item.IsBlocking);
 
         var sections = new List<ClientComplianceReviewSectionModel>
@@ -137,6 +149,8 @@ public sealed class ClientComplianceReviewService(
                     ? "Select the client's evidence folder."
                     : importedFolderMapping
                         ? "Folder mapped and reviewed evidence imported from the approved package; no repeat scan is required."
+                        : verifiedFolderMapping
+                            ? "Folder exists and the selected evidence files were verified individually; no scan record is required."
                         : latestFolderScan is null
                         ? "Folder saved; scan required."
                         : latestFolderScan.Status == ClientEvidenceScanStatuses.Completed
@@ -200,6 +214,43 @@ public sealed class ClientComplianceReviewService(
                     $"/clients/{duplicateOfClient!.Id}/compliance-review")
                 : BuildNextAction(client.Id, sections, latestFolderScan)
         };
+    }
+
+    internal static bool HasVerifiedLocalEvidenceMapping(
+        string clientFolder,
+        IReadOnlyCollection<ClientEvidenceRequirementStatusModel> requirements,
+        IReadOnlyCollection<ClientEvidenceItem> selectedEvidence)
+    {
+        if (!Directory.Exists(clientFolder))
+        {
+            return false;
+        }
+
+        var mappedTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in selectedEvidence)
+        {
+            if (string.IsNullOrWhiteSpace(item.SourcePath) ||
+                item.Status != ClientEvidenceStatuses.Verified ||
+                item.SelectionStatus != ClientEvidenceSelectionStatuses.Current ||
+                !File.Exists(item.SourcePath))
+            {
+                continue;
+            }
+
+            var relativePath = Path.GetRelativePath(clientFolder, item.SourcePath);
+            if (relativePath == ".." ||
+                relativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal) ||
+                Path.IsPathRooted(relativePath))
+            {
+                continue;
+            }
+
+            mappedTypes.Add(item.EvidenceType);
+        }
+
+        return mappedTypes.Count > 0 && requirements
+            .Where(item => !item.IsExceptioned && item.VerifiedItemCount > 0)
+            .All(item => mappedTypes.Contains(item.EvidenceType));
     }
 
     internal static ClientLifecycleProposal BuildLifecycleProposal(Client client)
