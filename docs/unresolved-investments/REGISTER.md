@@ -36,9 +36,3 @@ For every item, record one of the following before changing its status:
 Do not infer a zero balance, surrender date, transfer destination or historical
 classification from an old statement, an administration fee form, a missing
 monthly valuation or the absence of later documents.
-
-## Resolved Items
-
-| Resolved | Kanaan ID | Client | Account | Resolution | Evidence |
-| --- | --- | --- | --- | --- | --- |
-| 2026-09-19 | 363 | Rory Cyril and Zofia Anna Mack | `Poel #6` | Transferred to Xhilarator Global `GM1053` on 2008-11-03; subsequently continued to Moriah and current IAL policy `IW70025`. | [Detail](POEL-6-WAYNE-EQUITY-MACK.md) |

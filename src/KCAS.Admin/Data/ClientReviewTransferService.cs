@@ -1946,7 +1946,8 @@ public sealed class ClientReviewTransferService(
         IEnumerable<ClientInvestmentAccount> linkedAccounts)
     {
         return outcome is ClientInvestmentReconciliationOutcomes.Transferred or
-            ClientInvestmentReconciliationOutcomes.WrongClientDuplicate
+            ClientInvestmentReconciliationOutcomes.WrongClientDuplicate or
+            ClientInvestmentReconciliationOutcomes.DuplicateContinuation
             ? clientAccounts.Concat(linkedAccounts)
             : clientAccounts;
     }
@@ -1972,7 +1973,8 @@ public sealed class ClientReviewTransferService(
         }
 
         if (source.Outcome is not (ClientInvestmentReconciliationOutcomes.Transferred or
-            ClientInvestmentReconciliationOutcomes.WrongClientDuplicate) ||
+            ClientInvestmentReconciliationOutcomes.WrongClientDuplicate or
+            ClientInvestmentReconciliationOutcomes.DuplicateContinuation) ||
             !source.RelatedClientLegacyId.HasValue)
         {
             return null;

@@ -541,8 +541,10 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
             .Where(item => item.ClientId == client.Id && item.InvestmentUniqueNumber == "RRA5057319").ToListAsync());
     }
 
-    [Fact]
-    public async Task Import_matches_related_investment_by_owner_when_live_folders_differ()
+    [Theory]
+    [InlineData(ClientInvestmentReconciliationOutcomes.Transferred)]
+    [InlineData(ClientInvestmentReconciliationOutcomes.DuplicateContinuation)]
+    public async Task Import_matches_cross_client_related_investment_by_owner_when_live_folders_differ(string outcome)
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -550,6 +552,12 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         var readinessService = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
         var compliance = scope.ServiceProvider.GetRequiredService<ComplianceService>();
         var investmentService = new InvestmentReconciliationService(db);
+        var isContinuation = outcome == ClientInvestmentReconciliationOutcomes.DuplicateContinuation;
+        var sourceLegacyClientId = isContinuation ? 99128 : 99126;
+        var relatedLegacyClientId = isContinuation ? 99129 : 99127;
+        var sourceLegacyAccountId = isContinuation ? 9912801 : 9912601;
+        var relatedLegacyAccountId = isContinuation ? 9912901 : 9912701;
+        var transactionLegacyId = isContinuation ? 9912802 : 9912602;
         await readinessService.LoadDashboardAsync();
         var methodology = await db.RiskMethodologyVersions
             .Include(item => item.Factors).ThenInclude(item => item.Options)
@@ -581,7 +589,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         var sourceFolder = Path.Combine(Path.GetTempPath(), "kcas-related-transfer", Guid.NewGuid().ToString("N"));
         var client = new Client
         {
-            LegacyClientId = 99126,
+            LegacyClientId = sourceLegacyClientId,
             KanaanId = "TRANSFER-FAMILY-RELATED",
             DisplayName = "Family Transfer Source",
             SurnameOrEntityName = "Family Transfer Source",
@@ -595,7 +603,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         };
         var linkedClient = new Client
         {
-            LegacyClientId = 99127,
+            LegacyClientId = relatedLegacyClientId,
             KanaanId = $"RELATED-{Guid.NewGuid():N}"[..30],
             DisplayName = "Family Transfer Joint",
             SurnameOrEntityName = "Family Transfer Joint",
@@ -621,7 +629,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         var sourceAccount = new ClientInvestmentAccount
         {
             Client = client,
-            LegacyInvestmentAccountId = 9912601,
+            LegacyInvestmentAccountId = sourceLegacyAccountId,
             LegacyClientId = client.LegacyClientId,
             AccountNumber = "12307",
             Administrator = "Sanne",
@@ -629,7 +637,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         };
         sourceAccount.Transactions.Add(new ClientInvestmentTransaction
         {
-            LegacyInvestmentHistoryId = 9912602,
+            LegacyInvestmentHistoryId = transactionLegacyId,
             TransactionDate = new DateOnly(2017, 1, 1),
             Description = "Corrected transfer description",
             PayloadJson = "{\"description\":\"Original transfer description\"}"
@@ -637,7 +645,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         var relatedAccount = new ClientInvestmentAccount
         {
             Client = linkedClient,
-            LegacyInvestmentAccountId = 9912701,
+            LegacyInvestmentAccountId = relatedLegacyAccountId,
             LegacyClientId = linkedClient.LegacyClientId,
             AccountNumber = "IW70075",
             Administrator = "International Assurance Limited PCC",
@@ -676,13 +684,16 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         db.Clients.AddRange(client, linkedClient);
         await db.SaveChangesAsync();
 
+        var effectiveDate = outcome == ClientInvestmentReconciliationOutcomes.Transferred
+            ? new DateOnly(2020, 1, 28)
+            : (DateOnly?)null;
         await investmentService.ReviewAccountAsync(client.Id, sourceAccount.Id, new ClientInvestmentReconciliationReviewRequest
         {
-            Outcome = ClientInvestmentReconciliationOutcomes.Transferred,
-            SurrenderDate = new DateOnly(2020, 1, 28),
+            Outcome = outcome,
+            SurrenderDate = effectiveDate,
             RelatedAccountId = relatedAccount.Id,
             EvidenceReference = "Redemption and transfer records into joint offshore investment.",
-            Reason = "The source investment was closed and proceeds moved to the linked family account."
+            Reason = "The source investment is linked to the related family account."
         }, "reviewer@example.test");
 
         var export = await service.ExportAsync(
@@ -713,16 +724,16 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         db.ChangeTracker.Clear();
 
         var liveTransaction = await db.ClientInvestmentTransactions
-            .SingleAsync(item => item.LegacyInvestmentHistoryId == 9912602);
+            .SingleAsync(item => item.LegacyInvestmentHistoryId == transactionLegacyId);
         liveTransaction.Description = "Independent live correction";
         await db.SaveChangesAsync();
         db.ChangeTracker.Clear();
         var conflictingPreview = await service.PreviewAsync(encrypted, "family-related-passphrase");
         Assert.False(conflictingPreview.CanApply);
         Assert.Contains(conflictingPreview.Conflicts, conflict =>
-            conflict.Contains("transaction 9912602", StringComparison.OrdinalIgnoreCase));
+            conflict.Contains($"transaction {transactionLegacyId}", StringComparison.OrdinalIgnoreCase));
         liveTransaction = await db.ClientInvestmentTransactions
-            .SingleAsync(item => item.LegacyInvestmentHistoryId == 9912602);
+            .SingleAsync(item => item.LegacyInvestmentHistoryId == transactionLegacyId);
         liveTransaction.Description = "Original transfer description";
         await db.SaveChangesAsync();
         db.ChangeTracker.Clear();
@@ -743,9 +754,9 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
             .FirstAsync();
         Assert.Equal(relatedAccount.Id, importedReview.RelatedClientInvestmentAccountId);
         Assert.Equal("Corrected transfer description", await db.ClientInvestmentTransactions.AsNoTracking()
-            .Where(item => item.LegacyInvestmentHistoryId == 9912602)
+            .Where(item => item.LegacyInvestmentHistoryId == transactionLegacyId)
             .Select(item => item.Description).SingleAsync());
-        Assert.Equal(new DateOnly(2020, 1, 28), await db.ClientInvestmentAccounts.AsNoTracking()
+        Assert.Equal(effectiveDate, await db.ClientInvestmentAccounts.AsNoTracking()
             .Where(item => item.Id == sourceAccount.Id)
             .Select(item => item.SurrenderDate)
             .SingleAsync());
