@@ -50,6 +50,12 @@ public sealed class ClientComplianceReviewService(
             .Include(item => item.Notes)
             .SingleOrDefaultAsync(item => item.Id == clientId, cancellationToken)
             ?? throw new KeyNotFoundException("Client not found.");
+        var duplicateOfClient = client.DuplicateOfClientId.HasValue
+            ? await db.Clients.AsNoTracking()
+                .SingleOrDefaultAsync(item => item.Id == client.DuplicateOfClientId.Value, cancellationToken)
+            : null;
+        var isResolvedDuplicate = client.LifecycleStatus == ClientLifecycleStatuses.Duplicate &&
+            duplicateOfClient is not null;
 
         var operational = await verificationService.LoadClientAsync(clientId);
         var investments = await investmentService.LoadClientReviewAsync(clientId, cancellationToken);
@@ -166,6 +172,12 @@ public sealed class ClientComplianceReviewService(
             FolderRecommendations = folderRecommendations,
             LifecycleStatus = client.LifecycleStatus,
             LifecycleReason = client.LifecycleReason,
+            IsResolvedDuplicate = isResolvedDuplicate,
+            DuplicateOfClientId = duplicateOfClient?.Id,
+            DuplicateOfDisplayName = duplicateOfClient is null
+                ? null
+                : ClientNameFormatter.FullNameAndSurname(duplicateOfClient),
+            DuplicateOfKanaanId = duplicateOfClient?.KanaanId,
             LifecycleProposal = lifecycleProposal,
             RetirementAge = client.FinancialProfile?.RetirementAge,
             InvestmentAccountCount = investments.Accounts.Count,
@@ -181,8 +193,12 @@ public sealed class ClientComplianceReviewService(
             EvidenceRequirements = evidenceRequirements,
             ScreeningRequirements = screeningRequirements,
             Sections = sections,
-            IsComplete = sections.All(item => item.IsComplete),
-            NextAction = BuildNextAction(client.Id, sections, latestFolderScan)
+            IsComplete = isResolvedDuplicate || sections.All(item => item.IsComplete),
+            NextAction = isResolvedDuplicate
+                ? new ClientComplianceNextAction(
+                    "View canonical client review",
+                    $"/clients/{duplicateOfClient!.Id}/compliance-review")
+                : BuildNextAction(client.Id, sections, latestFolderScan)
         };
     }
 
@@ -255,6 +271,10 @@ public sealed class ClientComplianceReviewModel
     public List<ClientFolderRecommendation> FolderRecommendations { get; init; } = [];
     public string LifecycleStatus { get; init; } = "";
     public string? LifecycleReason { get; init; }
+    public bool IsResolvedDuplicate { get; init; }
+    public int? DuplicateOfClientId { get; init; }
+    public string? DuplicateOfDisplayName { get; init; }
+    public string? DuplicateOfKanaanId { get; init; }
     public required ClientLifecycleProposal LifecycleProposal { get; init; }
     public int? RetirementAge { get; init; }
     public int InvestmentAccountCount { get; init; }

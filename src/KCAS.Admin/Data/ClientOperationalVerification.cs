@@ -107,7 +107,11 @@ public sealed record ClientOperationalPortfolioItem(
     int PendingVerificationCount,
     int BlockingVerificationCount,
     bool HasStartedReview,
-    bool HasCompletedAssessment);
+    bool HasCompletedAssessment)
+{
+    public bool IsReviewResolved =>
+        HasCompletedAssessment || LifecycleStatus == ClientLifecycleStatuses.Duplicate;
+}
 
 public sealed class ClientOperationalReviewModel
 {

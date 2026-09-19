@@ -34,6 +34,11 @@ public sealed class ClientOperationalVerificationServiceTests(KcasWebApplication
         Assert.Equal(canonical.Id, saved.DuplicateOfClientId);
         Assert.False(saved.IsActive);
         Assert.Equal("reviewer@example.test", saved.LifecycleReviewedBy);
+
+        var portfolioItem = (await service.LoadPortfolioAsync(ClientLifecycleStatuses.Duplicate))
+            .Single(item => item.ClientId == client.Id);
+        Assert.True(portfolioItem.IsReviewResolved);
+        Assert.False(portfolioItem.HasCompletedAssessment);
     }
 
     [Fact]

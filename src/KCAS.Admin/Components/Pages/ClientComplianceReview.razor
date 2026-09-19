@@ -41,6 +41,28 @@ else
         </div>
     </div>
 
+    @if (model.IsResolvedDuplicate)
+    {
+        <div class="alert alert-success">
+            <strong>This record has been resolved as a duplicate.</strong>
+            <span> A separate client risk assessment is not required for this record.</span>
+        </div>
+        <section class="work-area">
+            <p class="eyebrow mb-1">Duplicate reconciliation</p>
+            <h2>Canonical client record</h2>
+            <dl class="mb-3">
+                <dt>Duplicate record</dt><dd>@model.DisplayName (Kanaan ID @Display(model.KanaanId))</dd>
+                <dt>Canonical record</dt><dd>@Display(model.DuplicateOfDisplayName) (Kanaan ID @Display(model.DuplicateOfKanaanId))</dd>
+                <dt>Reason</dt><dd>@Display(model.LifecycleReason)</dd>
+            </dl>
+            @if (model.DuplicateOfClientId.HasValue)
+            {
+                <a class="btn btn-primary" href="@($"/clients/{model.DuplicateOfClientId}/compliance-review")">View canonical client review</a>
+            }
+        </section>
+    }
+    else
+    {
     @if (!string.IsNullOrWhiteSpace(statusMessage))
     {
         <div class="alert @(hasError ? "alert-danger" : "alert-info")">@statusMessage</div>
@@ -326,6 +348,7 @@ else
             <div class="alert alert-success mt-3 mb-0"><strong>Approve-and-complete outcome recorded.</strong> The finalised assessment and its audit trail form the completed client review.</div>
         }
     </section>
+    }
 }
 
 @code {
