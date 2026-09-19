@@ -536,6 +536,8 @@ public sealed class ClientReviewTransferService(
             var liveReviews = await db.ClientInvestmentReconciliationReviews.AsNoTracking()
                 .Where(item => item.ClientId == client.Id)
                 .ToListAsync(cancellationToken);
+            await StageCurrentAccountsAsync(client, package.InvestmentReconciliations,
+                liveAccounts, liveValuations, persist: false, warnings, conflicts, null, cancellationToken);
             var previewReviews = new List<PreviewInvestmentReconciliationReview>();
             foreach (var source in package.InvestmentReconciliations)
             {
@@ -595,6 +597,7 @@ public sealed class ClientReviewTransferService(
                 {
                     match.SurrenderDate = source.SurrenderDate;
                 }
+                conflicts.AddRange(ApplyTransactionCorrections(match, source));
                 var portableSnapshot = CalculatePortableInvestmentSnapshot(match, matchedValuations);
                 if (!InvestmentSnapshotMatchesOrCurrent(source, match, matchedValuations, portableSnapshot))
                 {
@@ -834,6 +837,16 @@ public sealed class ClientReviewTransferService(
         }
         await db.SaveChangesAsync(cancellationToken);
 
+        var stagedAccountWarnings = new List<string>();
+        var stagedAccountConflicts = new List<string>();
+        await StageCurrentAccountsAsync(client, package.InvestmentReconciliations,
+            client.InvestmentAccounts, client.FundValuations, persist: true,
+            stagedAccountWarnings, stagedAccountConflicts, user, cancellationToken);
+        if (stagedAccountConflicts.Count > 0)
+        {
+            throw new InvalidOperationException(string.Join(" ", stagedAccountConflicts));
+        }
+
         foreach (var source in package.InvestmentReconciliations)
         {
             var account = MatchInvestmentAccount(client.InvestmentAccounts, source.LegacyInvestmentAccountId, source.AccountNumber, source.Administrator,
@@ -896,6 +909,26 @@ public sealed class ClientReviewTransferService(
             else if (source.Outcome != ClientInvestmentReconciliationOutcomes.WrongClientDuplicate)
             {
                 account.SurrenderDate = source.SurrenderDate;
+            }
+            var transactionCorrections = ApplyTransactionCorrections(account, source);
+            if (transactionCorrections.Count > 0)
+            {
+                throw new InvalidOperationException(string.Join(" ", transactionCorrections));
+            }
+            foreach (var correction in source.TransactionCorrections)
+            {
+                var corrected = account.Transactions.Single(item =>
+                    item.LegacyInvestmentHistoryId == correction.LegacyInvestmentHistoryId);
+                db.ComplianceAuditEvents.Add(new ComplianceAuditEvent
+                {
+                    EntityType = nameof(ClientInvestmentTransaction),
+                    EntityId = corrected.Id,
+                    Action = "ReviewedInvestmentTransactionCorrectionImported",
+                    OldValueJson = JsonSerializer.Serialize(new { Description = correction.OriginalDescription }),
+                    NewValueJson = JsonSerializer.Serialize(new { Description = correction.CorrectedDescription, SourcePackageId = package.PackageId }),
+                    UserName = user,
+                    Reason = reason
+                });
             }
             var portableSnapshot = CalculatePortableInvestmentSnapshot(account, matchedValuations);
             if (!InvestmentSnapshotMatchesOrCurrent(source, account, matchedValuations, portableSnapshot))
@@ -1561,7 +1594,33 @@ public sealed class ClientReviewTransferService(
                         Administrator = entry.Account.Administrator,
                         InvestmentDate = entry.Account.InvestmentDate,
                         ProductName = entry.Account.ProductName,
+                        ProductType = entry.Account.ProductType,
                         FundName = entry.Account.FundName,
+                        TransactionCount = entry.Account.Transactions.Count(transaction => !transaction.IsDeleted),
+                        CurrentValuations = entry.Review.Outcome == ClientInvestmentReconciliationOutcomes.Current &&
+                                            !entry.Account.LegacyInvestmentAccountId.HasValue
+                            ? entry.Valuations.Select(valuation => new ClientReviewCurrentValuationPackage
+                            {
+                                LegacyFundId = valuation.LegacyFundId,
+                                ValuationDate = valuation.ValuationDate,
+                                AmountZar = valuation.AmountZar,
+                                AmountForeign = valuation.AmountForeign,
+                                InvestmentUniqueNumber = valuation.InvestmentUniqueNumber,
+                                Administrator = valuation.Administrator,
+                                FundName = valuation.FundName,
+                                ProductName = valuation.ProductName,
+                                ProductType = valuation.ProductType
+                            }).ToList() : [],
+                        TransactionCorrections = entry.Account.Transactions
+                            .Where(transaction => !transaction.IsDeleted && transaction.LegacyInvestmentHistoryId.HasValue)
+                            .Select(transaction => new { Transaction = transaction, Original = ImportedTransactionDescription(transaction) })
+                            .Where(item => item.Original is not null && item.Original != item.Transaction.Description)
+                            .Select(item => new ClientReviewTransactionCorrectionPackage
+                            {
+                                LegacyInvestmentHistoryId = item.Transaction.LegacyInvestmentHistoryId!.Value,
+                                OriginalDescription = item.Original,
+                                CorrectedDescription = item.Transaction.Description
+                            }).ToList(),
                         Outcome = entry.Review.Outcome,
                         SurrenderDate = entry.Account.SurrenderDate,
                         PortableSnapshotSha256 = CalculatePortableInvestmentSnapshot(
@@ -2056,6 +2115,11 @@ public sealed class ClientReviewTransferService(
             package.Exceptions ??= [];
             package.VerificationItems ??= [];
             package.InvestmentReconciliations ??= [];
+            foreach (var review in package.InvestmentReconciliations)
+            {
+                review.CurrentValuations ??= [];
+                review.TransactionCorrections ??= [];
+            }
             package.Assessment.Responses ??= [];
             package.Assessment.Approvals ??= [];
             foreach (var party in package.RelatedParties)
@@ -2441,6 +2505,45 @@ public sealed class ClientReviewTransferService(
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))).ToLowerInvariant();
     }
 
+    private static string? ImportedTransactionDescription(ClientInvestmentTransaction transaction)
+    {
+        if (string.IsNullOrWhiteSpace(transaction.PayloadJson)) return null;
+        try
+        {
+            using var payload = JsonDocument.Parse(transaction.PayloadJson);
+            return payload.RootElement.TryGetProperty("description", out var description) &&
+                   description.ValueKind == JsonValueKind.String
+                ? description.GetString()
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static List<string> ApplyTransactionCorrections(
+        ClientInvestmentAccount account,
+        ClientReviewInvestmentReconciliationPackage source)
+    {
+        var conflicts = new List<string>();
+        foreach (var correction in source.TransactionCorrections)
+        {
+            var matches = account.Transactions.Where(item =>
+                !item.IsDeleted && item.LegacyInvestmentHistoryId == correction.LegacyInvestmentHistoryId).ToList();
+            if (matches.Count != 1 ||
+                (matches[0].Description != correction.OriginalDescription &&
+                 matches[0].Description != correction.CorrectedDescription))
+            {
+                conflicts.Add($"Investment {account.AccountNumber}: transaction {correction.LegacyInvestmentHistoryId} " +
+                    "does not match the reviewed correction baseline.");
+                continue;
+            }
+            matches[0].Description = correction.CorrectedDescription;
+        }
+        return conflicts;
+    }
+
     private static bool InvestmentSnapshotMatchesOrCurrent(
         ClientReviewInvestmentReconciliationPackage source,
         ClientInvestmentAccount account,
@@ -2580,6 +2683,96 @@ public sealed class ClientReviewTransferService(
             .ThenBy(valuation => valuation.ValuationDate)
             .ThenBy(valuation => valuation.FundName)
             .ToList();
+    }
+
+    private async Task StageCurrentAccountsAsync(
+        Client client,
+        IEnumerable<ClientReviewInvestmentReconciliationPackage> reviews,
+        ICollection<ClientInvestmentAccount> accounts,
+        ICollection<ClientFundValuation> valuations,
+        bool persist,
+        List<string> warnings,
+        List<string> conflicts,
+        string? user,
+        CancellationToken cancellationToken)
+    {
+        foreach (var source in reviews.Where(item => item.Outcome == ClientInvestmentReconciliationOutcomes.Current))
+        {
+            if (MatchInvestmentAccount(accounts, source.LegacyInvestmentAccountId, source.AccountNumber,
+                    source.Administrator, source.InvestmentDate, source.ProductName, source.FundName) is not null)
+            {
+                continue;
+            }
+            var normalized = ClientInvestmentStatusClassifier.NormalizeAccountNumber(source.AccountNumber);
+            if (normalized is null || accounts.Any(item => string.Equals(
+                    ClientInvestmentStatusClassifier.NormalizeAccountNumber(item.AccountNumber), normalized,
+                    StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+            var matchingValuations = FindCurrentAccountCreationValuations(source, accounts, valuations);
+            if (matchingValuations.Count == 0 && source.LegacyInvestmentAccountId is null &&
+                source.TransactionCount == 0 && source.CurrentValuations.Count > 0)
+            {
+                var portable = source.CurrentValuations;
+                if (portable.Any(item => item.LegacyFundId >= 0 || item.ValuationDate is null ||
+                    (item.AmountZar is null && item.AmountForeign is null) ||
+                    !string.Equals(ClientInvestmentStatusClassifier.NormalizeAccountNumber(item.InvestmentUniqueNumber),
+                        normalized, StringComparison.OrdinalIgnoreCase)))
+                {
+                    conflicts.Add($"Investment {source.AccountNumber}: the portable current valuation is incomplete or does not match the account.");
+                    continue;
+                }
+                var ids = portable.Select(item => item.LegacyFundId).ToList();
+                if (ids.Distinct().Count() != ids.Count ||
+                    await db.ClientFundValuations.AsNoTracking().AnyAsync(item => ids.Contains(item.LegacyFundId), cancellationToken))
+                {
+                    conflicts.Add($"Investment {source.AccountNumber}: a portable valuation identifier is already used on live.");
+                    continue;
+                }
+                foreach (var item in portable)
+                {
+                    var valuation = new ClientFundValuation
+                    {
+                        ClientId = client.Id,
+                        LegacyClientId = client.LegacyClientId,
+                        KanaanId = client.KanaanId,
+                        LegacyFundId = item.LegacyFundId,
+                        ValuationDate = item.ValuationDate,
+                        AmountZar = item.AmountZar,
+                        AmountForeign = item.AmountForeign,
+                        InvestmentUniqueNumber = item.InvestmentUniqueNumber,
+                        Administrator = item.Administrator,
+                        FundName = item.FundName,
+                        ProductName = item.ProductName,
+                        ProductType = item.ProductType,
+                        PayloadJson = JsonSerializer.Serialize(new
+                        {
+                            source = "Reviewed client package current valuation",
+                            source.AccountNumber,
+                            item.ValuationDate,
+                            item.AmountZar,
+                            item.AmountForeign
+                        }, JsonOptions)
+                    };
+                    valuations.Add(valuation);
+                    if (persist) db.ClientFundValuations.Add(valuation);
+                }
+                matchingValuations = FindCurrentAccountCreationValuations(source, accounts, valuations);
+                warnings.Add($"Investment {source.AccountNumber}: the reviewed current valuation will be added on live.");
+            }
+            if (matchingValuations.Count == 0) continue;
+            var account = BuildCurrentAccountFromValuations(client.Id, source, matchingValuations, user);
+            account.Client = client;
+            account.InvestmentDate = source.InvestmentDate;
+            account.ProductName = source.ProductName;
+            account.ProductType = source.ProductType;
+            account.FundName = source.FundName ?? account.FundName;
+            accounts.Add(account);
+            if (persist) db.ClientInvestmentAccounts.Add(account);
+            warnings.Add($"Investment {source.AccountNumber}: the current account will be created on live from the reviewed provider position.");
+        }
+        if (persist) await db.SaveChangesAsync(cancellationToken);
     }
 
     internal static (string? OldAccountNumber, string NewAccountNumber)? AlignCurrentAccountNumberToReviewedValuations(
@@ -3047,7 +3240,11 @@ public sealed class ClientReviewInvestmentReconciliationPackage
     public string? Administrator { get; set; }
     public DateOnly? InvestmentDate { get; set; }
     public string? ProductName { get; set; }
+    public string? ProductType { get; set; }
     public string? FundName { get; set; }
+    public int TransactionCount { get; set; }
+    public List<ClientReviewCurrentValuationPackage> CurrentValuations { get; set; } = [];
+    public List<ClientReviewTransactionCorrectionPackage> TransactionCorrections { get; set; } = [];
     public string Outcome { get; set; } = "";
     public DateOnly? SurrenderDate { get; set; }
     public string PortableSnapshotSha256 { get; set; } = "";
@@ -3063,6 +3260,26 @@ public sealed class ClientReviewInvestmentReconciliationPackage
     public string Reason { get; set; } = "";
     public DateTime ReviewedAtUtc { get; set; }
     public string ReviewedBy { get; set; } = "";
+}
+
+public sealed class ClientReviewCurrentValuationPackage
+{
+    public int LegacyFundId { get; set; }
+    public DateOnly? ValuationDate { get; set; }
+    public decimal? AmountZar { get; set; }
+    public decimal? AmountForeign { get; set; }
+    public string? InvestmentUniqueNumber { get; set; }
+    public string? Administrator { get; set; }
+    public string FundName { get; set; } = "";
+    public string? ProductName { get; set; }
+    public string? ProductType { get; set; }
+}
+
+public sealed class ClientReviewTransactionCorrectionPackage
+{
+    public int LegacyInvestmentHistoryId { get; set; }
+    public string? OriginalDescription { get; set; }
+    public string? CorrectedDescription { get; set; }
 }
 
 public sealed class ClientReviewAssessmentPackage

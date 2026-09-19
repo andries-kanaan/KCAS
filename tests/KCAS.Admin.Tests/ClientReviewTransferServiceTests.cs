@@ -389,6 +389,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var service = scope.ServiceProvider.GetRequiredService<ClientReviewTransferService>();
         var readinessService = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var compliance = scope.ServiceProvider.GetRequiredService<ComplianceService>();
         var investmentService = new InvestmentReconciliationService(db);
         await readinessService.LoadDashboardAsync();
         var methodology = await db.RiskMethodologyVersions
@@ -398,7 +399,17 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
                 item.Status == ComplianceStatuses.Approved ||
                 item.Status == ComplianceStatuses.Active)
             .OrderByDescending(item => item.Id)
-            .FirstAsync();
+            .FirstOrDefaultAsync();
+        if (methodology is null)
+        {
+            var methodologyId = await compliance.CreateKanaanStarterMethodologyAsync(
+                "reviewer@example.test", "Create transfer test methodology.");
+            await compliance.SubmitMethodologyAsync(
+                methodologyId, "reviewer@example.test", "Make transfer test methodology available.");
+            methodology = await db.RiskMethodologyVersions
+                .Include(item => item.Factors).ThenInclude(item => item.Options)
+                .SingleAsync(item => item.Id == methodologyId);
+        }
         var identityRequirement = await db.ClientEvidenceRequirements
             .FirstAsync(item => item.Status == ClientEvidenceRequirementStatuses.Active &&
                 item.EvidenceType == "Identity");
@@ -435,13 +446,29 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
             Client = client,
             AccountNumber = "RRA5057319",
             Administrator = "AIMS, ABSA",
-            FundName = "Compulsory SA"
+            FundName = "Compulsory SA",
+            ProductName = "Retirement Annuity",
+            InvestmentDate = today.AddYears(-5)
         };
         client.EvidenceItems.Add(evidence);
         client.InvestmentAccounts.Add(account);
+        var applicableRequirements = await db.ClientEvidenceRequirements
+            .Where(item => item.Status == ClientEvidenceRequirementStatuses.Active &&
+                (item.ClientCategory == "All" || item.ClientCategory == ClientCategories.NaturalPerson))
+            .ToListAsync();
+        foreach (var requirement in applicableRequirements.Where(item => item.Id != identityRequirement.Id))
+        {
+            client.EvidenceExceptions.Add(new ClientEvidenceException
+            {
+                Requirement = requirement,
+                Reason = $"Missing current account transfer test exception for {requirement.EvidenceType}.",
+                ApprovedBy = "reviewer@example.test",
+                ReviewDate = today.AddYears(3)
+            });
+        }
         client.FundValuations.Add(new ClientFundValuation
         {
-            LegacyFundId = 9912501,
+            LegacyFundId = -9912501,
             InvestmentUniqueNumber = "RRA5057319",
             Administrator = "AIMS, ABSA",
             FundName = "Compulsory SA",
@@ -493,9 +520,25 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
 
         Assert.True(preview.CanApply, string.Join(" | ", preview.Conflicts));
         Assert.Contains(preview.Warnings, warning =>
-            warning.Contains("will create the account row", StringComparison.OrdinalIgnoreCase));
+            warning.Contains("current account will be created", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(preview.Conflicts, conflict =>
             conflict.Contains("RRA5057319", StringComparison.OrdinalIgnoreCase));
+
+        db.ClientFundValuations.RemoveRange(await db.ClientFundValuations
+            .Where(item => item.ClientId == client.Id).ToListAsync());
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        var missingValuationPreview = await service.PreviewAsync(encrypted, "missing-account-passphrase");
+        Assert.True(missingValuationPreview.CanApply, string.Join(" | ", missingValuationPreview.Conflicts));
+        Assert.Contains(missingValuationPreview.Warnings, warning =>
+            warning.Contains("reviewed current valuation will be added", StringComparison.OrdinalIgnoreCase));
+        await service.ApplyAsync(encrypted, "missing-account-passphrase", "live-importer@example.test",
+            "Import reviewed current account and valuation.");
+        Assert.Single(await db.ClientInvestmentAccounts.AsNoTracking()
+            .Where(item => item.ClientId == client.Id && item.AccountNumber == "RRA5057319").ToListAsync());
+        Assert.Single(await db.ClientFundValuations.AsNoTracking()
+            .Where(item => item.ClientId == client.Id && item.InvestmentUniqueNumber == "RRA5057319").ToListAsync());
     }
 
     [Fact]
@@ -584,6 +627,13 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
             Administrator = "Sanne",
             FundName = "Kanaan Hedge FoF"
         };
+        sourceAccount.Transactions.Add(new ClientInvestmentTransaction
+        {
+            LegacyInvestmentHistoryId = 9912602,
+            TransactionDate = new DateOnly(2017, 1, 1),
+            Description = "Corrected transfer description",
+            PayloadJson = "{\"description\":\"Original transfer description\"}"
+        });
         var relatedAccount = new ClientInvestmentAccount
         {
             Client = linkedClient,
@@ -656,8 +706,24 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         db.ClientInvestmentReconciliationReviews.RemoveRange(
             await db.ClientInvestmentReconciliationReviews.Where(item => item.ClientId == client.Id).ToListAsync());
         sourceAccount.SurrenderDate = null;
+        sourceAccount.Transactions.Single().Description = "Original transfer description";
         client.ClientFolder = null;
         linkedClient.ClientFolder = Path.Combine(Path.GetTempPath(), "kcas-related-transfer", Guid.NewGuid().ToString("N"));
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        var liveTransaction = await db.ClientInvestmentTransactions
+            .SingleAsync(item => item.LegacyInvestmentHistoryId == 9912602);
+        liveTransaction.Description = "Independent live correction";
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+        var conflictingPreview = await service.PreviewAsync(encrypted, "family-related-passphrase");
+        Assert.False(conflictingPreview.CanApply);
+        Assert.Contains(conflictingPreview.Conflicts, conflict =>
+            conflict.Contains("transaction 9912602", StringComparison.OrdinalIgnoreCase));
+        liveTransaction = await db.ClientInvestmentTransactions
+            .SingleAsync(item => item.LegacyInvestmentHistoryId == 9912602);
+        liveTransaction.Description = "Original transfer description";
         await db.SaveChangesAsync();
         db.ChangeTracker.Clear();
 
@@ -676,6 +742,9 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
             .OrderByDescending(item => item.Id)
             .FirstAsync();
         Assert.Equal(relatedAccount.Id, importedReview.RelatedClientInvestmentAccountId);
+        Assert.Equal("Corrected transfer description", await db.ClientInvestmentTransactions.AsNoTracking()
+            .Where(item => item.LegacyInvestmentHistoryId == 9912602)
+            .Select(item => item.Description).SingleAsync());
         Assert.Equal(new DateOnly(2020, 1, 28), await db.ClientInvestmentAccounts.AsNoTracking()
             .Where(item => item.Id == sourceAccount.Id)
             .Select(item => item.SurrenderDate)
