@@ -35,7 +35,22 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             .ToListAsync();
 
         var requirements = await LoadActiveRequirementsAsync();
-        var items = await db.ClientEvidenceItems.AsNoTracking().ToListAsync();
+        // The dashboard calculates readiness from these fields only. Avoid loading file paths,
+        // notes and scan metadata for every evidence record on each dashboard visit.
+        var items = await db.ClientEvidenceItems
+            .AsNoTracking()
+            .Select(item => new ClientEvidenceItem
+            {
+                ClientId = item.ClientId,
+                ClientEvidenceRequirementId = item.ClientEvidenceRequirementId,
+                ClientRelatedPartyId = item.ClientRelatedPartyId,
+                EvidenceType = item.EvidenceType,
+                VerifiedDate = item.VerifiedDate,
+                ExpiryDate = item.ExpiryDate,
+                Status = item.Status,
+                OwnershipStatus = item.OwnershipStatus
+            })
+            .ToListAsync();
         var exceptions = await db.ClientEvidenceExceptions.AsNoTracking().Where(item => item.IsActive).ToListAsync();
         var entityProfiles = await db.ClientEntityProfiles.AsNoTracking().ToListAsync();
         var relatedParties = await db.ClientRelatedParties
@@ -45,23 +60,36 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             .Include(party => party.EvidenceLinks).ThenInclude(link => link.EvidenceItem)
             .ToListAsync();
         var today = DateOnly.FromDateTime(DateTime.Today);
+        var itemsByClient = items
+            .GroupBy(item => item.ClientId)
+            .ToDictionary(group => group.Key, group => (IReadOnlyList<ClientEvidenceItem>)group.ToList());
+        var exceptionsByClient = exceptions
+            .GroupBy(item => item.ClientId)
+            .ToDictionary(group => group.Key, group => (IReadOnlyList<ClientEvidenceException>)group.ToList());
+        var entityProfilesByClient = entityProfiles.ToDictionary(profile => profile.ClientId);
+        var relatedPartiesByClient = relatedParties
+            .GroupBy(party => party.ClientId)
+            .ToDictionary(group => group.Key, group => (IReadOnlyList<ClientRelatedParty>)group.ToList());
 
         foreach (var client in clients)
         {
-            var readiness = CalculateReadiness(client.ClientId, client.ClientCategory, requirements, items, exceptions, today);
+            var clientItems = itemsByClient.GetValueOrDefault(client.ClientId) ?? [];
+            var clientExceptions = exceptionsByClient.GetValueOrDefault(client.ClientId) ?? [];
+            var clientRelatedParties = relatedPartiesByClient.GetValueOrDefault(client.ClientId) ?? [];
+            var readiness = CalculateReadiness(client.ClientCategory, requirements, clientItems, clientExceptions, today);
             var ownershipBlockers = EntityOwnershipRules.CalculateBlockers(
                 client.ClientCategory,
-                entityProfiles.FirstOrDefault(profile => profile.ClientId == client.ClientId),
-                relatedParties.Where(party => party.ClientId == client.ClientId),
-                items.Where(item => item.ClientId == client.ClientId),
+                entityProfilesByClient.GetValueOrDefault(client.ClientId),
+                clientRelatedParties,
+                clientItems,
                 today);
             client.RequiredCount = readiness.RequiredCount;
             client.CompleteCount = readiness.CompleteCount;
             client.OwnershipBlockedCount = ownershipBlockers.Count;
             client.BlockedCount = readiness.BlockedCount + ownershipBlockers.Count;
             client.ExceptionCount = readiness.ExceptionCount;
-            client.LinkedEvidenceCount = items.Count(item => item.ClientId == client.ClientId && ClientEvidenceOwnershipStatuses.IsActive(item.OwnershipStatus));
-            client.VerifiedEvidenceCount = items.Count(item => item.ClientId == client.ClientId && ClientEvidenceOwnershipStatuses.IsActive(item.OwnershipStatus) && item.VerifiedDate is not null);
+            client.LinkedEvidenceCount = clientItems.Count(item => ClientEvidenceOwnershipStatuses.IsActive(item.OwnershipStatus));
+            client.VerifiedEvidenceCount = clientItems.Count(item => ClientEvidenceOwnershipStatuses.IsActive(item.OwnershipStatus) && item.VerifiedDate is not null);
             client.IsReadyForRiskAssessment = readiness.IsReadyForRiskAssessment && ownershipBlockers.Count == 0;
         }
 
@@ -1524,6 +1552,19 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         IReadOnlyList<ClientEvidenceRequirement> requirements,
         IReadOnlyList<ClientEvidenceItem> items,
         IReadOnlyList<ClientEvidenceException> exceptions,
+        DateOnly today) =>
+        CalculateReadiness(
+            clientCategory,
+            requirements,
+            items.Where(item => item.ClientId == clientId).ToList(),
+            exceptions.Where(exception => exception.ClientId == clientId).ToList(),
+            today);
+
+    private static ClientEvidenceReadinessCounts CalculateReadiness(
+        string clientCategory,
+        IReadOnlyList<ClientEvidenceRequirement> requirements,
+        IReadOnlyList<ClientEvidenceItem> items,
+        IReadOnlyList<ClientEvidenceException> exceptions,
         DateOnly today)
     {
         var applicableRequirements = ActiveForCategory(requirements, clientCategory);
@@ -1533,12 +1574,10 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         foreach (var requirement in applicableRequirements)
         {
             var matchedItems = items.Where(item =>
-                item.ClientId == clientId &&
                 ClientEvidenceOwnershipStatuses.IsActive(item.OwnershipStatus) &&
                 (item.ClientEvidenceRequirementId == requirement.Id || item.EvidenceType == requirement.EvidenceType));
             var isComplete = matchedItems.Any(item => IsEvidenceComplete(requirement, item, today));
             var isExceptioned = exceptions.Any(exception =>
-                exception.ClientId == clientId &&
                 exception.ClientEvidenceRequirementId == requirement.Id &&
                 !IsExpired(exception.ReviewDate, today));
 

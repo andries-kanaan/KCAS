@@ -130,6 +130,9 @@ else
                 </div>
             </div>
         }
+        <div class="notes-toolbar">
+            <div class="note-count">Showing @ClientShowingStart(FilteredClients.Count)-@ClientShowingEnd(FilteredClients.Count) of @FilteredClients.Count</div>
+        </div>
         <div class="table-responsive">
             <table class="table align-middle filter-table">
                 <thead>
@@ -176,7 +179,7 @@ else
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var client in FilteredClients)
+                    @foreach (var client in PagedClients)
                     {
                         <tr>
                             <td>@client.DisplayName</td>
@@ -209,6 +212,14 @@ else
                 </tbody>
             </table>
         </div>
+        @if (ClientPageCount(FilteredClients.Count) > 1)
+        {
+            <div class="notes-pager" aria-label="Client readiness pages">
+                <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="PreviousClientPage" disabled="@(clientPage <= 1)">Previous</button>
+                <span>Page @clientPage of @ClientPageCount(FilteredClients.Count)</span>
+                <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="@(() => NextClientPage(FilteredClients.Count))" disabled="@(clientPage >= ClientPageCount(FilteredClients.Count))">Next</button>
+            </div>
+        }
         <ServerFolderPicker IsOpen="@(clientFolderPickerClientId is not null)"
                             InitialPath="@ClientFolderPickerInitialPath"
                             Disabled="@(!canManage)"
@@ -354,6 +365,7 @@ else
     private const string RootUpdateReason = "Configure live client evidence root.";
     private const string ReadinessReady = "Ready";
     private const string ReadinessNotReady = "NotReady";
+    private const int ClientPageSize = 50;
 
     private ClientEvidenceDashboardModel? model;
     private string? scanRootPath;
@@ -367,6 +379,7 @@ else
     private string? readinessFilter;
     private string clientSortColumn = "client";
     private bool isClientSortDescending;
+    private int clientPage = 1;
     private bool isFolderPickerOpen;
     private int? clientFolderPickerClientId;
     private int? activeClientScanRunId;
@@ -390,7 +403,7 @@ else
         ? $"Scanning {activeClientScanClientName}..."
         : "Scanning client evidence...";
 
-    private IEnumerable<ClientEvidenceClientSummaryModel> FilteredClients
+    private List<ClientEvidenceClientSummaryModel> FilteredClients
     {
         get
         {
@@ -430,7 +443,25 @@ else
                 : clients.OrderBy(client => client.DisplayName, StringComparer.CurrentCultureIgnoreCase)
                     .ThenBy(client => client.SurnameOrEntityName, StringComparer.CurrentCultureIgnoreCase);
 
-            return isClientSortDescending ? clients.Reverse() : clients;
+            return (isClientSortDescending ? clients.Reverse() : clients).ToList();
+        }
+    }
+
+    private List<ClientEvidenceClientSummaryModel> PagedClients
+    {
+        get
+        {
+            var clients = FilteredClients;
+            var pageCount = ClientPageCount(clients.Count);
+            if (clientPage > pageCount)
+            {
+                clientPage = pageCount;
+            }
+
+            return clients
+                .Skip((clientPage - 1) * ClientPageSize)
+                .Take(ClientPageSize)
+                .ToList();
         }
     }
 
@@ -687,6 +718,31 @@ else
         clientSortColumn = column;
         isClientSortDescending = false;
     }
+
+    private void PreviousClientPage()
+    {
+        if (clientPage > 1)
+        {
+            clientPage--;
+        }
+    }
+
+    private void NextClientPage(int clientCount)
+    {
+        if (clientPage < ClientPageCount(clientCount))
+        {
+            clientPage++;
+        }
+    }
+
+    private static int ClientPageCount(int clientCount) =>
+        Math.Max(1, (int)Math.Ceiling(clientCount / (double)ClientPageSize));
+
+    private int ClientShowingStart(int clientCount) =>
+        clientCount == 0 ? 0 : ((Math.Min(clientPage, ClientPageCount(clientCount)) - 1) * ClientPageSize) + 1;
+
+    private int ClientShowingEnd(int clientCount) =>
+        Math.Min(clientCount, Math.Min(clientPage, ClientPageCount(clientCount)) * ClientPageSize);
 
     private string SortGlyph(string column) => clientSortColumn == column
         ? isClientSortDescending ? "Down" : "Up"
