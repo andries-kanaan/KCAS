@@ -89,6 +89,10 @@
                         {
                             <span class="badge text-bg-success">Completed</span>
                         }
+                        else if (item.IsReviewResolved)
+                        {
+                            <span class="badge text-bg-secondary">Resolved as duplicate</span>
+                        }
                         else
                         {
                             <span class="badge text-bg-warning">Incomplete</span>
@@ -180,11 +184,14 @@
     private static bool CanTransfer(ClientOperationalPortfolioItem item) =>
         item.HasCompletedAssessment;
 
-    private static string ReviewActionLabel(ClientOperationalPortfolioItem item) => item.HasCompletedAssessment
-        ? "View review"
-        : item.HasStartedReview
-            ? "Continue review"
-            : "Start review";
+    private static string ReviewActionLabel(ClientOperationalPortfolioItem item) =>
+        item.LifecycleStatus == ClientLifecycleStatuses.Duplicate
+            ? "View classification"
+            : item.HasCompletedAssessment
+                ? "View review"
+                : item.HasStartedReview
+                    ? "Continue review"
+                    : "Start review";
 
     private static string LifecycleBadge(string status) => status switch
     {

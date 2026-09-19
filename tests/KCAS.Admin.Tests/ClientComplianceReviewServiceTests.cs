@@ -235,4 +235,45 @@ public sealed class ClientComplianceReviewServiceTests(KcasWebApplicationFactory
             Directory.Delete(folder, recursive: true);
         }
     }
+
+    [Fact]
+    public async Task Duplicate_record_is_resolved_without_a_separate_risk_assessment()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = scope.ServiceProvider.GetRequiredService<ClientComplianceReviewService>();
+        var canonical = new Client
+        {
+            LegacyClientId = Random.Shared.Next(600000, 699999),
+            KanaanId = $"CANON-{Guid.NewGuid():N}"[..30],
+            DisplayName = "Canonical Review Client",
+            FullName = "Canonical Review Client",
+            SurnameOrEntityName = "Client",
+            LifecycleStatus = ClientLifecycleStatuses.Historical
+        };
+        db.Clients.Add(canonical);
+        await db.SaveChangesAsync();
+        var duplicate = new Client
+        {
+            LegacyClientId = Random.Shared.Next(700000, 799999),
+            KanaanId = $"DUP-{Guid.NewGuid():N}"[..30],
+            DisplayName = "Duplicate Review Client",
+            FullName = "Duplicate Review Client",
+            SurnameOrEntityName = "Client",
+            LifecycleStatus = ClientLifecycleStatuses.Duplicate,
+            LifecycleReason = "Same trust allocation recorded under the canonical client.",
+            DuplicateOfClientId = canonical.Id
+        };
+        db.Clients.Add(duplicate);
+        await db.SaveChangesAsync();
+
+        var review = await service.LoadAsync(duplicate.Id);
+
+        Assert.True(review.IsComplete);
+        Assert.True(review.IsResolvedDuplicate);
+        Assert.Equal(canonical.Id, review.DuplicateOfClientId);
+        Assert.Equal("Canonical Review Client", review.DuplicateOfDisplayName);
+        Assert.Equal("View canonical client review", review.NextAction.Label);
+        Assert.Null(review.Risk.Assessment);
+    }
 }
