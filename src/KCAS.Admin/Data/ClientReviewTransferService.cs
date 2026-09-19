@@ -566,14 +566,11 @@ public sealed class ClientReviewTransferService(
                 ClientInvestmentAccount? related = null;
                 if (source.RelatedLegacyInvestmentAccountId.HasValue || !string.IsNullOrWhiteSpace(source.RelatedAccountNumber))
                 {
-                    related = MatchInvestmentAccount(
-                        RelatedInvestmentCandidates(source.Outcome, liveAccounts, linkedLiveAccounts),
-                        source.RelatedLegacyInvestmentAccountId,
-                        source.RelatedAccountNumber,
-                        source.RelatedAdministrator);
+                    related = await ResolveRelatedInvestmentAccountAsync(
+                        source, liveAccounts, linkedLiveAccounts, asNoTracking: true, cancellationToken);
                     if (related is null)
                     {
-                        conflicts.Add($"Related investment for '{source.AccountNumber}' could not be matched uniquely on live.");
+                        conflicts.Add(RelatedInvestmentMatchError(source));
                     }
                 }
                 var matchedValuations = ClientInvestmentStatusClassifier.MatchingValuations(match, liveValuations);
@@ -869,12 +866,10 @@ public sealed class ClientReviewTransferService(
             ClientInvestmentAccount? related = null;
             if (source.RelatedLegacyInvestmentAccountId.HasValue || !string.IsNullOrWhiteSpace(source.RelatedAccountNumber))
             {
-                related = MatchInvestmentAccount(
-                    RelatedInvestmentCandidates(source.Outcome, client.InvestmentAccounts, linkedInvestmentAccounts),
-                    source.RelatedLegacyInvestmentAccountId,
-                    source.RelatedAccountNumber,
-                    source.RelatedAdministrator)
-                    ?? throw new InvalidOperationException($"Related investment for '{source.AccountNumber}' could not be matched uniquely on live.");
+                related = await ResolveRelatedInvestmentAccountAsync(
+                    source, client.InvestmentAccounts, linkedInvestmentAccounts,
+                    asNoTracking: false, cancellationToken)
+                    ?? throw new InvalidOperationException(RelatedInvestmentMatchError(source));
             }
             var oldSurrenderDate = account.SurrenderDate;
             var matchedValuations = ClientInvestmentStatusClassifier.MatchingValuations(account, client.FundValuations);
@@ -1877,6 +1872,59 @@ public sealed class ClientReviewTransferService(
             ? clientAccounts.Concat(linkedAccounts)
             : clientAccounts;
     }
+
+    private async Task<ClientInvestmentAccount?> ResolveRelatedInvestmentAccountAsync(
+        ClientReviewInvestmentReconciliationPackage source,
+        IEnumerable<ClientInvestmentAccount> clientAccounts,
+        IEnumerable<ClientInvestmentAccount> linkedAccounts,
+        bool asNoTracking,
+        CancellationToken cancellationToken)
+    {
+        var scoped = MatchInvestmentAccount(
+            RelatedInvestmentCandidates(source.Outcome, clientAccounts, linkedAccounts),
+            source.RelatedLegacyInvestmentAccountId,
+            source.RelatedAccountNumber,
+            source.RelatedAdministrator);
+        if (scoped is not null && RelatedOwnerMatches(scoped, source))
+        {
+            return scoped;
+        }
+
+        if (source.Outcome is not (ClientInvestmentReconciliationOutcomes.Transferred or
+            ClientInvestmentReconciliationOutcomes.WrongClientDuplicate) ||
+            !source.RelatedClientLegacyId.HasValue)
+        {
+            return null;
+        }
+
+        var query = db.ClientInvestmentAccounts
+            .Include(account => account.Client)
+            .Where(account => account.Client.LegacyClientId == source.RelatedClientLegacyId.Value);
+        var ownerAccounts = asNoTracking
+            ? await query.AsNoTracking().ToListAsync(cancellationToken)
+            : await query.ToListAsync(cancellationToken);
+        return MatchInvestmentAccount(
+            ownerAccounts.Where(account => RelatedOwnerMatches(account, source)),
+            source.RelatedLegacyInvestmentAccountId,
+            source.RelatedAccountNumber,
+            source.RelatedAdministrator);
+    }
+
+    private static bool RelatedOwnerMatches(
+        ClientInvestmentAccount account,
+        ClientReviewInvestmentReconciliationPackage source) =>
+        (!source.RelatedClientLegacyId.HasValue ||
+         account.Client.LegacyClientId == source.RelatedClientLegacyId.Value) &&
+        (string.IsNullOrWhiteSpace(source.RelatedClientKanaanId) ||
+         string.Equals(account.Client.KanaanId, source.RelatedClientKanaanId,
+             StringComparison.OrdinalIgnoreCase));
+
+    private static string RelatedInvestmentMatchError(ClientReviewInvestmentReconciliationPackage source) =>
+        $"Related investment '{source.RelatedAccountNumber ?? source.RelatedLegacyInvestmentAccountId?.ToString() ?? "unknown"}' " +
+        $"for '{source.AccountNumber}' could not be matched uniquely on live" +
+        (source.RelatedClientLegacyId.HasValue
+            ? $" under related client legacy ID {source.RelatedClientLegacyId.Value}."
+            : ".");
 
     internal static string? MapClientFolderToLiveRoot(string? sourceFolder, string? liveRoot)
     {
