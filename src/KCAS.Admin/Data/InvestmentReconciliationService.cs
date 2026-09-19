@@ -402,7 +402,9 @@ public sealed class InvestmentReconciliationService(ApplicationDbContext db)
             }
 
             if (candidates.All(account =>
-                    account.SurrenderDate.HasValue && account.SurrenderDate.Value <= today))
+                    account.SurrenderDate.HasValue &&
+                    account.SurrenderDate.Value <= today &&
+                    IsValuationOnOrAfterEffectiveSurrender(valuation, account.SurrenderDate.Value)))
             {
                 issues.Add(FromValuation(
                     client,
@@ -565,7 +567,8 @@ public sealed class InvestmentReconciliationService(ApplicationDbContext db)
             {
                 return "A surrendered or transferred investment requires an effective date.";
             }
-            if (hasCurrentValue)
+            if (matchedValuations.Any(value =>
+                    IsValuationOnOrAfterEffectiveSurrender(value, surrenderDate.Value)))
             {
                 return "A surrendered or transferred investment cannot be verified while a matching current valuation remains.";
             }
@@ -587,6 +590,12 @@ public sealed class InvestmentReconciliationService(ApplicationDbContext db)
         }
         return null;
     }
+
+    internal static bool IsValuationOnOrAfterEffectiveSurrender(
+        ClientFundValuation valuation,
+        DateOnly surrenderDate) =>
+        (valuation.AmountZar.HasValue || valuation.AmountForeign.HasValue) &&
+        (!valuation.ValuationDate.HasValue || valuation.ValuationDate.Value >= surrenderDate);
 
     private async Task<List<ClientInvestmentLinkedClientModel>> LoadLinkedClientsAsync(
         Client client,
