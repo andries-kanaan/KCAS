@@ -1732,6 +1732,16 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             return;
         }
 
+        var folderClients = await db.Clients.AsNoTracking()
+            .Where(item => item.ClientFolder == client.ClientFolder)
+            .Select(item => item.Id)
+            .Take(2)
+            .ToListAsync();
+        if (folderClients.Count > 1)
+        {
+            return;
+        }
+
         var inferred = ClientCategoryInference.InferFromEvidence(relativePath, evidenceType);
         if (inferred is null || string.Equals(client.ClientCategory, inferred.Category, StringComparison.OrdinalIgnoreCase))
         {

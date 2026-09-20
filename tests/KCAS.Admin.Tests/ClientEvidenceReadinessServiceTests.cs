@@ -410,6 +410,26 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
     }
 
     [Fact]
+    public async Task Scan_does_not_change_client_categories_from_shared_family_trust_documents()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var root = CreateTempRoot();
+        var folder = Path.Combine(root, "Shared Family");
+        var personId = await CreateClientAsync(db, "Family Member", "CAT-FAMILY-001", folder,
+            categorySource: ClientCategorySources.LegacyImportInferred);
+        var trustId = await CreateClientAsync(db, "Family Trust", "CAT-FAMILY-001", folder,
+            category: ClientCategories.Trust, categorySource: ClientCategorySources.LegacyImportInferred);
+        await WriteFileAsync(root, "Shared Family", "Storage Data", "Trust", "Trust Deed.pdf");
+
+        await service.RunClientFolderScanAsync(personId, folder, "scanner@example.test", "Scan shared folder.");
+
+        Assert.Equal(ClientCategories.NaturalPerson, (await db.Clients.SingleAsync(client => client.Id == personId)).ClientCategory);
+        Assert.Equal(ClientCategories.Trust, (await db.Clients.SingleAsync(client => client.Id == trustId)).ClientCategory);
+    }
+
+    [Fact]
     public async Task Scan_does_not_classify_unit_trust_beneficiary_nomination_as_trust_client()
     {
         using var scope = factory.Services.CreateScope();

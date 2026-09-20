@@ -36,7 +36,8 @@ public static partial class ClientCategoryInference
     }
 
     public static bool CanApplyInferredCategory(Client client) =>
-        !string.Equals(client.ClientCategorySource, ClientCategorySources.Manual, StringComparison.OrdinalIgnoreCase);
+        client.ClientCategory == ClientCategories.NaturalPerson &&
+        client.ClientCategorySource is ClientCategorySources.Unknown or ClientCategorySources.LegacyImportInferred;
 
     private static ClientCategoryInferenceResult Infer(string text, string source)
     {
