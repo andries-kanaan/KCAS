@@ -14,7 +14,7 @@ public sealed class ClientOperationalVerificationService(ApplicationDbContext db
             query = query.Where(client => client.LifecycleStatus == lifecycleStatus);
         }
 
-        return await query
+        var portfolio = await query
             .OrderBy(client => client.DisplayName)
             .Select(client => new ClientOperationalPortfolioItem(
                 client.Id,
@@ -33,8 +33,40 @@ public sealed class ClientOperationalVerificationService(ApplicationDbContext db
                     assessment.Status == ClientRiskAssessmentStatuses.Finalised ||
                     assessment.Status == ClientRiskAssessmentStatuses.Approved),
                 client.DuplicateOfClientId != null &&
-                    db.Clients.Any(canonical => canonical.Id == client.DuplicateOfClientId)))
+                    db.Clients.Any(canonical => canonical.Id == client.DuplicateOfClientId),
+                null))
             .ToListAsync();
+
+        var accounts = await db.ClientInvestmentAccounts.AsNoTracking()
+            .Where(account => query.Any(client => client.Id == account.ClientId))
+            .Select(account => new ClientInvestmentAccount
+            {
+                Id = account.Id,
+                ClientId = account.ClientId,
+                AccountNumber = account.AccountNumber,
+                Administrator = account.Administrator,
+                SurrenderDate = account.SurrenderDate
+            })
+            .ToListAsync();
+        var valuations = await db.ClientFundValuations.AsNoTracking()
+            .Where(valuation => query.Any(client => client.Id == valuation.ClientId))
+            .Select(valuation => new ClientFundValuation
+            {
+                Id = valuation.Id,
+                ClientId = valuation.ClientId,
+                InvestmentUniqueNumber = valuation.InvestmentUniqueNumber,
+                Administrator = valuation.Administrator,
+                AmountZar = valuation.AmountZar,
+                AmountForeign = valuation.AmountForeign
+            })
+            .ToListAsync();
+        var accountsByClient = accounts.ToLookup(account => account.ClientId);
+        var valuationsByClient = valuations.ToLookup(valuation => valuation.ClientId);
+        return portfolio.Select(item => item with
+        {
+            TotalCurrentValueZar = ClientSearchService.BuildInvestmentPosition(
+                accountsByClient[item.ClientId], valuationsByClient[item.ClientId]).TotalCurrentValueZar
+        }).ToList();
     }
 
     public async Task<ClientOperationalReviewModel> LoadClientAsync(int clientId)

@@ -108,7 +108,8 @@ public sealed record ClientOperationalPortfolioItem(
     int BlockingVerificationCount,
     bool HasStartedReview,
     bool HasCompletedAssessment,
-    bool HasCanonicalClient)
+    bool HasCanonicalClient,
+    decimal? TotalCurrentValueZar)
 {
     public bool IsReviewResolved =>
         HasCompletedAssessment ||

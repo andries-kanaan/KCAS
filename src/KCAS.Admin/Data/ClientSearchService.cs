@@ -99,7 +99,7 @@ public sealed class ClientSearchService
 
         var results = clients.Select(client =>
         {
-            var investment = BuildInvestmentPosition(client);
+            var investment = BuildInvestmentPosition(client.InvestmentAccounts, client.FundValuations);
             return new ClientSearchResult(
                 client.Id,
                 client.KanaanId,
@@ -166,10 +166,13 @@ public sealed class ClientSearchService
         return results.Take(take).ToList();
     }
 
-    private static ClientInvestmentPosition BuildInvestmentPosition(Client client)
+    internal static ClientInvestmentPosition BuildInvestmentPosition(
+        IEnumerable<ClientInvestmentAccount> accounts,
+        IEnumerable<ClientFundValuation> fundValuations)
     {
-        var valuations = client.FundValuations.ToList();
-        var accountStatuses = client.InvestmentAccounts
+        var valuations = fundValuations.ToList();
+        var accountList = accounts.ToList();
+        var accountStatuses = accountList
             .Select(account => new
             {
                 Account = account,
@@ -187,7 +190,7 @@ public sealed class ClientSearchService
             .SelectMany(account => ClientInvestmentStatusClassifier.MatchingValuations(account, valuations))
             .Select(valuation => valuation.Id)
             .ToHashSet();
-        var accountNumbers = client.InvestmentAccounts
+        var accountNumbers = accountList
             .Select(account => ClientInvestmentStatusClassifier.NormalizeAccountNumber(account.AccountNumber))
             .Where(accountNumber => accountNumber is not null)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);

@@ -55,6 +55,11 @@
                     </button>
                 </th>
                 <th>Lifecycle</th>
+                <th class="text-end">
+                    <button class="sort-header" type="button" @onclick='() => SortBy("currentValue")'>
+                        Current value @SortIndicator("currentValue")
+                    </button>
+                </th>
                 <th>Review</th>
                 <th>Awaiting verification</th>
                 <th></th>
@@ -74,7 +79,7 @@
                            @bind:after="ApplyFilter"
                            aria-label="Filter reviews by client" />
                 </th>
-                <th colspan="4"></th>
+                <th colspan="5"></th>
             </tr>
         </thead>
         <tbody>
@@ -84,6 +89,7 @@
                     <td>@(item.KanaanId ?? "—")</td>
                     <td><a href="@($"/clients/{item.ClientId}")">@item.DisplayName</a></td>
                     <td><span class="@LifecycleBadge(item.LifecycleStatus)">@item.LifecycleStatus</span></td>
+                    <td class="text-end">@Money(item.TotalCurrentValueZar)</td>
                     <td>
                         @if (item.HasCompletedAssessment)
                         {
@@ -130,8 +136,8 @@
     private string? kanaanIdFilter;
     private string? clientFilter;
     private string? lifecycleFilter;
-    private string sortColumn = "client";
-    private bool sortDescending;
+    private string sortColumn = "currentValue";
+    private bool sortDescending = true;
 
     protected override async Task OnInitializedAsync()
     {
@@ -171,6 +177,17 @@
 
     private IEnumerable<ClientOperationalPortfolioItem> SortItems(IEnumerable<ClientOperationalPortfolioItem> items)
     {
+        if (sortColumn == "currentValue")
+        {
+            return sortDescending
+                ? items.OrderBy(item => !item.TotalCurrentValueZar.HasValue)
+                    .ThenByDescending(item => item.TotalCurrentValueZar)
+                    .ThenBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase)
+                : items.OrderBy(item => !item.TotalCurrentValueZar.HasValue)
+                    .ThenBy(item => item.TotalCurrentValueZar)
+                    .ThenBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase);
+        }
+
         var sorted = sortColumn == "kanaanId"
             ? items.OrderBy(item => string.IsNullOrWhiteSpace(item.KanaanId))
                 .ThenBy(item => item.KanaanId, StringComparer.OrdinalIgnoreCase)
@@ -184,6 +201,9 @@
 
     private string SortIndicator(string column) =>
         sortColumn == column ? sortDescending ? "down" : "up" : "";
+
+    private static string Money(decimal? value) =>
+        value.HasValue ? $"R {value.Value:N2}" : "—";
 
     private static bool CanTransfer(ClientOperationalPortfolioItem item) =>
         item.HasCompletedAssessment ||

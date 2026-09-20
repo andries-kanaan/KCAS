@@ -144,6 +144,52 @@ public sealed class ClientOperationalVerificationServiceTests(KcasWebApplication
         Assert.False(portfolio.Single(item => item.ClientId == draftOnly.Id).HasCompletedAssessment);
     }
 
+    [Fact]
+    public async Task Portfolio_current_value_matches_clients_list_and_excludes_surrendered_accounts()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = scope.ServiceProvider.GetRequiredService<ClientOperationalVerificationService>();
+        var search = scope.ServiceProvider.GetRequiredService<ClientSearchService>();
+        var client = NewClient("Portfolio valuation test");
+        client.LifecycleStatus = ClientLifecycleStatuses.Current;
+        db.Clients.Add(client);
+        await db.SaveChangesAsync();
+
+        db.ClientInvestmentAccounts.AddRange(
+            new ClientInvestmentAccount { ClientId = client.Id, AccountNumber = "CURRENT-1" },
+            new ClientInvestmentAccount
+            {
+                ClientId = client.Id,
+                AccountNumber = "SURRENDERED-1",
+                SurrenderDate = DateOnly.FromDateTime(DateTime.Today.AddDays(-1))
+            });
+        db.ClientFundValuations.AddRange(
+            new ClientFundValuation
+            {
+                ClientId = client.Id,
+                LegacyFundId = -1,
+                InvestmentUniqueNumber = "CURRENT-1",
+                AmountZar = 12_500m
+            },
+            new ClientFundValuation
+            {
+                ClientId = client.Id,
+                LegacyFundId = -2,
+                InvestmentUniqueNumber = "SURRENDERED-1",
+                AmountZar = 99_000m
+            });
+        await db.SaveChangesAsync();
+
+        var portfolioValue = (await service.LoadPortfolioAsync(ClientLifecycleStatuses.Current))
+            .Single(item => item.ClientId == client.Id).TotalCurrentValueZar;
+        var clientsValue = (await search.SearchAsync(new ClientSearchRequest(KanaanId: client.KanaanId)))
+            .Single(item => item.Id == client.Id).TotalCurrentValueZar;
+
+        Assert.Equal(12_500m, portfolioValue);
+        Assert.Equal(clientsValue, portfolioValue);
+    }
+
     private static Client NewClient(string name) => new()
     {
         KanaanId = $"VERIFY-{Guid.NewGuid():N}"[..22],
