@@ -153,8 +153,8 @@
     private string? phoneFilter;
     private string? statusFilter;
     private string? investmentPositionFilter;
-    private string sortColumn = "name";
-    private bool sortDescending;
+    private string sortColumn = "currentValue";
+    private bool sortDescending = true;
     private List<ClientSearchResult> clients = [];
 
     protected override async Task OnInitializedAsync()
