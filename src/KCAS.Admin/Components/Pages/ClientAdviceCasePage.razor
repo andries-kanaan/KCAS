@@ -21,7 +21,7 @@ else
             @if (!IsApproved) { <a class="btn btn-primary" href="@($"/advice/{CaseId}/draft-preview.pdf")" target="_blank">Download draft preview</a> }
             @if (CanRevise) { <button type="button" class="btn btn-outline-primary" @onclick="CreateRevisionAsync">Create revision</button> }
             @if (!IsApproved) { <a class="btn btn-outline-primary" href="@($"/advice/{CaseId}/review-manifest.json")">Download review manifest</a> }
-            <AuthorizeView Policy="@KcasPermissions.AdviceAudit">
+                <AuthorizeView Policy="@KcasPolicies.AdministratorOnly">
                 <Authorized><a class="btn btn-outline-primary" href="@($"/advice/transfers?clientId={ClientId}")">Transfer advice record</a></Authorized>
             </AuthorizeView>
             <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/advice")">Advice history</a>

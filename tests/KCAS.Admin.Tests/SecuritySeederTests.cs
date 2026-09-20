@@ -1,13 +1,35 @@
 using KCAS.Admin.Data;
 using KCAS.Admin.Security;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
+using System.Security.Claims;
 
 namespace KCAS.Admin.Tests;
 
 [Collection(KcasTestCollection.Name)]
 public sealed class SecuritySeederTests(KcasWebApplicationFactory factory)
 {
+    [Fact]
+    public async Task Administrator_only_policy_does_not_allow_compliance_administrators()
+    {
+        using var scope = factory.Services.CreateScope();
+        var authorization = scope.ServiceProvider.GetRequiredService<IAuthorizationService>();
+
+        var administrator = new ClaimsPrincipal(new ClaimsIdentity(
+        [new Claim(ClaimTypes.Role, KcasRoles.Administrator)],
+        authenticationType: "Test"));
+        var complianceAdministrator = new ClaimsPrincipal(new ClaimsIdentity(
+        [
+            new Claim(ClaimTypes.Role, KcasRoles.ComplianceAdministrator),
+            new Claim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage)
+        ],
+        authenticationType: "Test"));
+
+        Assert.True((await authorization.AuthorizeAsync(administrator, null, KcasPolicies.AdministratorOnly)).Succeeded);
+        Assert.False((await authorization.AuthorizeAsync(complianceAdministrator, null, KcasPolicies.AdministratorOnly)).Succeeded);
+    }
+
     [Fact]
     public async Task Seeds_expected_roles_and_permissions()
     {

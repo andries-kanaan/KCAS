@@ -56,6 +56,8 @@ if (!builder.Environment.IsEnvironment("Testing"))
 
 builder.Services.AddAuthorization(options =>
 {
+    options.AddPolicy(KcasPolicies.AdministratorOnly, policy =>
+        policy.RequireRole(KcasRoles.Administrator));
     foreach (var permission in KcasPermissions.All)
     {
         options.AddPolicy(permission, policy =>
@@ -239,7 +241,7 @@ app.MapGet("/compliance/goaml/transfers/{packageId}/download", async Task<IResul
         record.StoragePath,
         "application/vnd.kcas.goaml-transfer",
         record.FileName);
-}).RequireAuthorization(KcasPermissions.ComplianceManage);
+}).RequireAuthorization(KcasPolicies.AdministratorOnly);
 
 app.MapGet("/compliance/programme-transfers/{packageId}/download", async Task<IResult> (
     string packageId,
@@ -256,7 +258,7 @@ app.MapGet("/compliance/programme-transfers/{packageId}/download", async Task<IR
         package.StoragePath,
         "application/vnd.kcas.compliance-programme",
         package.FileName);
-}).RequireAuthorization(KcasPermissions.ComplianceManage);
+}).RequireAuthorization(KcasPolicies.AdministratorOnly);
 
 app.MapGet("/investments/summary.csv", async Task<IResult> (
     HttpContext context,
@@ -338,7 +340,7 @@ app.MapGet("/advice/transfers/{packageId}/download", async Task<IResult> (
     return package is null
         ? Results.NotFound()
         : Results.File(package.Path, "application/vnd.kcas.client-advice", package.FileName);
-}).RequireAuthorization(KcasPermissions.AdviceAudit);
+}).RequireAuthorization(KcasPolicies.AdministratorOnly);
 
 app.MapGet("/compliance/client-risk/register.csv", async Task<IResult> (
     HttpContext context,
@@ -390,7 +392,7 @@ app.MapGet("/compliance/review-transfers/{packageId}/download", async Task<IResu
         record.StoragePath,
         contentType,
         record.FileName);
-}).RequireAuthorization(KcasPermissions.ComplianceManage);
+}).RequireAuthorization(KcasPolicies.AdministratorOnly);
 
 app.MapGet("/compliance/inspections/{id:int}/export.json", async Task<IResult> (int id, InspectionService inspections) =>
 {

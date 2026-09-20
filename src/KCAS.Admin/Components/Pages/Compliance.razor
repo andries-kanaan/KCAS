@@ -165,7 +165,11 @@ else
                     <h2 class="mb-1">Signed-final FSCA evidence</h2>
                     <p class="text-muted mb-0">The submitted programme documents and supporting evidence, with direct access to each captured source.</p>
                 </div>
-                <a class="btn btn-sm btn-outline-primary" href="/compliance/programme-transfers">Transfer programme pack</a>
+                <AuthorizeView Policy="@KcasPolicies.AdministratorOnly">
+                    <Authorized>
+                        <a class="btn btn-sm btn-outline-primary" href="/compliance/programme-transfers">Transfer programme pack</a>
+                    </Authorized>
+                </AuthorizeView>
             </div>
 
             <div class="table-responsive">
