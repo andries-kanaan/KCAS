@@ -9,6 +9,209 @@ namespace KCAS.Admin.Tests;
 public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory factory)
 {
     [Fact]
+    public async Task Partial_review_import_preserves_draft_assessment_status()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = scope.ServiceProvider.GetRequiredService<ClientReviewTransferService>();
+        var compliance = scope.ServiceProvider.GetRequiredService<ComplianceService>();
+        var methodologyId = await db.RiskMethodologyVersions
+            .Where(item => item.Status == ComplianceStatuses.Draft ||
+                item.Status == ComplianceStatuses.Review ||
+                item.Status == ComplianceStatuses.Approved ||
+                item.Status == ComplianceStatuses.Active)
+            .OrderByDescending(item => item.Id)
+            .Select(item => item.Id)
+            .FirstOrDefaultAsync();
+        if (methodologyId == 0)
+        {
+            methodologyId = await compliance.CreateKanaanStarterMethodologyAsync(
+                "reviewer@example.test", "Prepare draft transfer test methodology.");
+        }
+        var client = new Client
+        {
+            LegacyClientId = Random.Shared.Next(900000, 990000),
+            KanaanId = $"DRAFT-{Guid.NewGuid():N}"[..24],
+            DisplayName = "Draft transfer client",
+            SurnameOrEntityName = "Draft transfer client",
+            ClientCategory = ClientCategories.NaturalPerson,
+            LifecycleStatus = ClientLifecycleStatuses.Historical,
+            LifecycleReason = "Historical client review in progress.",
+            LifecycleReviewedAtUtc = DateTime.UtcNow,
+            LifecycleReviewedBy = "reviewer@example.test",
+            UpdatedAtUtc = DateTime.UtcNow
+        };
+        var draft = new ClientRiskAssessment
+        {
+            Client = client,
+            RiskMethodologyVersionId = methodologyId,
+            Status = ClientRiskAssessmentStatuses.Draft,
+            EffectiveDate = DateOnly.FromDateTime(DateTime.Today),
+            PreparedBy = "reviewer@example.test",
+            Narrative = "Draft pending documentary evidence."
+        };
+        client.RiskAssessments.Add(draft);
+        db.Clients.Add(client);
+        await db.SaveChangesAsync();
+
+        const string passphrase = "draft-transfer-test";
+        var export = await service.ExportAsync(client.Id, passphrase,
+            "reviewer@example.test", "Transfer draft work.", includePartial: true);
+        var encrypted = await File.ReadAllBytesAsync(export.StoragePath);
+        db.ClientRiskAssessments.Remove(draft);
+        client.LifecycleStatus = ClientLifecycleStatuses.Unreviewed;
+        client.LifecycleReason = null;
+        client.LifecycleReviewedAtUtc = null;
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        var preview = await service.PreviewAsync(encrypted, passphrase);
+        Assert.True(preview.CanApply, string.Join("; ", preview.Conflicts));
+        Assert.Equal(ClientRiskAssessmentStatuses.Draft, preview.Package.Assessment?.Status);
+        var imported = await service.ApplyAsync(encrypted, passphrase,
+            "reviewer@example.test", "Apply draft work.");
+        Assert.NotNull(imported.AssessmentId);
+        var liveAssessment = await db.ClientRiskAssessments.AsNoTracking()
+            .SingleAsync(item => item.ClientId == client.Id);
+        Assert.Equal(ClientRiskAssessmentStatuses.Draft, liveAssessment.Status);
+        Assert.Null(liveAssessment.FinalisedAtUtc);
+    }
+
+    [Fact]
+    public async Task Partial_review_transfers_recorded_lifecycle_without_creating_an_assessment()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = scope.ServiceProvider.GetRequiredService<ClientReviewTransferService>();
+        var familyService = scope.ServiceProvider.GetRequiredService<ClientReviewFamilyTransferService>();
+        var investmentService = scope.ServiceProvider.GetRequiredService<InvestmentReconciliationService>();
+        var legacyId = Random.Shared.Next(700000, 900000);
+        var familyId = $"PARTIAL-{Guid.NewGuid():N}"[..24];
+        var sourceFolder = $@"C:\Download\_kanaan\ClientsKanaan\MISSING-{Guid.NewGuid():N}";
+        var clients = new[]
+        {
+            new Client
+            {
+                LegacyClientId = legacyId,
+                KanaanId = familyId,
+                DisplayName = "Partial historical client",
+                SurnameOrEntityName = "Partial test",
+                ClientFolder = sourceFolder,
+                ClientCategory = ClientCategories.NaturalPerson,
+                LifecycleStatus = ClientLifecycleStatuses.Historical,
+                LifecycleReason = "Recorded historical relationship.",
+                LifecycleReviewedAtUtc = DateTime.UtcNow,
+                LifecycleReviewedBy = "reviewer@example.test",
+                UpdatedAtUtc = DateTime.UtcNow
+            },
+            new Client
+            {
+                LegacyClientId = legacyId + 1,
+                KanaanId = familyId,
+                DisplayName = "Partial current client",
+                SurnameOrEntityName = "Partial test",
+                ClientFolder = sourceFolder,
+                ClientCategory = ClientCategories.NaturalPerson,
+                LifecycleStatus = ClientLifecycleStatuses.Current,
+                LifecycleReason = "Recorded current relationship.",
+                LifecycleReviewedAtUtc = DateTime.UtcNow,
+                LifecycleReviewedBy = "reviewer@example.test",
+                UpdatedAtUtc = DateTime.UtcNow
+            }
+        };
+        var account = new ClientInvestmentAccount
+        {
+            Client = clients[0],
+            LegacyInvestmentAccountId = legacyId + 10000,
+            LegacyClientId = legacyId,
+            AccountNumber = $"PARTIAL-{legacyId}",
+            Administrator = "Test provider",
+            InvestmentDate = new DateOnly(2018, 1, 1)
+        };
+        account.Transactions.Add(new ClientInvestmentTransaction
+        {
+            InvestmentAccount = account,
+            TransactionDate = new DateOnly(2020, 5, 1),
+            Description = "Full withdrawal",
+            WithdrawalAmountZar = 10_000m
+        });
+        clients[0].InvestmentAccounts.Add(account);
+        db.Clients.AddRange(clients);
+        await db.SaveChangesAsync();
+        await investmentService.ReviewAccountAsync(clients[0].Id, account.Id,
+            new ClientInvestmentReconciliationReviewRequest
+            {
+                Outcome = ClientInvestmentReconciliationOutcomes.HistoricalSurrendered,
+                SurrenderDate = new DateOnly(2020, 5, 1),
+                EvidenceReference = "Recorded provider withdrawal transaction.",
+                Reason = "The account was fully withdrawn."
+            }, "reviewer@example.test");
+
+        const string passphrase = "partial-transfer-test";
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ExportAsync(
+            clients[0].Id, passphrase, "reviewer@example.test", "Without partial opt-in."));
+        var options = await service.LoadClientOptionsAsync(includePartial: true);
+        Assert.Contains(options, item => item.Id == clients[0].Id);
+        Assert.Contains(options, item => item.Id == clients[1].Id);
+        var family = await familyService.LoadFamilyAsync(clients[0].Id);
+        Assert.NotNull(family);
+        Assert.All(family.Members.Where(item => item.ClientId == clients[0].Id ||
+            item.ClientId == clients[1].Id), item => Assert.True(item.HasPartialWork));
+        var groups = await service.LoadBatchCandidatesAsync(
+            DateOnly.FromDateTime(DateTime.Today), includePartial: true);
+        Assert.True(groups.Any(item => item.KanaanId == familyId),
+            $"Partial family was absent. Groups: {string.Join(", ", groups.Select(item => item.KanaanId ?? item.Label))}");
+        var partialGroup = Assert.Single(groups, item => item.KanaanId == familyId);
+        Assert.True(partialGroup.CanExportFamilyBundle);
+        Assert.All(partialGroup.Members, item => Assert.Equal("Partial", item.AssessmentStatus));
+        var bundle = await familyService.ExportAsync(clients[0].Id, passphrase,
+            "reviewer@example.test", "Transfer partial family progress.", includePartial: true);
+        Assert.Equal(2, bundle.MemberCount);
+        var exported = await service.ExportAsync(clients[0].Id, passphrase,
+            "reviewer@example.test", "Transfer partial progress.", includePartial: true);
+        var encrypted = await File.ReadAllBytesAsync(exported.StoragePath);
+
+        // Model live as a separate environment with no assessment or local review work.
+        foreach (var client in clients)
+        {
+            client.LifecycleStatus = ClientLifecycleStatuses.Unreviewed;
+            client.LifecycleReason = null;
+            client.LifecycleReviewedAtUtc = null;
+            client.LifecycleReviewedBy = null;
+            client.ClientFolder = $@"Z:\Kanaan Trust\Clients\Clients\MISSING-{legacyId}";
+        }
+        db.ClientInvestmentReconciliationReviews.RemoveRange(await db.ClientInvestmentReconciliationReviews
+            .Where(item => item.ClientId == clients[0].Id).ToListAsync());
+        account.SurrenderDate = null;
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        var preview = await service.PreviewAsync(encrypted, passphrase);
+        Assert.True(preview.CanApply, string.Join("; ", preview.Conflicts));
+        Assert.Null(preview.Package.Assessment);
+        Assert.Contains(preview.Warnings, item => item.Contains("Partial review", StringComparison.OrdinalIgnoreCase));
+        var imported = await service.ApplyAsync(encrypted, passphrase,
+            "reviewer@example.test", "Apply partial progress.");
+        Assert.Null(imported.AssessmentId);
+        var liveClient = await db.Clients.AsNoTracking().SingleAsync(item => item.Id == clients[0].Id);
+        Assert.Equal(ClientLifecycleStatuses.Historical, liveClient.LifecycleStatus);
+        Assert.False(await db.ClientRiskAssessments.AnyAsync(item => item.ClientId == clients[0].Id));
+        var liveReview = await db.ClientInvestmentReconciliationReviews.AsNoTracking()
+            .SingleAsync(item => item.ClientId == clients[0].Id);
+        Assert.Equal(ClientInvestmentReconciliationOutcomes.HistoricalSurrendered, liveReview.Outcome);
+        Assert.Equal(new DateOnly(2020, 5, 1), liveReview.AppliedSurrenderDate);
+
+        var familyBytes = await File.ReadAllBytesAsync(bundle.StoragePath);
+        var familyPreview = await familyService.PreviewAsync(familyBytes, passphrase);
+        Assert.Equal(2, familyPreview.Members.Count);
+        Assert.All(familyPreview.Members, item => Assert.True(item.CanApply));
+        var familyImport = await familyService.ApplyAsync(familyBytes, passphrase,
+            "reviewer@example.test", "Apply remaining partial family member.");
+        Assert.Equal(2, familyImport.Members.Count(item => item.Status == "Applied"));
+        Assert.False(await db.ClientRiskAssessments.AnyAsync(item => item.ClientId == clients[1].Id));
+    }
+
+    [Fact]
     public async Task Completed_review_exports_previews_applies_once_and_rejects_duplicate_import()
     {
         using var scope = factory.Services.CreateScope();

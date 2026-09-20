@@ -1,6 +1,6 @@
 @page "/compliance/programme-transfers"
 @rendermode InteractiveServer
-@attribute [Authorize(Policy = KcasPermissions.ComplianceManage)]
+@attribute [Authorize(Policy = KcasPolicies.AdministratorOnly)]
 @using System.ComponentModel.DataAnnotations
 @using KCAS.Admin.Data
 @inject ComplianceProgrammeTransferService TransferService

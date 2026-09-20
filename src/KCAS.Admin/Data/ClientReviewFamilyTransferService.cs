@@ -43,7 +43,11 @@ public sealed class ClientReviewFamilyTransferService(
                 LifecycleStatus = client.LifecycleStatus,
                 HasCompletedAssessment = client.RiskAssessments.Any(assessment =>
                     assessment.Status == ClientRiskAssessmentStatuses.Finalised ||
-                    assessment.Status == ClientRiskAssessmentStatuses.Approved)
+                    assessment.Status == ClientRiskAssessmentStatuses.Approved),
+                HasPartialWork = client.LifecycleReviewedAtUtc != null ||
+                    client.InvestmentReconciliationReviews.Any() ||
+                    client.EvidenceItems.Any() || client.RiskAssessments.Any(assessment =>
+                        assessment.Status == ClientRiskAssessmentStatuses.Draft)
             })
             .ToListAsync(cancellationToken);
 
@@ -59,6 +63,7 @@ public sealed class ClientReviewFamilyTransferService(
         string passphrase,
         string? userName,
         string reason,
+        bool includePartial = false,
         CancellationToken cancellationToken = default)
     {
         ValidatePassphrase(passphrase);
@@ -66,11 +71,12 @@ public sealed class ClientReviewFamilyTransferService(
         reason = Require(reason, "An export reason is required.");
         var family = await LoadFamilyAsync(anchorClientId, cancellationToken)
             ?? throw new InvalidOperationException("The selected client has no Kanaan family identifier.");
-        var includedMembers = family.Members.Where(member => member.HasCompletedAssessment).ToList();
+        var includedMembers = family.Members.Where(member => member.HasCompletedAssessment ||
+            includePartial && member.HasPartialWork).ToList();
         if (includedMembers.Count < 2)
         {
             throw new InvalidOperationException(
-                "A family export requires at least two linked clients with finalised or approved assessments.");
+                "A family export requires at least two linked clients eligible for transfer.");
         }
         if (includedMembers.Any(member => !member.LegacyClientId.HasValue))
         {
@@ -88,19 +94,19 @@ public sealed class ClientReviewFamilyTransferService(
             ExportReason = reason,
             SourceEnvironment = Environment.MachineName,
             ExcludedMembers = family.Members
-                .Where(member => !member.HasCompletedAssessment)
+                .Where(member => !includedMembers.Contains(member))
                 .Select(member => new ClientReviewFamilyExcludedMember
                 {
                     LegacyClientId = member.LegacyClientId,
                     DisplayName = member.DisplayName,
-                    Reason = "No finalised or approved assessment was available at export."
+                    Reason = "No eligible review work was available at export."
                 })
                 .ToList()
         };
         foreach (var member in includedMembers)
         {
             var embedded = await clientTransfers.CreateEmbeddedExportAsync(
-                member.ClientId, passphrase, user, reason, cancellationToken);
+                member.ClientId, passphrase, user, reason, includePartial, cancellationToken);
             bundle.Members.Add(new ClientReviewFamilyBundleMember
             {
                 PackageId = embedded.Package.PackageId,
@@ -535,6 +541,7 @@ public sealed class ClientReviewFamilyMemberOption
     public string DisplayName { get; set; } = "";
     public string LifecycleStatus { get; set; } = "";
     public bool HasCompletedAssessment { get; set; }
+    public bool HasPartialWork { get; set; }
 }
 
 public sealed class ClientReviewFamilyBundle

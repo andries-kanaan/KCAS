@@ -13,7 +13,7 @@ public sealed class ClientReviewTransferService(
     IHostEnvironment environment)
 {
     private const string PackageMagic = "KCAS-CLIENT-REVIEW-1";
-    private const int PackageVersion = 2;
+    private const int PackageVersion = 3;
     private const int Pbkdf2Iterations = 300_000;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -23,11 +23,16 @@ public sealed class ClientReviewTransferService(
     public string StorageRoot => ResolveStorageRoot();
 
     public async Task<List<ClientReviewTransferClientOption>> LoadClientOptionsAsync(
+        bool includePartial = false,
         CancellationToken cancellationToken = default) =>
         await db.Clients.AsNoTracking()
             .Where(client => client.RiskAssessments.Any(assessment =>
                 assessment.Status == ClientRiskAssessmentStatuses.Finalised ||
-                assessment.Status == ClientRiskAssessmentStatuses.Approved))
+                assessment.Status == ClientRiskAssessmentStatuses.Approved) ||
+                (includePartial && (client.LifecycleReviewedAtUtc != null ||
+                    client.InvestmentReconciliationReviews.Any() ||
+                    client.EvidenceItems.Any() || client.RiskAssessments.Any(assessment =>
+                        assessment.Status == ClientRiskAssessmentStatuses.Draft))))
             .OrderBy(client => client.DisplayName)
             .ThenBy(client => client.SurnameOrEntityName)
             .Select(client => new ClientReviewTransferClientOption(
@@ -41,6 +46,7 @@ public sealed class ClientReviewTransferService(
 
     public async Task<List<ClientReviewBatchTransferGroup>> LoadBatchCandidatesAsync(
         DateOnly completedSince,
+        bool includePartial = false,
         CancellationToken cancellationToken = default)
     {
         var sinceUtc = completedSince.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
@@ -48,7 +54,20 @@ public sealed class ClientReviewTransferService(
             .Where(client => client.RiskAssessments.Any(assessment =>
                 (assessment.Status == ClientRiskAssessmentStatuses.Finalised ||
                  assessment.Status == ClientRiskAssessmentStatuses.Approved) &&
-                ((assessment.ApprovedAtUtc ?? assessment.FinalisedAtUtc) ?? assessment.UpdatedAtUtc) >= sinceUtc))
+                ((assessment.ApprovedAtUtc ?? assessment.FinalisedAtUtc) ?? assessment.UpdatedAtUtc) >= sinceUtc) ||
+                (includePartial && (client.UpdatedAtUtc >= sinceUtc ||
+                    client.LifecycleReviewedAtUtc >= sinceUtc ||
+                    client.InvestmentReconciliationReviews.Any(item => item.ReviewedAtUtc >= sinceUtc) ||
+                    client.EvidenceItems.Any(item => item.CreatedAtUtc >= sinceUtc) ||
+                    client.RiskAssessments.Any(item => item.Status == ClientRiskAssessmentStatuses.Draft &&
+                        item.UpdatedAtUtc >= sinceUtc)) &&
+                    !client.RiskAssessments.Any(assessment =>
+                        assessment.Status == ClientRiskAssessmentStatuses.Finalised ||
+                        assessment.Status == ClientRiskAssessmentStatuses.Approved) &&
+                    (client.LifecycleReviewedAtUtc != null ||
+                     client.InvestmentReconciliationReviews.Any() ||
+                     client.EvidenceItems.Any() || client.RiskAssessments.Any(assessment =>
+                         assessment.Status == ClientRiskAssessmentStatuses.Draft))))
             .Select(client => new
             {
                 client.Id,
@@ -57,6 +76,15 @@ public sealed class ClientReviewTransferService(
                 client.DisplayName,
                 client.SurnameOrEntityName,
                 client.LifecycleStatus,
+                client.UpdatedAtUtc,
+                client.LifecycleReviewedAtUtc,
+                LatestInvestmentReviewAtUtc = client.InvestmentReconciliationReviews
+                    .Select(item => (DateTime?)item.ReviewedAtUtc).Max(),
+                LatestEvidenceAtUtc = client.EvidenceItems
+                    .Select(item => (DateTime?)item.CreatedAtUtc).Max(),
+                LatestDraftAtUtc = client.RiskAssessments
+                    .Where(item => item.Status == ClientRiskAssessmentStatuses.Draft)
+                    .Select(item => (DateTime?)item.UpdatedAtUtc).Max(),
                 Assessment = client.RiskAssessments
                     .Where(assessment =>
                         assessment.Status == ClientRiskAssessmentStatuses.Finalised ||
@@ -91,6 +119,19 @@ public sealed class ClientReviewTransferService(
                     client.DisplayName,
                     client.SurnameOrEntityName,
                     client.LifecycleStatus,
+                    client.UpdatedAtUtc,
+                    client.LifecycleReviewedAtUtc,
+                    LatestInvestmentReviewAtUtc = client.InvestmentReconciliationReviews
+                        .Select(item => (DateTime?)item.ReviewedAtUtc).Max(),
+                    LatestEvidenceAtUtc = client.EvidenceItems
+                        .Select(item => (DateTime?)item.CreatedAtUtc).Max(),
+                    LatestDraftAtUtc = client.RiskAssessments
+                        .Where(item => item.Status == ClientRiskAssessmentStatuses.Draft)
+                        .Select(item => (DateTime?)item.UpdatedAtUtc).Max(),
+                    HasProgress = client.LifecycleReviewedAtUtc != null ||
+                        client.InvestmentReconciliationReviews.Any() ||
+                        client.EvidenceItems.Any() || client.RiskAssessments.Any(assessment =>
+                            assessment.Status == ClientRiskAssessmentStatuses.Draft),
                     Assessment = client.RiskAssessments
                         .Where(assessment =>
                             assessment.Status == ClientRiskAssessmentStatuses.Finalised ||
@@ -121,10 +162,17 @@ public sealed class ClientReviewTransferService(
                     member.DisplayName,
                     member.SurnameOrEntityName,
                     member.LifecycleStatus,
-                    member.Assessment?.Status,
+                    member.Assessment?.Status ?? (includePartial && member.HasProgress ? "Partial" : null),
                     member.Assessment?.FinalRating,
-                    member.Assessment?.CompletedAtUtc,
-                    member.Assessment?.CompletedAtUtc >= sinceUtc))
+                    member.Assessment?.CompletedAtUtc ?? (includePartial && member.HasProgress
+                        ? LatestPartialTime(member.UpdatedAtUtc, member.LifecycleReviewedAtUtc,
+                            member.LatestInvestmentReviewAtUtc, member.LatestEvidenceAtUtc,
+                            member.LatestDraftAtUtc) : null),
+                    member.Assessment?.CompletedAtUtc >= sinceUtc ||
+                        (includePartial && member.Assessment is null && member.HasProgress &&
+                            LatestPartialTime(member.UpdatedAtUtc, member.LifecycleReviewedAtUtc,
+                                member.LatestInvestmentReviewAtUtc, member.LatestEvidenceAtUtc,
+                                member.LatestDraftAtUtc) >= sinceUtc)))
                 .OrderBy(member => member.DisplayName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
             var triggerMembers = members.Where(member => member.IsEligibleByDate).ToList();
@@ -133,7 +181,7 @@ public sealed class ClientReviewTransferService(
                 continue;
             }
 
-            var completedMemberCount = members.Count(member => member.HasCompletedAssessment);
+            var completedMemberCount = members.Count(member => member.IsTransferable);
             groups.Add(new ClientReviewBatchTransferGroup(
                 $"family:{familyId}",
                 familyId,
@@ -149,19 +197,17 @@ public sealed class ClientReviewTransferService(
             .Where(client => string.IsNullOrWhiteSpace(client.KanaanId) || !familyKeys.Contains(client.KanaanId))
             .OrderBy(client => client.DisplayName, StringComparer.OrdinalIgnoreCase))
         {
-            if (client.Assessment is null)
-            {
-                continue;
-            }
             var member = new ClientReviewBatchTransferMember(
                 client.Id,
                 client.LegacyClientId,
                 client.DisplayName,
                 client.SurnameOrEntityName,
                 client.LifecycleStatus,
-                client.Assessment.Status,
-                client.Assessment.FinalRating,
-                client.Assessment.CompletedAtUtc,
+                client.Assessment?.Status ?? "Partial",
+                client.Assessment?.FinalRating,
+                (client.Assessment?.CompletedAtUtc ?? LatestPartialTime(client.UpdatedAtUtc,
+                    client.LifecycleReviewedAtUtc, client.LatestInvestmentReviewAtUtc,
+                    client.LatestEvidenceAtUtc, client.LatestDraftAtUtc))!.Value,
                 true);
             groups.Add(new ClientReviewBatchTransferGroup(
                 $"client:{client.Id}",
@@ -169,7 +215,9 @@ public sealed class ClientReviewTransferService(
                 client.Id,
                 false,
                 false,
-                client.Assessment.CompletedAtUtc,
+                (client.Assessment?.CompletedAtUtc ?? LatestPartialTime(client.UpdatedAtUtc,
+                    client.LifecycleReviewedAtUtc, client.LatestInvestmentReviewAtUtc,
+                    client.LatestEvidenceAtUtc, client.LatestDraftAtUtc))!.Value,
                 [member]));
         }
 
@@ -184,6 +232,7 @@ public sealed class ClientReviewTransferService(
         string passphrase,
         string? userName,
         string reason,
+        bool includePartial = false,
         CancellationToken cancellationToken = default)
     {
         ValidatePassphrase(passphrase);
@@ -191,7 +240,7 @@ public sealed class ClientReviewTransferService(
         reason = Require(reason, "An export reason is required.");
 
         var payload = await CreateEmbeddedExportAsync(
-            clientId, passphrase, user, reason, cancellationToken);
+            clientId, passphrase, user, reason, includePartial, cancellationToken);
         var directory = Path.Combine(StorageRoot, "outgoing");
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, payload.FileName);
@@ -327,6 +376,7 @@ public sealed class ClientReviewTransferService(
         string passphrase,
         string user,
         string reason,
+        bool includePartial = false,
         CancellationToken cancellationToken = default)
     {
         ValidatePassphrase(passphrase);
@@ -366,9 +416,18 @@ public sealed class ClientReviewTransferService(
                 ClientRiskAssessmentStatuses.Approved)
             .OrderByDescending(item => item.EffectiveDate)
             .ThenByDescending(item => item.Id)
-            .FirstOrDefault()
-            ?? throw new InvalidOperationException(
-                "Only a finalised or approved client assessment can be transferred.");
+            .FirstOrDefault() ?? (includePartial
+                ? client.RiskAssessments.Where(item => item.Status == ClientRiskAssessmentStatuses.Draft)
+                    .OrderByDescending(item => item.Id).FirstOrDefault()
+                : null);
+        if (assessment is null && (!includePartial ||
+            client.LifecycleReviewedAtUtc is null && client.InvestmentReconciliationReviews.Count == 0 &&
+            client.EvidenceItems.Count == 0 &&
+            !client.RiskAssessments.Any(item => item.Status == ClientRiskAssessmentStatuses.Draft)))
+        {
+            throw new InvalidOperationException(
+                "Only a finalised assessment or a client with recorded partial review work can be transferred.");
+        }
 
         var activeClientFolderRoot = await LoadActiveClientFolderRootAsync(cancellationToken);
         var exportClientFolder = ResolveTransferClientFolder(client, activeClientFolderRoot)
@@ -416,7 +475,7 @@ public sealed class ClientReviewTransferService(
         var conflicts = new List<string>();
         var warnings = new List<string>();
 
-        if (package.FormatVersion != PackageVersion)
+        if (package.FormatVersion is not (2 or PackageVersion))
         {
             conflicts.Add(
                 $"Package format {package.FormatVersion} is not supported by this KCAS version.");
@@ -445,19 +504,21 @@ public sealed class ClientReviewTransferService(
         string? supersededPackageId = null;
         if (client is not null)
         {
-            var methodologyResolution = await ResolveMethodologyAsync(
-                package.Assessment, asNoTracking: true, cancellationToken);
-            methodology = methodologyResolution.Methodology;
-            if (methodologyResolution.Error is not null)
+            if (package.Assessment is not null)
             {
-                conflicts.Add(methodologyResolution.Error);
+                var methodologyResolution = await ResolveMethodologyAsync(
+                    package.Assessment, asNoTracking: true, cancellationToken);
+                methodology = methodologyResolution.Methodology;
+                if (methodologyResolution.Error is not null) conflicts.Add(methodologyResolution.Error);
+                if (methodologyResolution.Warning is not null) warnings.Add(methodologyResolution.Warning);
             }
-            if (methodologyResolution.Warning is not null)
+            else
             {
-                warnings.Add(methodologyResolution.Warning);
+                warnings.Add("Partial review only: no assessment will be finalised on live; outstanding evidence and investment blockers remain visible.");
             }
 
             if (client.LifecycleStatus != ClientLifecycleStatuses.Unreviewed &&
+                client.LifecycleReviewedAtUtc.HasValue &&
                 client.LifecycleStatus != package.Client.LifecycleStatus)
             {
                 conflicts.Add(
@@ -476,21 +537,31 @@ public sealed class ClientReviewTransferService(
                 var liveRoot = await LoadActiveClientFolderRootAsync(cancellationToken);
                 if (string.IsNullOrWhiteSpace(liveRoot))
                 {
-                    conflicts.Add(
-                        "The package contains a client folder, but live KCAS has no active client evidence root.");
+                    if (IsPartialReview(package))
+                        warnings.Add("Partial review: no active live evidence root; the existing client folder will be retained.");
+                    else
+                        conflicts.Add("The package contains a client folder, but live KCAS has no active client evidence root.");
                 }
                 else
                 {
                     targetClientFolder = MapClientFolderToLiveRoot(package.Client.ClientFolder, liveRoot);
                     if (targetClientFolder is null)
                     {
-                        conflicts.Add(
-                            $"Client folder '{package.Client.ClientFolder}' is outside the recognised local/live client roots and cannot be mapped safely.");
+                        if (IsPartialReview(package))
+                            warnings.Add("Partial review: the source folder cannot be mapped; the existing live folder will be retained.");
+                        else
+                            conflicts.Add($"Client folder '{package.Client.ClientFolder}' is outside the recognised local/live client roots and cannot be mapped safely.");
+                        if (IsPartialReview(package)) targetClientFolder = client.ClientFolder;
                     }
                     else if (!Directory.Exists(targetClientFolder))
                     {
-                        conflicts.Add(
-                            $"Mapped client folder '{targetClientFolder}' does not exist on this KCAS server.");
+                        if (IsPartialReview(package))
+                        {
+                            warnings.Add($"Partial review: mapped folder '{targetClientFolder}' is absent; the existing live folder will be retained.");
+                            targetClientFolder = client.ClientFolder;
+                        }
+                        else
+                            conflicts.Add($"Mapped client folder '{targetClientFolder}' does not exist on this KCAS server.");
                     }
                     else if (!string.Equals(client.ClientFolder, targetClientFolder, StringComparison.OrdinalIgnoreCase))
                     {
@@ -510,17 +581,24 @@ public sealed class ClientReviewTransferService(
                 .ToListAsync(cancellationToken);
             if (!alreadyApplied && activeAssessments.Count > 0)
             {
-                var reconciliation = await EvaluateAssessmentReconciliationAsync(
-                    client.Id, activeAssessments, package, cancellationToken);
-                if (!reconciliation.CanReconcile)
+                if (IsPartialReview(package))
                 {
-                    conflicts.Add(reconciliation.Message);
+                    conflicts.Add("Live already has an assessment. A partial package cannot overwrite or downgrade it.");
                 }
                 else
                 {
-                    supersededAssessmentId = reconciliation.AssessmentId;
-                    supersededPackageId = reconciliation.PreviousPackageId;
-                    warnings.Add(reconciliation.Message);
+                    var reconciliation = await EvaluateAssessmentReconciliationAsync(
+                        client.Id, activeAssessments, package, cancellationToken);
+                    if (!reconciliation.CanReconcile)
+                    {
+                        conflicts.Add(reconciliation.Message);
+                    }
+                    else
+                    {
+                        supersededAssessmentId = reconciliation.AssessmentId;
+                        supersededPackageId = reconciliation.PreviousPackageId;
+                        warnings.Add(reconciliation.Message);
+                    }
                 }
             }
 
@@ -637,17 +715,14 @@ public sealed class ClientReviewTransferService(
                 }
             }
 
-            conflicts.AddRange(ValidatePreviewInvestmentCompleteness(
-                client,
-                liveAccounts,
-                liveValuations,
-                liveReviews,
-                previewReviews));
+            if (!IsPartialReview(package))
+                conflicts.AddRange(ValidatePreviewInvestmentCompleteness(
+                    client, liveAccounts, liveValuations, liveReviews, previewReviews));
         }
 
         if (methodology is not null)
         {
-            foreach (var response in package.Assessment.Responses)
+            foreach (var response in package.Assessment!.Responses)
             {
                 var factor = methodology.Factors.SingleOrDefault(item =>
                     item.Code.Equals(response.FactorCode, StringComparison.OrdinalIgnoreCase));
@@ -726,15 +801,19 @@ public sealed class ClientReviewTransferService(
             .Include(item => item.FundValuations)
             .SingleAsync(item => item.Id == preview.TargetClientId.Value, cancellationToken);
         var linkedInvestmentAccounts = await LoadLinkedInvestmentAccountsAsync(client, asNoTracking: false, cancellationToken);
-        var methodologyResolution = await ResolveMethodologyAsync(
-            package.Assessment, asNoTracking: false, cancellationToken);
-        var methodology = methodologyResolution.Methodology
-            ?? throw new InvalidOperationException(
-                methodologyResolution.Error ?? "The package methodology could not be resolved on live.");
+        RiskMethodologyVersion? methodology = null;
+        if (package.Assessment is not null)
+        {
+            var methodologyResolution = await ResolveMethodologyAsync(
+                package.Assessment, asNoTracking: false, cancellationToken);
+            methodology = methodologyResolution.Methodology
+                ?? throw new InvalidOperationException(
+                    methodologyResolution.Error ?? "The package methodology could not be resolved on live.");
+        }
 
         var liveRoot = await LoadActiveClientFolderRootAsync(cancellationToken);
         var mappedClientFolder = client.ClientFolder;
-        if (!string.IsNullOrWhiteSpace(package.Client.ClientFolder))
+        if (!string.IsNullOrWhiteSpace(package.Client.ClientFolder) && !IsPartialReview(package))
         {
             if (string.IsNullOrWhiteSpace(liveRoot))
             {
@@ -760,7 +839,7 @@ public sealed class ClientReviewTransferService(
         client.LifecycleReason = package.Client.LifecycleReason;
         client.LifecycleReviewedAtUtc = package.Client.LifecycleReviewedAtUtc;
         client.LifecycleReviewedBy = package.Client.LifecycleReviewedBy;
-        client.ClientFolder = mappedClientFolder;
+        client.ClientFolder = IsPartialReview(package) ? preview.TargetClientFolder : mappedClientFolder;
         client.IsActive = package.Client.LifecycleStatus == ClientLifecycleStatuses.Current;
         client.UpdatedAtUtc = DateTime.UtcNow;
         db.ComplianceAuditEvents.Add(new ComplianceAuditEvent
@@ -1207,15 +1286,52 @@ public sealed class ClientReviewTransferService(
         }
 
         await db.SaveChangesAsync(cancellationToken);
+        if (package.Assessment is null)
+        {
+            var partialIncomingDirectory = Path.Combine(StorageRoot, "incoming");
+            Directory.CreateDirectory(partialIncomingDirectory);
+            var partialFileName = BuildPackageFileName(client.Id, client.KanaanId,
+                client.SurnameOrEntityName, package.CreatedAtUtc, package.PackageId);
+            var partialStoragePath = Path.Combine(partialIncomingDirectory, partialFileName);
+            await File.WriteAllBytesAsync(partialStoragePath, encryptedPackage, cancellationToken);
+            var partialRecord = new ClientReviewTransferRecord
+            {
+                PackageId = package.PackageId,
+                Direction = ClientReviewTransferDirections.Incoming,
+                ContentSha256 = preview.ContentSha256,
+                ClientId = client.Id,
+                Status = ClientReviewTransferStatuses.Applied,
+                FileName = partialFileName,
+                StoragePath = partialStoragePath,
+                SummaryJson = JsonSerializer.Serialize(PackageSummary(package), JsonOptions),
+                AppliedAtUtc = DateTime.UtcNow,
+                AppliedBy = user
+            };
+            db.ClientReviewTransferRecords.Add(partialRecord);
+            await db.SaveChangesAsync(cancellationToken);
+            db.ComplianceAuditEvents.Add(new ComplianceAuditEvent
+            {
+                EntityType = nameof(ClientReviewTransferRecord),
+                EntityId = checked((int)partialRecord.Id),
+                Action = "PartialClientReviewPackageApplied",
+                NewValueJson = partialRecord.SummaryJson,
+                UserName = user,
+                Reason = reason
+            });
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return new ClientReviewImportResult(package.PackageId, client.Id,
+                client.DisplayName, null, preview.NewEvidenceCount, partialFileName, partialStoragePath);
+        }
         var readiness = await new ClientEvidenceReadinessService(db).LoadClientReadinessAsync(client.Id);
-        if (!readiness.IsReadyForRiskAssessment)
+        if (!IsPartialReview(package) && !readiness.IsReadyForRiskAssessment)
         {
             throw new InvalidOperationException(
                 $"The imported client review is not evidence-ready on live; {readiness.BlockedCount} blocking item(s) remain.");
         }
         var investmentReadiness = await new InvestmentReconciliationService(db)
             .LoadClientReviewAsync(client.Id, cancellationToken);
-        if (!investmentReadiness.IsComplete)
+        if (!IsPartialReview(package) && !investmentReadiness.IsComplete)
         {
             var blockerCount = investmentReadiness.Accounts.Count(item => !item.IsVerified) +
                                investmentReadiness.UnmatchedIssues.Count;
@@ -1226,7 +1342,7 @@ public sealed class ClientReviewTransferService(
             item.ClientId == client.Id &&
             item.Status == ClientVerificationStatuses.Pending &&
             item.IsBlocking, cancellationToken);
-        if (blockingVerificationCount > 0)
+        if (!IsPartialReview(package) && blockingVerificationCount > 0)
         {
             throw new InvalidOperationException(
                 $"The imported client review has {blockingVerificationCount} blocking verification item(s) on live.");
@@ -1250,7 +1366,7 @@ public sealed class ClientReviewTransferService(
         var assessment = new ClientRiskAssessment
         {
             ClientId = client.Id,
-            RiskMethodologyVersionId = methodology.Id,
+            RiskMethodologyVersionId = methodology!.Id,
             PreviousAssessmentId = supersededAssessment?.Id,
             Status = package.Assessment.Status,
             CalculatedScore = package.Assessment.CalculatedScore,
@@ -1377,7 +1493,7 @@ public sealed class ClientReviewTransferService(
 
     private static ClientReviewPackage BuildPackage(
         Client client,
-        ClientRiskAssessment assessment,
+        ClientRiskAssessment? assessment,
         string exportedBy,
         string reason,
         string? clientFolderOverride = null)
@@ -1539,7 +1655,9 @@ public sealed class ClientReviewTransferService(
                     IsActive = item.IsActive
                 }).ToList(),
             VerificationItems = client.VerificationItems
-                .Where(item => item.Status != ClientVerificationStatuses.Pending)
+                .Where(item => assessment is null ||
+                    assessment.Status == ClientRiskAssessmentStatuses.Draft ||
+                    item.Status != ClientVerificationStatuses.Pending)
                 .Select(item => new ClientReviewVerificationPackage
                 {
                     FieldCode = item.FieldCode,
@@ -1639,7 +1757,7 @@ public sealed class ClientReviewTransferService(
                         ReviewedBy = entry.Review.ReviewedBy
                     };
                 }).ToList(),
-            Assessment = new ClientReviewAssessmentPackage
+            Assessment = assessment is null ? null : new ClientReviewAssessmentPackage
             {
                 MethodologyName = assessment.MethodologyVersion!.Name,
                 MethodologyVersionLabel = assessment.MethodologyVersion.VersionLabel,
@@ -1674,7 +1792,8 @@ public sealed class ClientReviewTransferService(
                     {
                         FactorCode = item.FactorDefinition!.Code,
                         OptionCode = item.SelectedOption!.Code,
-                        EvidenceKey = item.EvidenceItem is null
+                        EvidenceKey = item.EvidenceItem is null ||
+                            !evidence.Any(source => source.EvidenceKey == EvidenceKey(item.EvidenceItem))
                             ? null
                             : EvidenceKey(item.EvidenceItem),
                         Score = item.Score,
@@ -2095,6 +2214,10 @@ public sealed class ClientReviewTransferService(
     private static string NormalizeWindowsPath(string path) =>
         path.Trim().Replace('/', '\\').TrimEnd('\\');
 
+    private static bool IsPartialReview(ClientReviewPackage package) =>
+        package.Assessment?.Status is not (ClientRiskAssessmentStatuses.Finalised or
+            ClientRiskAssessmentStatuses.Approved);
+
     private ClientReviewPackage DecryptPackage(
         byte[] encrypted,
         string passphrase,
@@ -2108,7 +2231,7 @@ public sealed class ClientReviewTransferService(
                 ?? throw new ValidationException("The package payload is empty.");
             if (string.IsNullOrWhiteSpace(package.PackageId) ||
                 package.Client is null ||
-                package.Assessment is null)
+                package.FormatVersion <= 2 && package.Assessment is null)
             {
                 throw new ValidationException("The package payload is incomplete.");
             }
@@ -2122,8 +2245,11 @@ public sealed class ClientReviewTransferService(
                 review.CurrentValuations ??= [];
                 review.TransactionCorrections ??= [];
             }
-            package.Assessment.Responses ??= [];
-            package.Assessment.Approvals ??= [];
+            if (package.Assessment is not null)
+            {
+                package.Assessment.Responses ??= [];
+                package.Assessment.Approvals ??= [];
+            }
             foreach (var party in package.RelatedParties)
             {
                 party.Roles ??= [];
@@ -2351,6 +2477,12 @@ public sealed class ClientReviewTransferService(
 
     private static void ValidatePackageStructure(ClientReviewPackage package, ICollection<string> conflicts)
     {
+        if (package.Assessment is not null && package.Assessment.Status is not
+            (ClientRiskAssessmentStatuses.Draft or ClientRiskAssessmentStatuses.Finalised or
+                ClientRiskAssessmentStatuses.Approved))
+        {
+            conflicts.Add("The package assessment status is not transferable.");
+        }
         if (package.Client.ClientCategory is not (ClientCategories.NaturalPerson or
             ClientCategories.LegalPerson or ClientCategories.Trust or ClientCategories.Other))
         {
@@ -2372,7 +2504,8 @@ public sealed class ClientReviewTransferService(
         }
         var evidenceKeySet = evidenceKeys.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        if (package.Client.ClientCategory is ClientCategories.Trust or ClientCategories.LegalPerson &&
+        if (!IsPartialReview(package) &&
+            package.Client.ClientCategory is ClientCategories.Trust or ClientCategories.LegalPerson &&
             package.EntityProfile is null)
         {
             conflicts.Add("The entity ownership profile is missing from the package.");
@@ -2406,7 +2539,7 @@ public sealed class ClientReviewTransferService(
                 conflicts.Add($"Evidence '{item.Title}' refers to a related party that is missing from the package.");
             }
         }
-        foreach (var response in package.Assessment.Responses.Where(response => !string.IsNullOrWhiteSpace(response.EvidenceKey)))
+        foreach (var response in (package.Assessment?.Responses ?? []).Where(response => !string.IsNullOrWhiteSpace(response.EvidenceKey)))
         {
             if (!evidenceKeySet.Contains(response.EvidenceKey!))
             {
@@ -2687,6 +2820,8 @@ public sealed class ClientReviewTransferService(
             .ToList();
     }
 
+    private static DateTime? LatestPartialTime(params DateTime?[] values) => values.Max();
+
     private async Task StageCurrentAccountsAsync(
         Client client,
         IEnumerable<ClientReviewInvestmentReconciliationPackage> reviews,
@@ -2886,14 +3021,14 @@ public sealed class ClientReviewTransferService(
         ExceptionCount = package.Exceptions.Count,
         RelatedPartyCount = package.RelatedParties.Count,
         InvestmentReconciliationCount = package.InvestmentReconciliations.Count,
-        MethodologyName = package.Assessment.MethodologyName,
-        MethodologyVersionLabel = package.Assessment.MethodologyVersionLabel,
-        Status = package.Assessment.Status,
-        FinalRating = package.Assessment.FinalRating,
-        EffectiveDate = package.Assessment.EffectiveDate,
+        MethodologyName = package.Assessment?.MethodologyName ?? "",
+        MethodologyVersionLabel = package.Assessment?.MethodologyVersionLabel,
+        Status = package.Assessment?.Status ?? "Partial",
+        FinalRating = package.Assessment?.FinalRating,
+        EffectiveDate = package.Assessment?.EffectiveDate,
         ImportedAssessmentId = importedAssessmentId,
         SupersededAssessmentId = supersededAssessmentId,
-        AssessmentFingerprint = AssessmentFingerprint(package.Assessment)
+        AssessmentFingerprint = package.Assessment is null ? null : AssessmentFingerprint(package.Assessment)
     };
 
     private static string EvidenceKey(ClientEvidenceItem item) =>
@@ -3084,7 +3219,7 @@ public sealed class ClientReviewPackage
     public List<ClientReviewExceptionPackage> Exceptions { get; set; } = [];
     public List<ClientReviewVerificationPackage> VerificationItems { get; set; } = [];
     public List<ClientReviewInvestmentReconciliationPackage> InvestmentReconciliations { get; set; } = [];
-    public ClientReviewAssessmentPackage Assessment { get; set; } = new();
+    public ClientReviewAssessmentPackage? Assessment { get; set; }
 }
 
 public sealed class ClientReviewClientPackage
@@ -3397,9 +3532,9 @@ public sealed record ClientReviewBatchTransferGroup(
     public string Label => IsFamilyGroup && !string.IsNullOrWhiteSpace(KanaanId)
         ? $"Kanaan ID {KanaanId}"
         : Members.FirstOrDefault()?.FullName ?? "Client";
-    public int IncludedMemberCount => Members.Count(member => member.HasCompletedAssessment);
+    public int IncludedMemberCount => Members.Count(member => member.IsTransferable);
     public int EligibleSinceCount => Members.Count(member => member.IsEligibleByDate);
-    public int ExcludedMemberCount => Members.Count(member => !member.HasCompletedAssessment);
+    public int ExcludedMemberCount => Members.Count(member => !member.IsTransferable);
 }
 
 public sealed record ClientReviewBatchTransferMember(
@@ -3413,7 +3548,8 @@ public sealed record ClientReviewBatchTransferMember(
     DateTime? CompletedAtUtc,
     bool IsEligibleByDate)
 {
-    public bool HasCompletedAssessment => CompletedAtUtc.HasValue;
+    public bool HasCompletedAssessment => AssessmentStatus is ClientRiskAssessmentStatuses.Finalised or ClientRiskAssessmentStatuses.Approved;
+    public bool IsTransferable => HasCompletedAssessment || AssessmentStatus == "Partial";
     public string FullName
     {
         get
@@ -3468,7 +3604,7 @@ public sealed record ClientReviewImportResult(
     string PackageId,
     int ClientId,
     string ClientDisplayName,
-    int AssessmentId,
+    int? AssessmentId,
     int EvidenceImported,
     string FileName,
     string StoragePath);

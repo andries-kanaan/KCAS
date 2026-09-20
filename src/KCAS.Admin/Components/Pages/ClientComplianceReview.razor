@@ -31,7 +31,7 @@ else
             }
             @if (HasTransferableAssessment)
             {
-                <AuthorizeView Policy="@KcasPermissions.ComplianceManage">
+                <AuthorizeView Policy="@KcasPolicies.AdministratorOnly">
                     <Authorized>
                         <a class="btn btn-primary" href="@($"/compliance/review-transfers?clientId={ClientId}")">Transfer completed review</a>
                     </Authorized>
@@ -59,7 +59,7 @@ else
             {
                 <a class="btn btn-primary" href="@($"/clients/{model.DuplicateOfClientId}/compliance-review")">View canonical client review</a>
             }
-            <AuthorizeView Policy="@KcasPermissions.ComplianceManage">
+                    <AuthorizeView Policy="@KcasPolicies.AdministratorOnly">
                 <Authorized>
                     <a class="btn btn-outline-primary" href="@($"/compliance/duplicate-transfers?clientId={ClientId}")">Transfer duplicate reconciliation</a>
                 </Authorized>

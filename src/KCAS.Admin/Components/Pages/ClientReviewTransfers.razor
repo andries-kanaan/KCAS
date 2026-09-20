@@ -1,6 +1,6 @@
 @page "/compliance/review-transfers"
 @rendermode InteractiveServer
-@attribute [Authorize(Policy = KcasPermissions.ComplianceManage)]
+@attribute [Authorize(Policy = KcasPolicies.AdministratorOnly)]
 @using System.ComponentModel.DataAnnotations
 @using System.IO.Compression
 @using KCAS.Admin.Data
@@ -14,7 +14,7 @@
     <div>
         <p class="eyebrow">Controlled operational transfer</p>
         <h1>Client review transfers</h1>
-        <p class="lede">Move an approved local client review to live KCAS without database replacement or manual recapture.</p>
+        <p class="lede">Move recorded client review work to live KCAS without database replacement or manual recapture.</p>
     </div>
 </div>
 
@@ -31,18 +31,23 @@
 
 <section class="detail-grid review-transfer-grid">
     <article class="detail-panel form-panel">
-        <h2>1. Export completed review</h2>
-        <p class="text-muted">Only a finalised or approved client assessment can be exported.</p>
+        <h2>1. Export review</h2>
+        <p class="text-muted">Completed reviews transfer normally. Enable partial reviews to include recorded work without finalising the assessment.</p>
+        <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="include-partial-reviews"
+                   checked="@includePartial" @onchange="IncludePartialChangedAsync" disabled="@isBusy" />
+            <label class="form-check-label" for="include-partial-reviews">Include partial client and family reviews</label>
+        </div>
         <div class="border rounded p-3 mb-3">
             <div class="section-heading-row">
                 <div>
                     <h3>Batch export</h3>
-                    <p class="text-muted mb-0">Find completed assessments by date and export them as family bundles or individual packages.</p>
+                    <p class="text-muted mb-0">Find reviews by date and export them as family bundles or individual packages.</p>
                 </div>
             </div>
             <div class="import-grid">
                 <label>
-                    Completed since
+                    @(includePartial ? "Review activity since" : "Completed since")
                     <input class="form-control" type="date" value="@BatchCompletedSinceValue"
                            @onchange="BatchCompletedSinceChangedAsync" disabled="@isBusy" />
                 </label>
@@ -71,7 +76,7 @@
                             <tr>
                                 <th>Transfer</th>
                                 <th>Group</th>
-                                <th>Completed</th>
+                                <th>@(includePartial ? "Latest review activity" : "Completed")</th>
                                 <th>Included</th>
                                 <th>Excluded</th>
                             </tr>
@@ -94,7 +99,7 @@
                                     </td>
                                     <td>@FormatDateTime(group.LatestCompletedAtUtc)</td>
                                     <td>
-                                        @foreach (var member in group.Members.Where(member => member.HasCompletedAssessment))
+                                        @foreach (var member in group.Members.Where(member => member.IsTransferable))
                                         {
                                             <div>
                                                 @member.FullName
@@ -114,7 +119,7 @@
                                         }
                                         else
                                         {
-                                            @foreach (var member in group.Members.Where(member => !member.HasCompletedAssessment))
+                                            @foreach (var member in group.Members.Where(member => !member.IsTransferable))
                                             {
                                                 <div class="small text-muted">@member.FullName — incomplete</div>
                                             }
@@ -190,7 +195,7 @@
             <div class="form-check my-2">
                 <input class="form-check-input" type="checkbox" id="family-export" @bind="exportAsFamily" />
                 <label class="form-check-label" for="family-export">
-                    Export all reviewed clients linked to Kanaan ID @selectedFamily.KanaanId as one family bundle
+                    Export all @(includePartial ? "reviewed or partial" : "completed") clients linked to Kanaan ID @selectedFamily.KanaanId as one family bundle
                 </label>
             </div>
             @if (exportAsFamily)
@@ -201,7 +206,7 @@
                         <div>
                             <strong>@member.DisplayName</strong>
                             <span class="badge @(member.HasCompletedAssessment ? "text-bg-success" : "text-bg-warning")">
-                                @(member.HasCompletedAssessment ? "Included" : "Excluded — assessment incomplete")
+                                @(member.HasCompletedAssessment ? "Completed" : includePartial && member.HasPartialWork ? "Included — partial" : "Excluded — no eligible review")
                             </span>
                         </div>
                     }
@@ -331,11 +336,11 @@
                     <dt>Client</dt><dd>@preview.Package.Client.DisplayName (@Display(preview.Package.Client.KanaanId))</dd>
                     <dt>Live match</dt><dd>@Display(preview.TargetClientName)</dd>
                     <dt>Live client folder</dt><dd>@Display(preview.TargetClientFolder)</dd>
-                    <dt>Assessment</dt><dd>@preview.Package.Assessment.FinalRating — @preview.Package.Assessment.Status</dd>
-                    <dt>Methodology</dt><dd>@preview.Package.Assessment.MethodologyName @preview.Package.Assessment.MethodologyVersionLabel</dd>
+                    <dt>Assessment</dt><dd>@(preview.Package.Assessment is null ? "Partial review — no finalised assessment" : $"{preview.Package.Assessment.FinalRating} — {preview.Package.Assessment.Status}")</dd>
+                    <dt>Methodology</dt><dd>@(preview.Package.Assessment is null ? "Not applicable" : $"{preview.Package.Assessment.MethodologyName} {preview.Package.Assessment.MethodologyVersionLabel}")</dd>
                     <dt>Evidence</dt><dd>@preview.NewEvidenceCount new; @preview.ExistingEvidenceCount already present</dd>
                     <dt>Entity ownership</dt><dd>@preview.Package.RelatedParties.Count related party record(s)</dd>
-                    <dt>Investment verification</dt><dd>@preview.Package.InvestmentReconciliations.Count approved account decision(s)</dd>
+                    <dt>Investment verification</dt><dd>@preview.Package.InvestmentReconciliations.Count reviewed account decision(s)</dd>
                     <dt>Package</dt><dd><code>@preview.Package.PackageId</code></dd>
                 </dl>
                 @foreach (var warning in preview.Warnings)
@@ -408,7 +413,7 @@
                         @if (memberPreview is not null)
                         {
                             <div class="small text-muted">
-                                @memberPreview.Package.Assessment.FinalRating assessment;
+                                @(memberPreview.Package.Assessment?.FinalRating ?? "Partial review") assessment;
                                 @memberPreview.NewEvidenceCount new evidence item(s);
                                 @memberPreview.Package.InvestmentReconciliations.Count investment decision(s);
                                 folder: @Display(memberPreview.TargetClientFolder)
@@ -459,6 +464,7 @@
     private string? clientSearch;
     private bool requestedClientSelected;
     private bool exportAsFamily;
+    private bool includePartial;
     private ClientReviewFamilyGroup? selectedFamily;
     private string? exportReason = "Transfer completed client review from local KCAS to live KCAS.";
     private string? exportPassphrase;
@@ -492,7 +498,7 @@
 
     protected override async Task OnParametersSetAsync()
     {
-        clients = await TransferService.LoadClientOptionsAsync();
+        clients = await TransferService.LoadClientOptionsAsync(includePartial);
         requestedClientSelected = requestedClientId.HasValue &&
                                   clients.Any(client => client.Id == requestedClientId.Value);
         if (requestedClientSelected)
@@ -512,6 +518,20 @@
             : null;
     }
 
+    private async Task IncludePartialChangedAsync(ChangeEventArgs args)
+    {
+        includePartial = args.Value is true;
+        clients = await TransferService.LoadClientOptionsAsync(includePartial);
+        batchGroups = [];
+        selectedBatchGroupKeys.Clear();
+        if (!clients.Any(client => client.Id == exportClientId))
+        {
+            exportClientId = 0;
+            clientSearch = null;
+        }
+        await LoadSelectedFamilyAsync();
+    }
+
     private async Task BatchCompletedSinceChangedAsync(ChangeEventArgs args)
     {
         if (DateOnly.TryParse(args.Value?.ToString(), out var parsed))
@@ -526,13 +546,13 @@
         await RunAsync(async _ =>
         {
             batchExportResults = [];
-            batchGroups = await TransferService.LoadBatchCandidatesAsync(batchCompletedSince);
+            batchGroups = await TransferService.LoadBatchCandidatesAsync(batchCompletedSince, includePartial);
             selectedBatchGroupKeys = batchGroups.Select(group => group.GroupKey)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
             await SyncExportSelectionFromBatchAsync();
             statusMessage = batchGroups.Count == 0
-                ? "No finalised or approved client assessments were completed on or after the selected date."
-                : $"Found {batchGroups.Count} transfer group(s) completed on or after {batchCompletedSince:yyyy-MM-dd}.";
+                ? "No eligible client reviews were updated on or after the selected date."
+                : $"Found {batchGroups.Count} transfer group(s) with eligible review activity on or after {batchCompletedSince:yyyy-MM-dd}.";
         });
     }
 
@@ -615,7 +635,7 @@
                 if (group.CanExportFamilyBundle)
                 {
                     var exported = await FamilyTransferService.ExportAsync(
-                        group.AnchorClientId, exportPassphrase ?? "", user, exportReason ?? "");
+                        group.AnchorClientId, exportPassphrase ?? "", user, exportReason ?? "", includePartial);
                     batchExportResults.Add(new BatchExportResultView(
                         group.Label,
                         exported.PackageId,
@@ -629,7 +649,7 @@
                 foreach (var member in group.Members.Where(member => member.IsEligibleByDate))
                 {
                     var exported = await TransferService.ExportAsync(
-                        member.ClientId, exportPassphrase ?? "", user, exportReason ?? "");
+                        member.ClientId, exportPassphrase ?? "", user, exportReason ?? "", includePartial);
                     batchExportResults.Add(new BatchExportResultView(
                         member.FullName,
                         exported.PackageId,
@@ -722,14 +742,14 @@
         if (exportAsFamily)
         {
             familyExportResult = await FamilyTransferService.ExportAsync(
-                    exportClientId, exportPassphrase ?? "", user, exportReason ?? "");
+                    exportClientId, exportPassphrase ?? "", user, exportReason ?? "", includePartial);
                 statusMessage =
                     $"Encrypted family bundle created with {familyExportResult.MemberCount} client packages.";
             }
             else
             {
                 exportResult = await TransferService.ExportAsync(
-                    exportClientId, exportPassphrase ?? "", user, exportReason ?? "");
+                    exportClientId, exportPassphrase ?? "", user, exportReason ?? "", includePartial);
                 statusMessage = "Encrypted client review package created.";
             }
         });
@@ -835,9 +855,9 @@
             {
                 var result = await TransferService.ApplyAsync(
                     importBytes!, importPassphrase ?? "", user, importReason ?? "");
-                statusMessage =
-                    $"Package applied to {result.ClientDisplayName}. Assessment #{result.AssessmentId} " +
-                    $"and {result.EvidenceImported} evidence item(s) imported.";
+                statusMessage = result.AssessmentId.HasValue
+                    ? $"Package applied to {result.ClientDisplayName}. Assessment #{result.AssessmentId} and {result.EvidenceImported} evidence item(s) imported."
+                    : $"Partial review applied to {result.ClientDisplayName}; no assessment was finalised. {result.EvidenceImported} evidence item(s) imported.";
             }
             preview = null;
             familyPreview = null;

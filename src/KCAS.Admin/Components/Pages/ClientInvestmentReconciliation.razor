@@ -39,10 +39,10 @@ else
     </div>
 
     <section class="summary-grid">
-        <article class="summary-card"><span>Review status</span><strong>@(model.IsComplete ? "Verified" : "Verification required")</strong></article>
-        <article class="summary-card"><span>Accounts verified</span><strong>@model.VerifiedCount / @model.Accounts.Count</strong></article>
-        <article class="summary-card"><span>Needs follow-up</span><strong>@model.NeedsFollowUpCount</strong></article>
-        <article class="summary-card"><span>Unmatched valuations</span><strong>@model.UnmatchedIssues.Count</strong></article>
+        <article class="summary-card"><span class="d-block">Review status</span><strong class="d-block">@(model.IsComplete ? "Verified" : "Verification required")</strong></article>
+        <article class="summary-card"><span class="d-block">Accounts verified</span><strong class="d-block">@model.VerifiedCount / @model.Accounts.Count</strong></article>
+        <article class="summary-card"><span class="d-block">Needs follow-up</span><strong class="d-block">@model.NeedsFollowUpCount</strong></article>
+        <article class="summary-card"><span class="d-block">Unmatched valuations</span><strong class="d-block">@model.UnmatchedIssues.Count</strong></article>
     </section>
 
     @if (model.LinkedClients.Count > 0)

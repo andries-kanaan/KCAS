@@ -35,6 +35,10 @@
                 <strong>Controlled settings</strong>
                 <a class="btn btn-sm btn-outline-secondary mt-3" href="/compliance/methodologies">Open settings</a>
             </article>
+        </Authorized>
+    </AuthorizeView>
+    <AuthorizeView Policy="@KcasPolicies.AdministratorOnly">
+        <Authorized>
             <article class="summary-card">
                 <span>Transfer</span>
                 <strong>Move signed programme bundle</strong>

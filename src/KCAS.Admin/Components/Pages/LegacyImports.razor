@@ -2,7 +2,7 @@
 @page "/imports/{RunId:long}"
 @rendermode InteractiveServer
 @implements IAsyncDisposable
-@attribute [Authorize(Policy = KcasPermissions.LegacyImportsView)]
+@attribute [Authorize(Policy = KcasPolicies.AdministratorOnly)]
 @using KCAS.Admin.Data
 @using KCAS.Admin.LegacyImport
 @using Microsoft.EntityFrameworkCore

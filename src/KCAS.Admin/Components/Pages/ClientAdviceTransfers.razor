@@ -1,6 +1,6 @@
 @page "/advice/transfers"
 @rendermode InteractiveServer
-@attribute [Authorize(Policy = KcasPermissions.AdviceAudit)]
+@attribute [Authorize(Policy = KcasPolicies.AdministratorOnly)]
 @using System.ComponentModel.DataAnnotations
 @using KCAS.Admin.Data
 @inject ClientAdviceTransferService TransferService

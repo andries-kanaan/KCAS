@@ -217,7 +217,7 @@ else
                 }
                 else if (model.Assessment.Status is ClientRiskAssessmentStatuses.Finalised or ClientRiskAssessmentStatuses.Approved)
                 {
-                    <AuthorizeView Policy="@KcasPermissions.ComplianceManage">
+                    <AuthorizeView Policy="@KcasPolicies.AdministratorOnly">
                         <Authorized>
                             <div class="alert alert-success">
                                 This assessment is ready for controlled transfer.

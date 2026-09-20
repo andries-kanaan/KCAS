@@ -13,7 +13,7 @@
         <p class="text-muted mb-0">Start or continue each client's unified folder, investment, evidence, screening and risk review.</p>
     </div>
     <div class="header-actions">
-        <AuthorizeView Policy="@KcasPermissions.ComplianceManage">
+        <AuthorizeView Policy="@KcasPolicies.AdministratorOnly">
             <Authorized>
                 <a class="btn btn-outline-primary" href="/compliance/review-transfers">Transfer completed reviews</a>
             </Authorized>
@@ -110,7 +110,11 @@
                             <a class="btn btn-primary" href="@($"/clients/{item.ClientId}/compliance-review")">@ReviewActionLabel(item)</a>
                             @if (CanTransfer(item))
                             {
-                                <a class="btn btn-outline-primary" href="@TransferUrl(item)">Transfer</a>
+                                <AuthorizeView Policy="@KcasPolicies.AdministratorOnly">
+                                    <Authorized>
+                                        <a class="btn btn-outline-primary" href="@TransferUrl(item)">Transfer</a>
+                                    </Authorized>
+                                </AuthorizeView>
                             }
                         </div>
                     </td>

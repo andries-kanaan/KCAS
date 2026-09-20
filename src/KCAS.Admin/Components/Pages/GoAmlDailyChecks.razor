@@ -14,7 +14,7 @@
         <p class="lede">Open goAML, record the outcome, retain readable screenshot evidence and escalate new messages into the compliance work register.</p>
     </div>
     <div class="d-flex gap-2">
-        @if (canManage)
+        @if (isAdministrator)
         {
             <a class="btn btn-outline-primary" href="/compliance/goaml/transfers">Transfer checks</a>
         }
@@ -176,12 +176,14 @@ else
     private bool isError;
     private bool isBusy;
     private bool canManage;
+    private bool isAdministrator;
 
     protected override async Task OnInitializedAsync()
     {
         var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
         currentUser = state.User.Identity?.Name;
         canManage = state.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage);
+        isAdministrator = state.User.IsInRole(KcasRoles.Administrator);
         completion.ActionOwner = currentUser;
         await LoadAsync();
     }
