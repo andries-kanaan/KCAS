@@ -2,7 +2,10 @@
 @rendermode InteractiveServer
 @attribute [Authorize(Policy = KcasPermissions.ClientsView)]
 @using KCAS.Admin.Data
+@using KCAS.Admin.Security
 @inject ClientSearchService ClientSearch
+@inject ComplianceWorkService WorkService
+@inject AuthenticationStateProvider AuthenticationStateProvider
 
 <PageTitle>Clients</PageTitle>
 
@@ -17,6 +20,36 @@
         </Authorized>
     </AuthorizeView>
 </div>
+
+@if (annualNotificationsCreated > 0)
+{
+    <div class="alert alert-success">
+        @annualNotificationsCreated annual compliance-review notification(s) created for Compliance Administrators and Compliance Approvers.
+    </div>
+}
+
+@if (reviewNotifications.Count > 0)
+{
+    <section class="work-area">
+        <h2>Client compliance reviews due</h2>
+        <div class="list-group">
+            @foreach (var item in reviewNotifications)
+            {
+                <div class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2">
+                    <div>
+                        <strong>@item.Title</strong>
+                        <div class="text-muted small">Due: @(item.DueDate?.ToString("yyyy-MM-dd") ?? "-")</div>
+                    </div>
+                    @if (item.ClientId.HasValue)
+                    {
+                        <a class="btn btn-sm btn-primary" href="@($"/clients/{item.ClientId}/evidence")">Review client</a>
+                    }
+                </div>
+            }
+        </div>
+        <a class="btn btn-outline-secondary mt-3" href="/compliance/work-register">Open compliance worklist</a>
+    </section>
+}
 
 @if (clients.Count == 0)
 {
@@ -156,10 +189,22 @@
     private string sortColumn = "currentValue";
     private bool sortDescending = true;
     private List<ClientSearchResult> clients = [];
+    private IReadOnlyList<ComplianceWorkListItem> reviewNotifications = [];
+    private int annualNotificationsCreated;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadClientsAsync();
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var userName = state.User.Identity?.Name;
+        if ((state.User.IsInRole(KcasRoles.ComplianceAdministrator) ||
+             state.User.IsInRole(KcasRoles.ComplianceApprover)) &&
+            !string.IsNullOrWhiteSpace(userName))
+        {
+            annualNotificationsCreated = await WorkService.EnsureAnnualClientReviewTasksAsync(
+                DateOnly.FromDateTime(DateTime.Today), userName);
+            reviewNotifications = await WorkService.LoadDueReviewNotificationsAsync();
+        }
     }
 
     private async Task SortByAsync(string column)

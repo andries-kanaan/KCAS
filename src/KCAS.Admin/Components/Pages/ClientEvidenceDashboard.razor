@@ -3,9 +3,7 @@
 @rendermode InteractiveServer
 @attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
 @using KCAS.Admin.Data
-@implements IDisposable
 @inject ClientEvidenceReadinessService EvidenceService
-@inject ClientEvidenceScanCoordinator ScanCoordinator
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject DocumentPathDisplayService PathDisplay
 
@@ -15,7 +13,7 @@
     <div>
         <p class="eyebrow">Compliance administration</p>
         <h1>Client evidence readiness</h1>
-        <p class="lede">Scan server-side client folders, link evidence and track readiness for client risk assessment.</p>
+        <p class="lede">Track linked evidence and readiness for client risk assessment.</p>
     </div>
     <a class="btn btn-outline-secondary" href="/compliance">Compliance dashboard</a>
 </div>
@@ -44,16 +42,11 @@ else
             <span>Blocked clients</span>
             <strong>@model.BlockedClientCount</strong>
         </article>
-        <article class="summary-card">
-            <span>Review files</span>
-            <strong>@model.UnmatchedFiles.Count</strong>
-        </article>
     </section>
 
     <section class="work-area">
-        <h2>Server document scan</h2>
-        <p class="text-muted">Use a server path that the live KCAS process can read. KCAS links metadata and paths; it does not copy client documents.</p>
-        <p class="text-muted">A scan links files for review. It does not mark evidence complete; verification or an approved exception changes readiness.</p>
+        <h2>Client folder root</h2>
+        <p class="text-muted">Set the server path used to find client folders. Changing this path does not scan folders or change linked evidence.</p>
         <div class="workspace-grid">
             <input class="form-control" @bind="scanRootPath" placeholder="Server client document root path" disabled="@(!canManage)" />
             <input class="form-control" @bind="reason" placeholder="Reason for other changes (automatic when saving root)" disabled="@(!canManage)" />
@@ -61,75 +54,17 @@ else
         <div class="row-actions mt-2">
             <button type="button" class="btn btn-outline-secondary" @onclick="OpenFolderPicker" disabled="@(!canManage)">Browse folders</button>
             <button type="button" class="btn btn-outline-secondary" @onclick="SaveRootAsync" disabled="@(!canManage)">Save root</button>
-            <button type="button" class="btn btn-primary" @onclick="RunScanAsync" disabled="@(!canManage || IsScanRunning)">Run scan</button>
-            @if (CanCancelScan)
-            {
-                <button type="button" class="btn btn-outline-danger" @onclick="CancelScanAsync">Cancel scan</button>
-            }
         </div>
         <ServerFolderPicker IsOpen="@isFolderPickerOpen"
                             InitialPath="@scanRootPath"
                             Disabled="@(!canManage)"
-                            Title="Choose scan root folder"
+                            Title="Choose client folder root"
                             Selected="SelectFolder"
                             Closed="CloseFolderPicker" />
-        @if (model.LatestScanRun is not null)
-        {
-            @if (IsScanRunning)
-            {
-                <div class="scan-progress mt-3">
-                    <div class="scan-progress-header">
-                        <strong>@(model.LatestScanRun.Status == ClientEvidenceScanStatuses.Cancelling ? "Cancelling scan..." : "Scanning server documents...")</strong>
-                        <span>@model.LatestScanRun.TotalFiles file(s) processed</span>
-                    </div>
-                    <div class="progress" role="progressbar" aria-label="Evidence scan progress">
-                        <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 100%"></div>
-                    </div>
-                    <div class="scan-progress-counts">
-                        <span>@model.LatestScanRun.LinkedFiles linked</span>
-                        <span>@model.LatestScanRun.UnmatchedFiles unmatched</span>
-                        <span>@model.LatestScanRun.AmbiguousFiles ambiguous</span>
-                        <span>@model.LatestScanRun.SkippedFiles skipped</span>
-                    </div>
-                </div>
-            }
-            <div class="table-responsive mt-3">
-                <table class="table align-middle">
-                    <tbody>
-                        <tr><th>Latest run</th><td>@model.LatestScanRun.StartedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td></tr>
-                        <tr><th>Status</th><td>@model.LatestScanRun.Status</td></tr>
-                        <tr><th>Root</th><td>@model.LatestScanRun.RootPath</td></tr>
-                        <tr><th>Totals</th><td>@model.LatestScanRun.TotalFiles file(s), @model.LatestScanRun.LinkedFiles linked, @model.LatestScanRun.UnmatchedFiles unmatched, @model.LatestScanRun.AmbiguousFiles ambiguous, @model.LatestScanRun.SkippedFiles skipped</td></tr>
-                        @if (!string.IsNullOrWhiteSpace(model.LatestScanRun.ErrorMessage))
-                        {
-                            <tr><th>Error</th><td>@model.LatestScanRun.ErrorMessage</td></tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-        }
     </section>
 
     <section class="work-area">
         <h2>Client readiness</h2>
-        @if (IsScanRunning && model.LatestScanRun is not null)
-        {
-            <div class="scan-progress mb-3">
-                <div class="scan-progress-header">
-                    <strong>@ClientScanProgressTitle</strong>
-                    <span>@model.LatestScanRun.TotalFiles file(s) processed</span>
-                </div>
-                <div class="progress" role="progressbar" aria-label="Client evidence scan progress">
-                    <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 100%"></div>
-                </div>
-                <div class="scan-progress-counts">
-                    <span>@model.LatestScanRun.LinkedFiles linked</span>
-                    <span>@model.LatestScanRun.UnmatchedFiles unmatched</span>
-                    <span>@model.LatestScanRun.AmbiguousFiles ambiguous</span>
-                    <span>@model.LatestScanRun.SkippedFiles skipped</span>
-                </div>
-            </div>
-        }
         <div class="notes-toolbar">
             <div class="note-count">Showing @ClientShowingStart(FilteredClients.Count)-@ClientShowingEnd(FilteredClients.Count) of @FilteredClients.Count</div>
         </div>
@@ -192,7 +127,7 @@ else
                                     <div class="client-folder-scan-row">
                                         <input class="form-control form-control-sm" @bind="clientFolderPaths[client.ClientId]" placeholder="Select client folder" />
                                         <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => OpenClientFolderPicker(client.ClientId)">Browse</button>
-                                        <button type="button" class="btn btn-outline-primary btn-sm" @onclick="() => RunClientScanAsync(client.ClientId)" disabled="@IsScanRunning">Scan</button>
+                                        <button type="button" class="btn btn-outline-primary btn-sm" @onclick="() => SaveClientFolderAsync(client.ClientId)">Save</button>
                                     </div>
                                 }
                                 else
@@ -228,137 +163,6 @@ else
                             Closed="CloseClientFolderPicker" />
     </section>
 
-    @if (model.SharedFolders.Count > 0)
-    {
-        <section class="work-area">
-            <h2>Shared client folders</h2>
-            <p class="text-muted">KCAS auto-assigns only files containing an explicit client or joint alias. Generic files remain in ownership review.</p>
-            @foreach (var folder in model.SharedFolders)
-            {
-                <article class="summary-card mb-3">
-                    <div class="d-flex justify-content-between gap-3 align-items-start">
-                        <div>
-                            <strong>@folder.FolderPath</strong>
-                            <div class="small text-muted">@folder.Clients.Count client records share this folder.</div>
-                        </div>
-                        @if (canManage)
-                        {
-                            <button type="button" class="btn btn-outline-primary btn-sm" @onclick="() => ReconcileSharedFolderAsync(folder.FolderPath)">Reconcile ownership</button>
-                        }
-                    </div>
-                    @foreach (var client in folder.Clients)
-                    {
-                        <div class="mt-3">
-                            <strong>@client.DisplayName @(client.IsJoint ? "(joint)" : "")</strong>
-                            <div class="row-actions mt-1">
-                                @foreach (var alias in client.Aliases)
-                                {
-                                    <span class="badge text-bg-light">
-                                        @alias.Alias
-                                        @if (canManage)
-                                        {
-                                            <button type="button" class="btn btn-link btn-sm p-0 ms-1" aria-label="Disable alias" @onclick="() => DisableAliasAsync(alias.Id)">×</button>
-                                        }
-                                    </span>
-                                }
-                            </div>
-                            @if (canManage)
-                            {
-                                <div class="input-group input-group-sm mt-2">
-                                    <input class="form-control" @bind="sharedAliasInputs[client.ClientId]" placeholder="Add explicit name or alias" />
-                                    <button type="button" class="btn btn-outline-secondary" @onclick="() => AddAliasAsync(client.ClientId)">Add alias</button>
-                                </div>
-                            }
-                        </div>
-                    }
-                </article>
-            }
-        </section>
-    }
-
-    <section class="work-area">
-        <h2>Shared-folder ownership review</h2>
-        @if (model.OwnershipReviews.Count == 0)
-        {
-            <p class="text-muted">No shared-folder files currently require ownership review.</p>
-        }
-        else
-        {
-            <div class="table-responsive">
-                <table class="table align-middle">
-                    <thead><tr><th>File</th><th>Type</th><th>Reason</th><th>Assign to</th></tr></thead>
-                    <tbody>
-                        @foreach (var review in model.OwnershipReviews)
-                        {
-                            <tr>
-                                <td>@review.RelativePath</td>
-                                <td>@review.EvidenceType</td>
-                                <td>@review.OwnershipReason</td>
-                                <td>
-                                    @if (canManage)
-                                    {
-                                        @foreach (var client in review.CandidateClients)
-                                        {
-                                            <label class="form-check">
-                                                <input class="form-check-input" type="checkbox"
-                                                       checked="@OwnershipSelected(review.SourceItemId, client.ClientId)"
-                                                       @onchange="args => ToggleOwnership(review.SourceItemId, client.ClientId, args.Value as bool? == true)" />
-                                                <span class="form-check-label">@client.DisplayName</span>
-                                            </label>
-                                        }
-                                        <button type="button" class="btn btn-outline-primary btn-sm mt-1" @onclick="() => AssignOwnershipAsync(review.SourceItemId)">Confirm ownership</button>
-                                    }
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-        }
-    </section>
-
-    <section class="work-area">
-        <h2>Unmatched or ambiguous scan files</h2>
-        @if (model.UnmatchedFiles.Count == 0)
-        {
-            <p class="text-muted">No unmatched or ambiguous files in the latest scan data.</p>
-        }
-        else
-        {
-            <div class="table-responsive">
-                <table class="table align-middle">
-                    <thead><tr><th>File</th><th>Status</th><th>Suggested type</th><th>Reason</th><th>Resolve</th></tr></thead>
-                    <tbody>
-                        @foreach (var file in model.UnmatchedFiles)
-                        {
-                            <tr>
-                                <td>@file.RelativePath</td>
-                                <td>@file.MatchStatus</td>
-                                <td>@Display(file.SuggestedEvidenceType)</td>
-                                <td>@Display(file.MatchReason)</td>
-                                <td>
-                                    @if (canManage)
-                                    {
-                                        <div class="resolve-grid">
-                                            <select class="form-select form-select-sm" @bind="resolvedClientIds[file.Id]">
-                                                <option value="0">Select client</option>
-                                                @foreach (var client in model.Clients)
-                                                {
-                                                    <option value="@client.ClientId">@client.DisplayName</option>
-                                                }
-                                            </select>
-                                            <input class="form-control form-control-sm" @bind="resolvedEvidenceTypes[file.Id]" placeholder="Evidence type" />
-                                            <button type="button" class="btn btn-outline-primary btn-sm" @onclick="() => ResolveScanFileAsync(file.Id)">Link</button>
-                                        </div>
-                                    }
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-        }
-    </section>
 }
 
 @code {
@@ -382,26 +186,11 @@ else
     private int clientPage = 1;
     private bool isFolderPickerOpen;
     private int? clientFolderPickerClientId;
-    private int? activeClientScanRunId;
-    private string? activeClientScanClientName;
-    private CancellationTokenSource? pollingCancellation;
-    private readonly Dictionary<int, int> resolvedClientIds = [];
-    private readonly Dictionary<int, string?> resolvedEvidenceTypes = [];
     private readonly Dictionary<int, string?> clientFolderPaths = [];
-    private readonly Dictionary<int, string?> sharedAliasInputs = [];
-    private readonly Dictionary<int, HashSet<int>> ownershipSelections = [];
-
-    private bool IsScanRunning => model?.LatestScanRun?.Status is ClientEvidenceScanStatuses.Running or ClientEvidenceScanStatuses.Cancelling;
-
-    private bool CanCancelScan => canManage && model?.LatestScanRun?.Status == ClientEvidenceScanStatuses.Running;
 
     private string? ClientFolderPickerInitialPath => clientFolderPickerClientId is int clientId && clientFolderPaths.TryGetValue(clientId, out var path)
         ? path
         : null;
-
-    private string ClientScanProgressTitle => activeClientScanRunId == model?.LatestScanRun?.Id && !string.IsNullOrWhiteSpace(activeClientScanClientName)
-        ? $"Scanning {activeClientScanClientName}..."
-        : "Scanning client evidence...";
 
     private List<ClientEvidenceClientSummaryModel> FilteredClients
     {
@@ -471,10 +260,6 @@ else
         currentUser = authState.User.Identity?.Name;
         canManage = authState.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage);
         await LoadAsync();
-        if (IsScanRunning)
-        {
-            StartPolling();
-        }
     }
 
     private async Task LoadAsync()
@@ -485,109 +270,12 @@ else
         {
             clientFolderPaths.TryAdd(client.ClientId, client.ClientFolder);
         }
-
-        foreach (var file in model.UnmatchedFiles)
-        {
-            resolvedClientIds.TryAdd(file.Id, 0);
-            resolvedEvidenceTypes.TryAdd(file.Id, file.SuggestedEvidenceType);
-        }
-
-        foreach (var folder in model.SharedFolders)
-        {
-            foreach (var client in folder.Clients)
-            {
-                sharedAliasInputs.TryAdd(client.ClientId, null);
-            }
-        }
-
-        foreach (var review in model.OwnershipReviews)
-        {
-            ownershipSelections.TryAdd(review.SourceItemId, []);
-        }
-    }
-
-    private async Task AddAliasAsync(int clientId)
-    {
-        sharedAliasInputs.TryGetValue(clientId, out var alias);
-        await ExecuteAsync(async () =>
-        {
-            await EvidenceService.AddOwnershipAliasAsync(clientId, alias ?? "", currentUser, reason ?? "");
-            sharedAliasInputs[clientId] = null;
-        });
-    }
-
-    private async Task DisableAliasAsync(int aliasId) =>
-        await ExecuteAsync(async () => await EvidenceService.DisableOwnershipAliasAsync(aliasId, currentUser, reason ?? ""));
-
-    private async Task ReconcileSharedFolderAsync(string folderPath) =>
-        await ExecuteAsync(async () => await EvidenceService.ReconcileSharedFolderAsync(folderPath, currentUser, reason ?? ""));
-
-    private bool OwnershipSelected(int sourceItemId, int clientId) =>
-        ownershipSelections.TryGetValue(sourceItemId, out var selected) && selected.Contains(clientId);
-
-    private void ToggleOwnership(int sourceItemId, int clientId, bool isSelected)
-    {
-        if (!ownershipSelections.TryGetValue(sourceItemId, out var selected))
-        {
-            selected = [];
-            ownershipSelections[sourceItemId] = selected;
-        }
-
-        if (isSelected)
-        {
-            selected.Add(clientId);
-        }
-        else
-        {
-            selected.Remove(clientId);
-        }
-    }
-
-    private async Task AssignOwnershipAsync(int sourceItemId)
-    {
-        ownershipSelections.TryGetValue(sourceItemId, out var selected);
-        await ExecuteAsync(async () => await EvidenceService.AssignEvidenceOwnershipAsync(sourceItemId, selected?.ToList() ?? [], currentUser, reason ?? ""));
     }
 
     private async Task SaveRootAsync() => await ExecuteAsync(async () => await EvidenceService.SaveScanRootAsync(
         scanRootPath ?? "",
         currentUser,
         string.IsNullOrWhiteSpace(reason) ? RootUpdateReason : reason));
-
-    private async Task RunScanAsync()
-    {
-        try
-        {
-            var runId = await ScanCoordinator.StartScanAsync(scanRootPath, currentUser, reason ?? "");
-            statusMessage = $"Evidence scan {runId} started.";
-            await LoadAsync();
-            StartPolling();
-        }
-        catch (Exception ex)
-        {
-            statusMessage = ex.Message;
-        }
-    }
-
-    private async Task CancelScanAsync()
-    {
-        if (model?.LatestScanRun is null)
-        {
-            return;
-        }
-
-        try
-        {
-            await ScanCoordinator.CancelScanAsync(model.LatestScanRun.Id, currentUser, reason ?? "");
-            statusMessage = "Evidence scan cancellation requested.";
-            await LoadAsync();
-            StartPolling();
-        }
-        catch (Exception ex)
-        {
-            statusMessage = ex.Message;
-        }
-    }
 
     private void SelectFolder(string path) => scanRootPath = path;
 
@@ -617,79 +305,23 @@ else
 
     private void CloseClientFolderPicker() => clientFolderPickerClientId = null;
 
-    private async Task ResolveScanFileAsync(int scanFileId)
-    {
-        if (!resolvedClientIds.TryGetValue(scanFileId, out var clientId) || clientId <= 0)
-        {
-            statusMessage = "Select a client before linking the scan file.";
-            return;
-        }
-
-        try
-        {
-            resolvedEvidenceTypes.TryGetValue(scanFileId, out var evidenceType);
-            await EvidenceService.ResolveScanFileAsync(scanFileId, clientId, evidenceType, currentUser, reason ?? "");
-            statusMessage = "Scan file linked for review.";
-            await LoadAsync();
-        }
-        catch (Exception ex)
-        {
-            statusMessage = ex.Message;
-        }
-    }
-
-    private async Task RunClientScanAsync(int clientId)
+    private async Task SaveClientFolderAsync(int clientId)
     {
         if (!clientFolderPaths.TryGetValue(clientId, out var clientFolder) || string.IsNullOrWhiteSpace(clientFolder))
         {
-            statusMessage = "Select a client folder before running the client scan.";
+            statusMessage = "Select a client folder before saving it.";
             return;
         }
 
         try
         {
-            var clientName = model?.Clients.FirstOrDefault(client => client.ClientId == clientId)?.DisplayName;
-            var runId = await ScanCoordinator.StartClientScanAsync(clientId, clientFolder, currentUser, ClientScanReason);
-            activeClientScanRunId = runId;
-            activeClientScanClientName = clientName;
-            statusMessage = $"Client evidence scan {runId} started.";
+            await EvidenceService.SaveClientEvidenceFolderAsync(clientId, clientFolder, currentUser, FolderSelectionReason);
+            statusMessage = "Client folder saved. Linked evidence was not changed.";
             await LoadAsync();
-            StartPolling();
         }
         catch (Exception ex)
         {
             statusMessage = ex.Message;
-        }
-    }
-
-    private void StartPolling()
-    {
-        pollingCancellation?.Cancel();
-        pollingCancellation?.Dispose();
-        pollingCancellation = new CancellationTokenSource();
-        _ = PollLatestRunAsync(pollingCancellation.Token);
-    }
-
-    private async Task PollLatestRunAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
-            while (await timer.WaitForNextTickAsync(cancellationToken))
-            {
-                await InvokeAsync(async () =>
-                {
-                    await LoadAsync();
-                    StateHasChanged();
-                    if (!IsScanRunning)
-                    {
-                        pollingCancellation?.Cancel();
-                    }
-                });
-            }
-        }
-        catch (OperationCanceledException)
-        {
         }
     }
 
@@ -752,10 +384,6 @@ else
         ? "Select client evidence folder."
         : reason;
 
-    private string ClientScanReason => string.IsNullOrWhiteSpace(reason)
-        ? "Run client evidence folder scan."
-        : reason;
-
     private static bool ContainsSearch(string? value, string? search) =>
         !string.IsNullOrWhiteSpace(value) &&
         !string.IsNullOrWhiteSpace(search) &&
@@ -763,9 +391,4 @@ else
 
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
 
-    public void Dispose()
-    {
-        pollingCancellation?.Cancel();
-        pollingCancellation?.Dispose();
-    }
 }

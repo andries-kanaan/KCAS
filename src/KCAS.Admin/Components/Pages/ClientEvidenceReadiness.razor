@@ -3,7 +3,6 @@
 @attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
 @using KCAS.Admin.Data
 @inject ClientEvidenceReadinessService EvidenceService
-@inject ClientEvidenceScanCoordinator ScanCoordinator
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject DocumentPathDisplayService PathDisplay
 
@@ -73,7 +72,7 @@ else
         {
             <div class="alert alert-warning mt-3 mb-0">
                 <strong>Saved folder is not available to this KCAS server.</strong>
-                <div class="small">Active evidence scan root: @Display(model.ActiveScanRoot)</div>
+                <div class="small">Client folder root: @Display(model.ActiveScanRoot)</div>
                 @if (model.FolderRecommendations.Count > 0)
                 {
                     <div class="list-group mt-2">
@@ -90,7 +89,6 @@ else
                                     {
                                         <div class="row-actions">
                                             <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => SelectClientFolder(recommendation.Path)">Save this folder</button>
-                                            <button type="button" class="btn btn-primary btn-sm" @onclick="() => ScanRecommendedFolderAsync(recommendation.Path)">Scan this folder</button>
                                         </div>
                                     }
                                 </div>
@@ -100,7 +98,7 @@ else
                 }
                 else
                 {
-                    <div class="small mt-2">No likely folder was found under the active scan root. Browse from the scan root and choose the client folder manually.</div>
+                    <div class="small mt-2">No likely folder was found under the client folder root. Browse and choose the client folder manually.</div>
                 }
             </div>
         }
@@ -127,12 +125,12 @@ else
     @if (canManage)
     {
         <section class="work-area">
-            <h2>Client folder scan</h2>
-            <p class="text-muted">Select the server folder for this client. The folder is saved immediately; scanning remains a separate action. Files are linked for review and do not complete requirements until verified.</p>
+            <h2>Client folder</h2>
+            <p class="text-muted">Select or save the server folder for this client. This does not change linked evidence.</p>
             <div class="workspace-grid">
                 <input class="form-control" @bind="selectedClientFolder" placeholder="Client folder path" />
                 <button type="button" class="btn btn-outline-secondary" @onclick="OpenClientFolderPicker">Browse folders</button>
-                <button type="button" class="btn btn-primary" @onclick="RunClientScanAsync">Scan this client</button>
+                <button type="button" class="btn btn-primary" @onclick="SaveSelectedClientFolderAsync" disabled="@string.IsNullOrWhiteSpace(selectedClientFolder)">Save folder</button>
             </div>
             <ServerFolderPicker IsOpen="@isClientFolderPickerOpen"
                                 InitialPath="@ClientFolderPickerInitialPath"
@@ -147,7 +145,7 @@ else
     {
         <section class="work-area">
             <h2>Verify linked evidence</h2>
-            <p class="text-muted">Scanned files are linked for review first. Select the items you have reviewed and verify them with one reason.</p>
+            <p class="text-muted">Select the linked items you have reviewed and verify them with one reason.</p>
             <div class="workspace-grid">
                 <input class="form-control" type="date" @bind="batchReceivedDate" />
                 <input class="form-control" type="date" @bind="batchExpiryDate" />
@@ -629,30 +627,12 @@ else
         selectedEvidenceItemIds.RemoveWhere(id => model.EvidenceItems.All(item => item.Id != id || item.VerifiedDate is not null));
     }
 
-    private async Task RunClientScanAsync()
+    private async Task SaveSelectedClientFolderAsync()
     {
-        if (string.IsNullOrWhiteSpace(selectedClientFolder))
+        if (!string.IsNullOrWhiteSpace(selectedClientFolder))
         {
-            statusMessage = "Select a client folder before running the client scan.";
-            return;
+            await SelectClientFolder(selectedClientFolder);
         }
-
-        try
-        {
-            var runId = await ScanCoordinator.StartClientScanAsync(ClientId, selectedClientFolder, currentUser, ClientScanReason);
-            statusMessage = $"Client evidence scan {runId} started.";
-            await LoadAsync();
-        }
-        catch (Exception ex)
-        {
-            statusMessage = ex.Message;
-        }
-    }
-
-    private async Task ScanRecommendedFolderAsync(string path)
-    {
-        selectedClientFolder = path;
-        await RunClientScanAsync();
     }
 
     private void OpenClientFolderPicker() => isClientFolderPickerOpen = true;
@@ -667,7 +647,7 @@ else
                 path,
                 currentUser,
                 "Select client evidence folder from server folder browser.");
-            statusMessage = "Client folder updated. Scan the client when you are ready.";
+            statusMessage = "Client folder saved. Linked evidence was not changed.";
             await LoadAsync();
         }
         catch (Exception ex)
@@ -975,10 +955,6 @@ else
     private void PreviewImage(ClientEvidenceItemModel item) => previewImageItem = item;
 
     private void ClosePreview() => previewImageItem = null;
-
-    private string ClientScanReason => string.IsNullOrWhiteSpace(reason)
-        ? "Run client evidence folder scan."
-        : reason;
 
     private string ReviewReason => string.IsNullOrWhiteSpace(reason)
         ? "Record manual compliance check."

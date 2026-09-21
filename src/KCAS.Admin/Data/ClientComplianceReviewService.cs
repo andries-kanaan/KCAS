@@ -71,30 +71,6 @@ public sealed class ClientComplianceReviewService(
         var folderRecommendations = clientFolderExists
             ? []
             : await ClientFolderRecommendations.BuildAsync(db, client, activeScanRoot, cancellationToken);
-        var latestFolderScan = string.IsNullOrWhiteSpace(client.ClientFolder)
-            ? null
-            : await db.ClientEvidenceScanRuns.AsNoTracking()
-                .Where(item => item.RootPath == client.ClientFolder)
-                .OrderByDescending(item => item.StartedAtUtc)
-                .Select(item => new ClientComplianceFolderScanModel(
-                    item.Id,
-                    item.Status,
-                    item.StartedAtUtc,
-                    item.FinishedAtUtc,
-                    item.TotalFiles,
-                    item.LinkedFiles,
-                    item.UnmatchedFiles,
-                    item.AmbiguousFiles,
-                    item.ErrorMessage))
-                .FirstOrDefaultAsync(cancellationToken);
-        var latestAppliedReviewPackage = await db.ClientReviewTransferRecords.AsNoTracking()
-            .Where(item => item.ClientId == clientId &&
-                item.Direction == ClientReviewTransferDirections.Incoming &&
-                item.Status == ClientReviewTransferStatuses.Applied)
-            .OrderByDescending(item => item.AppliedAtUtc)
-            .Select(item => item.AppliedAtUtc)
-            .FirstOrDefaultAsync(cancellationToken);
-
         var linkedClients = await db.Clients.AsNoTracking()
             .Where(item => item.Id != clientId &&
                 ((!string.IsNullOrWhiteSpace(client.KanaanId) && item.KanaanId == client.KanaanId) ||
@@ -124,38 +100,17 @@ public sealed class ClientComplianceReviewService(
         var factsComplete = pendingFacts.All(item => !item.IsBlocking);
         var evidenceComplete = evidenceRequirements.All(item => !item.IsBlocked) && evidence.OwnershipBlockers.Count == 0;
         var screeningComplete = screeningRequirements.All(item => !item.IsBlocked);
-        var completedFolderScan = latestFolderScan?.Status == ClientEvidenceScanStatuses.Completed;
-        var importedFolderMapping = clientFolderExists && latestAppliedReviewPackage.HasValue;
-        var verifiedFolderMapping = false;
-        if (clientFolderExists && evidenceComplete && !completedFolderScan && !importedFolderMapping)
-        {
-            var selectedEvidence = await db.ClientEvidenceItems.AsNoTracking()
-                .Where(item => item.ClientId == clientId &&
-                    item.Status == ClientEvidenceStatuses.Verified &&
-                    item.SelectionStatus == ClientEvidenceSelectionStatuses.Current &&
-                    item.SourcePath != null)
-                .ToListAsync(cancellationToken);
-            verifiedFolderMapping = HasVerifiedLocalEvidenceMapping(
-                client.ClientFolder!, evidenceRequirements, selectedEvidence);
-        }
-        var folderComplete = !string.IsNullOrWhiteSpace(client.ClientFolder) &&
-            (completedFolderScan || importedFolderMapping || verifiedFolderMapping);
+        var folderComplete = clientFolderExists;
         var blockingFactCount = pendingFacts.Count(item => item.IsBlocking);
 
         var sections = new List<ClientComplianceReviewSectionModel>
         {
-            new("folder", "Client folder and evidence mapping", folderComplete,
+            new("folder", "Client folder", folderComplete,
                 string.IsNullOrWhiteSpace(client.ClientFolder)
                     ? "Select the client's evidence folder."
-                    : importedFolderMapping
-                        ? "Folder mapped and reviewed evidence imported from the approved package; no repeat scan is required."
-                        : verifiedFolderMapping
-                            ? "Folder exists and the selected evidence files were verified individually; no scan record is required."
-                        : latestFolderScan is null
-                        ? "Folder saved; scan required."
-                        : latestFolderScan.Status == ClientEvidenceScanStatuses.Completed
-                            ? $"Scan completed with {latestFolderScan.LinkedFiles} linked file(s)."
-                            : $"Latest scan: {latestFolderScan.Status}."),
+                    : folderComplete
+                        ? "Saved client folder is available."
+                        : "Saved client folder is not available to this KCAS server."),
             new("context", "Client and relationship context", lifecycleComplete,
                 lifecycleComplete ? $"Lifecycle classified as {client.LifecycleStatus}." : $"Proposed lifecycle: {lifecycleProposal.Status}."),
             new("facts", "Facts and conflicts", factsComplete,
@@ -198,7 +153,6 @@ public sealed class ClientComplianceReviewService(
             CurrentInvestmentCount = investments.Accounts.Count(item => item.IsCurrent),
             CurrentInvestmentValueZar = investments.Accounts.Sum(item => item.CurrentValueZar ?? 0m),
             LatestNoteDate = client.Notes.Max(item => item.NoteDate),
-            LatestFolderScan = latestFolderScan,
             LinkedClients = linkedClients,
             PendingFacts = pendingFacts,
             Investments = investments,
@@ -212,7 +166,7 @@ public sealed class ClientComplianceReviewService(
                 ? new ClientComplianceNextAction(
                     "View canonical client review",
                     $"/clients/{duplicateOfClient!.Id}/compliance-review")
-                : BuildNextAction(client.Id, sections, latestFolderScan)
+                : BuildNextAction(client.Id, sections)
         };
     }
 
@@ -290,15 +244,12 @@ public sealed class ClientComplianceReviewService(
 
     private static ClientComplianceNextAction BuildNextAction(
         int clientId,
-        IReadOnlyList<ClientComplianceReviewSectionModel> sections,
-        ClientComplianceFolderScanModel? scan)
+        IReadOnlyList<ClientComplianceReviewSectionModel> sections)
     {
         var first = sections.FirstOrDefault(item => !item.IsComplete);
         return first?.Code switch
         {
-            "folder" when scan?.Status is ClientEvidenceScanStatuses.Running or ClientEvidenceScanStatuses.Cancelling =>
-                new("Refresh scan status", $"/clients/{clientId}/compliance-review#folder"),
-            "folder" => new("Select or scan client folder", $"/clients/{clientId}/compliance-review#folder"),
+            "folder" => new("Select client folder", $"/clients/{clientId}/compliance-review#folder"),
             "context" => new("Confirm lifecycle proposal", $"/clients/{clientId}/compliance-review#context"),
             "facts" => new("Resolve client fact conflicts", $"/clients/{clientId}/verification"),
             "investments" => new("Verify investments", $"/clients/{clientId}/investments/reconciliation"),
@@ -332,7 +283,6 @@ public sealed class ClientComplianceReviewModel
     public int CurrentInvestmentCount { get; init; }
     public decimal CurrentInvestmentValueZar { get; init; }
     public DateOnly? LatestNoteDate { get; init; }
-    public ClientComplianceFolderScanModel? LatestFolderScan { get; set; }
     public List<ClientComplianceLinkedClientModel> LinkedClients { get; init; } = [];
     public List<ClientVerificationItem> PendingFacts { get; init; } = [];
     public required ClientInvestmentReconciliationPageModel Investments { get; init; }
