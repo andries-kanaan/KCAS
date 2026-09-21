@@ -1025,6 +1025,9 @@ else
     [Parameter]
     public int Id { get; set; }
 
+    [SupplyParameterFromQuery(Name = "complianceReviewNotification")]
+    public string? ComplianceReviewNotification { get; set; }
+
     private const int NotePageSize = 10;
     private Client? client;
     private List<InvestmentFundReference> investmentFundReferences = [];
@@ -1043,6 +1046,10 @@ else
 
     protected override async Task OnParametersSetAsync()
     {
+        if (string.Equals(ComplianceReviewNotification, "created", StringComparison.OrdinalIgnoreCase))
+        {
+            statusMessage = "KCAS compliance-review notification sent to users with ComplianceAdministrator or ComplianceApprover rights.";
+        }
         noteFilter = null;
         notePage = 1;
         await LoadAsync();

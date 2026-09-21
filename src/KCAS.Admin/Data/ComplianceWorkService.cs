@@ -7,6 +7,7 @@ namespace KCAS.Admin.Data;
 public sealed class ComplianceWorkService(ApplicationDbContext db)
 {
     private static readonly JsonSerializerOptions AuditOptions = new(JsonSerializerDefaults.Web);
+    public const string ComplianceReviewAudience = "Compliance administrators and approvers";
 
     public async Task<IReadOnlyList<ComplianceWorkListItem>> LoadWorklistAsync(
         string? search = null,
@@ -178,7 +179,7 @@ public sealed class ComplianceWorkService(ApplicationDbContext db)
                 TaskType = ComplianceTaskTypes.PeriodicReview,
                 Title = $"Periodic client review: {assessment.Client!.DisplayName}",
                 Description = $"Review approved client risk assessment #{assessment.Id}.",
-                Owner = "Administrator",
+                Owner = ComplianceReviewAudience,
                 DueDate = assessment.NextReviewDate,
                 Priority = assessment.FinalRating == BusinessRiskRatings.High ? "High" : "Normal",
                 Status = ComplianceWorkStatuses.Open,
@@ -195,6 +196,76 @@ public sealed class ComplianceWorkService(ApplicationDbContext db)
         }
         await db.SaveChangesAsync();
         return created;
+    }
+
+    public async Task<int> EnsureAnnualClientReviewTasksAsync(DateOnly throughDate, string? userName)
+    {
+        var user = RequireUser(userName);
+        var assessments = await db.ClientRiskAssessments.AsNoTracking()
+            .Include(item => item.Client)
+            .Where(item => item.Client!.IsActive &&
+                           (item.Status == ClientRiskAssessmentStatuses.Approved ||
+                            item.Status == ClientRiskAssessmentStatuses.Finalised) &&
+                           item.EffectiveDate != null)
+            .ToListAsync();
+        var latestAssessments = assessments
+            .GroupBy(item => item.ClientId)
+            .Select(group => group.OrderByDescending(item => item.EffectiveDate).ThenByDescending(item => item.Id).First())
+            .Where(item => item.EffectiveDate!.Value.AddYears(1) <= throughDate)
+            .ToList();
+        var assessmentIds = latestAssessments.Select(item => item.Id).ToList();
+        var assessmentsWithTasks = await db.ComplianceTasks.AsNoTracking()
+            .Where(item => item.TaskType == ComplianceTaskTypes.PeriodicReview &&
+                           item.ClientRiskAssessmentId != null &&
+                           assessmentIds.Contains(item.ClientRiskAssessmentId.Value))
+            .Select(item => item.ClientRiskAssessmentId!.Value)
+            .ToHashSetAsync();
+        var created = 0;
+        foreach (var assessment in latestAssessments.Where(item => !assessmentsWithTasks.Contains(item.Id)))
+        {
+            var dueDate = assessment.EffectiveDate!.Value.AddYears(1);
+            var task = new ComplianceTask
+            {
+                TaskType = ComplianceTaskTypes.PeriodicReview,
+                Title = $"Annual client compliance review: {assessment.Client!.DisplayName}",
+                Description = "Review screening and client evidence before the annual review is completed.",
+                Owner = ComplianceReviewAudience,
+                DueDate = dueDate,
+                Priority = assessment.FinalRating == BusinessRiskRatings.High ? "High" : "Normal",
+                Status = ComplianceWorkStatuses.Open,
+                ClientId = assessment.ClientId,
+                ClientRiskAssessmentId = assessment.Id,
+                LinkedEntityType = nameof(ClientRiskAssessment),
+                LinkedEntityId = assessment.Id,
+                UpdatedBy = user
+            };
+            db.ComplianceTasks.Add(task);
+            await db.SaveChangesAsync();
+            db.ComplianceAuditEvents.Add(CreateAudit(task.Id, "GeneratedFromAnnualClientReviewDate", user,
+                "Automatically create annual client review reminder.", null, AuditSummary(task)));
+            created++;
+        }
+        await db.SaveChangesAsync();
+        return created;
+    }
+
+    public async Task<IReadOnlyList<ComplianceWorkListItem>> LoadDueReviewNotificationsAsync()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        return await db.ComplianceTasks.AsNoTracking()
+            .Include(item => item.Client)
+            .Where(item => item.Owner == ComplianceReviewAudience &&
+                           (item.TaskType == ComplianceTaskTypes.PeriodicReview ||
+                            item.TaskType == ComplianceTaskTypes.TriggerReview) &&
+                           item.DueDate <= today &&
+                           item.Status != ComplianceStatuses.Closed &&
+                           item.Status != ComplianceStatuses.Withdrawn)
+            .OrderBy(item => item.DueDate)
+            .ThenBy(item => item.Title)
+            .Select(item => new ComplianceWorkListItem(
+                item.Id, item.TaskType, item.Title, item.Owner, item.DueDate, item.Priority, item.Status,
+                item.ClientId, item.Client == null ? null : item.Client.DisplayName, item.DueDate < today))
+            .ToListAsync();
     }
 
     public async Task EscalateAsync(int id, string? userName, string reason)

@@ -200,7 +200,9 @@
             var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
             model.UpdatedBy = authState.User.Identity?.Name;
             var clientId = await ClientOperations.SaveClientAsync(model);
-            Navigation.NavigateTo($"/clients/{clientId}");
+            Navigation.NavigateTo(Id is null
+                ? $"/clients/{clientId}?complianceReviewNotification=created"
+                : $"/clients/{clientId}");
         }
         catch (ValidationException ex)
         {

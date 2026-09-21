@@ -668,6 +668,38 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
     }
 
     [Fact]
+    public async Task Manual_check_records_path_reviewer_and_annual_review_date_for_any_requirement()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var clientId = await CreateClientAsync(db, "Manual Check Client", $"MANUAL-{Guid.NewGuid():N}", @"z:\Kanaan Trust\Clients\Manual Check Client");
+        var requirementId = await EnsureRequirementIdAsync(service, db, "Identity");
+        var reviewDate = new DateOnly(2026, 9, 21);
+        var nextReviewDate = reviewDate.AddYears(1);
+
+        var itemId = await service.RecordManualCheckAsync(clientId, requirementId, new ClientEvidenceManualCheckRequest
+        {
+            Title = "Identity manually checked",
+            EvidencePath = @"Storage Data\FICA\identity.pdf",
+            ReviewDate = reviewDate,
+            NextReviewDate = nextReviewDate,
+            Notes = "Identity document checked against the client record."
+        }, "reviewer@example.test", "Record reviewer evidence check.");
+
+        var item = await db.ClientEvidenceItems.AsNoTracking().SingleAsync(value => value.Id == itemId);
+        Assert.Equal("reviewer@example.test", item.Reviewer);
+        Assert.Equal(reviewDate, item.VerifiedDate);
+        Assert.Equal(nextReviewDate, item.ExpiryDate);
+        Assert.Equal(@"Storage Data\FICA\identity.pdf", item.RelativePath);
+        var readiness = await service.LoadClientReadinessAsync(clientId);
+        var identity = readiness.Requirements.Single(value => value.EvidenceType == "Identity");
+        Assert.True(identity.IsComplete);
+        Assert.Equal("reviewer@example.test", identity.CompletedBy);
+        Assert.Equal("Screening", readiness.Requirements[0].RequirementGroup);
+    }
+
+    [Fact]
     public async Task Sanctions_confirmed_match_records_escalation_signal()
     {
         using var scope = factory.Services.CreateScope();

@@ -105,6 +105,49 @@ public sealed class ComplianceWorkServiceTests(KcasWebApplicationFactory factory
     }
 
     [Fact]
+    public async Task Annual_review_notifications_are_assigned_to_compliance_officer_and_idempotent()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ComplianceWorkService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var client = new Client
+        {
+            DisplayName = $"Annual Review Client {Guid.NewGuid():N}",
+            SurnameOrEntityName = "Annual Review"
+        };
+        var methodology = new RiskMethodologyVersion
+        {
+            Name = $"Annual method {Guid.NewGuid():N}",
+            Status = ComplianceStatuses.Draft
+        };
+        db.AddRange(client, methodology);
+        await db.SaveChangesAsync();
+        var effectiveDate = DateOnly.FromDateTime(DateTime.Today.AddYears(-1));
+        db.ClientRiskAssessments.Add(new ClientRiskAssessment
+        {
+            ClientId = client.Id,
+            RiskMethodologyVersionId = methodology.Id,
+            Status = ClientRiskAssessmentStatuses.Finalised,
+            EffectiveDate = effectiveDate,
+            FinalRating = BusinessRiskRatings.Standard
+        });
+        await db.SaveChangesAsync();
+
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        Assert.Equal(1, await service.EnsureAnnualClientReviewTasksAsync(today, "compliance@example.test"));
+        Assert.Equal(0, await service.EnsureAnnualClientReviewTasksAsync(today, "compliance@example.test"));
+        var task = await db.ComplianceTasks.AsNoTracking().SingleAsync(value =>
+            value.ClientId == client.Id && value.TaskType == ComplianceTaskTypes.PeriodicReview);
+        Assert.Equal(ComplianceWorkService.ComplianceReviewAudience, task.Owner);
+        Assert.Equal(effectiveDate.AddYears(1), task.DueDate);
+        Assert.Contains(await service.LoadDueReviewNotificationsAsync(),
+            value => value.Id == task.Id);
+        await db.ComplianceTasks.Where(value => value.Id == task.Id)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(value => value.Status, ComplianceStatuses.Closed));
+        Assert.Equal(0, await service.EnsureAnnualClientReviewTasksAsync(today, "compliance@example.test"));
+    }
+
+    [Fact]
     public async Task Escalation_marks_work_high_and_is_audited()
     {
         using var scope = factory.Services.CreateScope();

@@ -33,6 +33,7 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
         }
 
         Client client;
+        var isNewClient = model.Id is null;
         if (model.Id is null)
         {
             client = new Client();
@@ -89,6 +90,28 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
         ReplaceRelationships(client, model.Relationships);
 
         await db.SaveChangesAsync();
+        if (isNewClient && !await db.ComplianceTasks.AnyAsync(item =>
+                item.TaskType == ComplianceTaskTypes.TriggerReview &&
+                item.ClientId == client.Id &&
+                item.Status != ComplianceStatuses.Closed &&
+                item.Status != ComplianceStatuses.Withdrawn))
+        {
+            db.ComplianceTasks.Add(new ComplianceTask
+            {
+                TaskType = ComplianceTaskTypes.TriggerReview,
+                Title = $"Initial client compliance review: {client.DisplayName}",
+                Description = "Complete screening and required client evidence before business starts.",
+                Owner = ComplianceWorkService.ComplianceReviewAudience,
+                DueDate = DateOnly.FromDateTime(DateTime.Today),
+                Priority = "High",
+                Status = ComplianceWorkStatuses.Open,
+                ClientId = client.Id,
+                LinkedEntityType = nameof(Client),
+                LinkedEntityId = client.Id,
+                UpdatedBy = Normalize(model.UpdatedBy)
+            });
+            await db.SaveChangesAsync();
+        }
         return client.Id;
     }
 

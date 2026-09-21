@@ -255,6 +255,10 @@ else
                                                     <span class="badge text-bg-warning">Escalation required</span>
                                                 }
                                                 <div class="text-muted small">Verified: @Date(item.VerifiedDate), expires: @Date(item.ExpiryDate)</div>
+                                                @if (item.VerifiedDate is not null)
+                                                {
+                                                    <div class="text-muted small">Completed by @EvidenceActor(item) at @DateTimeValue(item.RecordedAtUtc)</div>
+                                                }
                                                 @if (item.CanOpen)
                                                 {
                                                     <div class="row-actions">
@@ -308,6 +312,10 @@ else
                                                                 <div class="small"><strong>Evidence finding:</strong> @item.Notes</div>
                                                             }
                                                             <div class="text-muted small">Verified: @Date(item.VerifiedDate), expires: @Date(item.ExpiryDate)</div>
+                                                            @if (item.VerifiedDate is not null)
+                                                            {
+                                                                <div class="text-muted small">Completed by @EvidenceActor(item) at @DateTimeValue(item.RecordedAtUtc)</div>
+                                                            }
                                                             @if (item.CanOpen)
                                                             {
                                                                 <div class="row-actions">
@@ -329,11 +337,13 @@ else
                             <td>
                                 @if (requirement.IsComplete)
                                 {
-                                    <span>Complete</span>
+                                    <div>Complete</div>
+                                    <div class="text-muted small">Completed by @Display(requirement.CompletedBy) at @DateTimeValue(requirement.CompletedAtUtc)</div>
                                 }
                                 else if (requirement.IsExceptioned)
                                 {
-                                    <span>@(requirement.EvidenceType == "BeneficialOwnership" ? "Not applicable" : "Exception")</span>
+                                    <div>@(requirement.EvidenceType == "BeneficialOwnership" ? "Not applicable" : "Exception")</div>
+                                    <div class="text-muted small">Approved by @Display(requirement.ExceptionApprovedBy) at @DateTimeValue(requirement.ExceptionApprovedAtUtc)</div>
                                 }
                                 else if (requirement.IsBlocked)
                                 {
@@ -348,15 +358,18 @@ else
                                 <div class="row-actions">
                                     @if (canManage && requirement.CanRecordReview)
                                     {
-                                        var screeningReminder = ScreeningReminder(requirement);
-                                        <div class="small">
-                                            <span class="@screeningReminder.BadgeClass">@screeningReminder.Label</span>
-                                            @if (screeningReminder.DueDate.HasValue)
-                                            {
-                                                <div class="text-muted mt-1">Next check: @Date(screeningReminder.DueDate)</div>
-                                            }
-                                        </div>
-                                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => OpenReviewModal(requirement)">Record external check...</button>
+                                        @if (IsScreeningRequirement(requirement))
+                                        {
+                                            var screeningReminder = ScreeningReminder(requirement);
+                                            <div class="small">
+                                                <span class="@screeningReminder.BadgeClass">@screeningReminder.Label</span>
+                                                @if (screeningReminder.DueDate.HasValue)
+                                                {
+                                                    <div class="text-muted mt-1">Next check: @Date(screeningReminder.DueDate)</div>
+                                                }
+                                            </div>
+                                        }
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => OpenReviewModal(requirement)">Record manual check...</button>
                                     }
                                     @if (canApprove &&
                                          !requirement.IsComplete &&
@@ -445,7 +458,7 @@ else
             <div class="modal-dialog modal-lg modal-dialog-centered">
                 <div class="modal-content">
                     <div class="modal-header">
-                        <h2 class="modal-title h5">Record external screening check</h2>
+                        <h2 class="modal-title h5">Record manual check</h2>
                         <button type="button" class="btn-close" aria-label="Close" @onclick="CloseReviewModal"></button>
                     </div>
                     <EditForm Model="@reviewForm" OnValidSubmit="SaveReviewAsync">
@@ -454,6 +467,8 @@ else
                                 <label class="form-label">Requirement</label>
                                 <input class="form-control" value="@activeReviewRequirement.Title" disabled />
                             </div>
+                            @if (IsScreeningRequirement(activeReviewRequirement))
+                            {
                             <div class="workspace-grid">
                                 <div>
                                     <label class="form-label">Subject</label>
@@ -502,19 +517,59 @@ else
                                     <label class="form-label">Review date</label>
                                     <input class="form-control" type="date" @bind="reviewForm.ReviewDate" />
                                 </div>
+                                <div>
+                                    <label class="form-label">Next review</label>
+                                    <input class="form-control" type="date" @bind="reviewForm.NextReviewDate" />
+                                </div>
                             </div>
                             <div class="mt-3">
                                 <label class="form-label">Sites and registers checked</label>
                                 <textarea class="form-control" rows="2" @bind="reviewForm.Sources" placeholder="FIC TFS list; UN sanctions list; PEP/PIP and adverse-media sources"></textarea>
                             </div>
+                            }
+                            else
+                            {
+                                <div class="mt-3">
+                                    <label class="form-label">Evidence title</label>
+                                    <input class="form-control" @bind="manualCheckForm.Title" />
+                                </div>
+                                <div class="workspace-grid mt-3">
+                                    <div>
+                                        <label class="form-label">Check date</label>
+                                        <input class="form-control" type="date" @bind="manualCheckForm.ReviewDate" />
+                                    </div>
+                                    <div>
+                                        <label class="form-label">Next review</label>
+                                        <input class="form-control" type="date" @bind="manualCheckForm.NextReviewDate" />
+                                    </div>
+                                </div>
+                            }
+                            <div class="mt-3">
+                                <label class="form-label">Evidence file path</label>
+                                @if (IsScreeningRequirement(activeReviewRequirement))
+                                {
+                                    <input class="form-control" @bind="reviewForm.EvidencePath" placeholder="Optional saved result or screenshot path" />
+                                }
+                                else
+                                {
+                                    <input class="form-control" @bind="manualCheckForm.EvidencePath" placeholder="Document path under the client folder" />
+                                }
+                            </div>
                             <div class="mt-3">
                                 <label class="form-label">Notes</label>
-                                <textarea class="form-control" rows="4" @bind="reviewForm.Notes"></textarea>
+                                @if (IsScreeningRequirement(activeReviewRequirement))
+                                {
+                                    <textarea class="form-control" rows="4" @bind="reviewForm.Notes"></textarea>
+                                }
+                                else
+                                {
+                                    <textarea class="form-control" rows="4" @bind="manualCheckForm.Notes"></textarea>
+                                }
                             </div>
                         </div>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-outline-secondary" @onclick="CloseReviewModal">Cancel</button>
-                            <button type="submit" class="btn btn-primary">Save external check</button>
+                            <button type="submit" class="btn btn-primary">Save manual check</button>
                         </div>
                     </EditForm>
                 </div>
@@ -543,6 +598,7 @@ else
     private readonly HashSet<int> selectedCoverageAccountIds = [];
     private ClientEvidenceRequirementStatusModel? activeReviewRequirement;
     private ClientEvidenceScreeningReviewRequest reviewForm = new();
+    private ClientEvidenceManualCheckRequest manualCheckForm = new();
     private string selectedReviewSubjectKey = "";
     private readonly HashSet<int> selectedEvidenceItemIds = [];
     private DateOnly? batchReceivedDate = DateOnly.FromDateTime(DateTime.Today);
@@ -736,8 +792,15 @@ else
             Outcome = ClientEvidenceScreeningOutcomes.ForEvidenceType(requirement.EvidenceType).FirstOrDefault(),
             RiskSignal = ClientEvidenceRiskSignals.Low,
             ReviewDate = DateOnly.FromDateTime(DateTime.Today),
+            NextReviewDate = DateOnly.FromDateTime(DateTime.Today.AddYears(1)),
             ReviewedAtUtc = DateTime.UtcNow,
             PerformedBy = ClientEvidenceScreeningPerformers.HumanReviewer
+        };
+        manualCheckForm = new ClientEvidenceManualCheckRequest
+        {
+            Title = $"{requirement.Title}: manual check",
+            ReviewDate = DateOnly.FromDateTime(DateTime.Today),
+            NextReviewDate = DateOnly.FromDateTime(DateTime.Today.AddYears(1))
         };
     }
 
@@ -750,10 +813,17 @@ else
             return;
         }
 
-        ApplySelectedReviewSubject();
         try
         {
-            await EvidenceService.RecordRequirementReviewAsync(ClientId, activeReviewRequirement.RequirementId, reviewForm, currentUser, ReviewReason);
+            if (IsScreeningRequirement(activeReviewRequirement))
+            {
+                ApplySelectedReviewSubject();
+                await EvidenceService.RecordRequirementReviewAsync(ClientId, activeReviewRequirement.RequirementId, reviewForm, currentUser, ReviewReason);
+            }
+            else
+            {
+                await EvidenceService.RecordManualCheckAsync(ClientId, activeReviewRequirement.RequirementId, manualCheckForm, currentUser, ReviewReason);
+            }
             activeReviewRequirement = null;
             statusMessage = "Client evidence readiness updated.";
             await LoadAsync();
@@ -781,6 +851,13 @@ else
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
     private static string Date(DateOnly? value) => value is null ? "-" : value.Value.ToString("yyyy-MM-dd");
     private static string DateTimeValue(DateTime? value) => value is null ? "-" : value.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz");
+    private static bool IsScreeningRequirement(ClientEvidenceRequirementStatusModel requirement) =>
+        requirement.EvidenceType is "PepPip" or "SanctionsTfs" or "AdverseInformation";
+    private static string EvidenceActor(ClientEvidenceItemModel item) =>
+        string.Equals(item.ScreeningPerformedBy, ClientEvidenceScreeningPerformers.Codex, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(item.Reviewer, "codex@local", StringComparison.OrdinalIgnoreCase)
+            ? ClientEvidenceScreeningPerformers.Codex
+            : Display(item.Reviewer);
 
     private static ScreeningReminderModel ScreeningReminder(ClientEvidenceRequirementStatusModel requirement)
     {
@@ -904,7 +981,7 @@ else
         : reason;
 
     private string ReviewReason => string.IsNullOrWhiteSpace(reason)
-        ? "Record external screening check completed."
+        ? "Record manual compliance check."
         : reason;
 
     private string? ClientFolderPickerInitialPath => model?.ClientFolderExists == true
