@@ -216,6 +216,9 @@ public sealed class ClientAdviceService(ApplicationDbContext db)
             throw new InvalidOperationException("The preparer cannot approve their own advice case.");
         if (item.ReviewFindings.Any(finding => finding.Status == ClientAdviceFindingStatuses.Open))
             throw new InvalidOperationException("Resolve or accept every review finding before approval.");
+        if (item.ReviewFindings.Any(finding => finding.Status == ClientAdviceFindingStatuses.AwaitingClientConfirmation &&
+            !string.Equals(finding.Category, "Client confirmation", StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("Only client-confirmation findings may remain pending when advice is approved.");
         var errors = Validate(item);
         if (errors.Count > 0) throw new InvalidOperationException(string.Join(" ", errors));
 
@@ -331,8 +334,10 @@ public sealed class ClientAdviceService(ApplicationDbContext db)
 
     public async Task RecordSignedDocumentAsync(int caseId, string path, string? userName)
     {
-        var item = await db.ClientAdviceCases.Include(value => value.Documents).SingleAsync(value => value.Id == caseId);
+        var item = await db.ClientAdviceCases.Include(value => value.Documents).Include(value => value.ReviewFindings).SingleAsync(value => value.Id == caseId);
         if (item.Status != ClientAdviceStatuses.Issued) throw new InvalidOperationException("Mark the approved record as issued before recording the signed copy.");
+        if (item.ReviewFindings.Any(value => value.Status == ClientAdviceFindingStatuses.AwaitingClientConfirmation))
+            throw new InvalidOperationException("Record the client's response to every requested confirmation before completing the advice case.");
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) throw new InvalidOperationException("The signed PDF could not be found.");
         if (!string.Equals(Path.GetExtension(path), ".pdf", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("The signed advice record must be a PDF.");
         var info = new FileInfo(path);
@@ -509,10 +514,40 @@ public sealed class ClientAdviceService(ApplicationDbContext db)
         var finding = await db.ClientAdviceReviewFindings.Include(item => item.AdviceCase).SingleAsync(item => item.Id == findingId);
         if (finding.AdviceCase.Status is ClientAdviceStatuses.ApprovedForIssue or ClientAdviceStatuses.Issued or ClientAdviceStatuses.Complete)
             throw new InvalidOperationException("Approved advice cannot be changed.");
+        if (finding.Status != ClientAdviceFindingStatuses.Open)
+            throw new InvalidOperationException("Only open review findings can be resolved or accepted before approval.");
         finding.Status = accept ? ClientAdviceFindingStatuses.Accepted : ClientAdviceFindingStatuses.Resolved;
         finding.Resolution = resolution.Trim();
         finding.ResolvedBy = User(userName);
         finding.ResolvedAtUtc = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+    }
+
+    public async Task RequestClientConfirmationAsync(int findingId, string? userName)
+    {
+        var finding = await db.ClientAdviceReviewFindings.Include(value => value.AdviceCase).SingleAsync(value => value.Id == findingId);
+        if (finding.AdviceCase.Status is not (ClientAdviceStatuses.Draft or ClientAdviceStatuses.Returned or ClientAdviceStatuses.ReadyForReview) ||
+            finding.Status != ClientAdviceFindingStatuses.Open ||
+            !string.Equals(finding.Category, "Client confirmation", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Only an open client-confirmation finding can be sent to the client with the proposal.");
+        finding.Status = ClientAdviceFindingStatuses.AwaitingClientConfirmation;
+        Audit(finding.AdviceCase.Id, "AdviceClientConfirmationRequested", User(userName), new { finding.Id });
+        await db.SaveChangesAsync();
+    }
+
+    public async Task RecordClientConfirmationAsync(int findingId, string responseReference, string? userName)
+    {
+        var finding = await db.ClientAdviceReviewFindings.Include(value => value.AdviceCase).SingleAsync(value => value.Id == findingId);
+        if (finding.AdviceCase.Status != ClientAdviceStatuses.Issued ||
+            finding.Status != ClientAdviceFindingStatuses.AwaitingClientConfirmation)
+            throw new InvalidOperationException("Issue the proposal before recording the client's response.");
+        if (string.IsNullOrWhiteSpace(responseReference))
+            throw new InvalidOperationException("Record the date and evidence for the client's confirmation.");
+        finding.Status = ClientAdviceFindingStatuses.Resolved;
+        finding.Resolution = responseReference.Trim();
+        finding.ResolvedBy = User(userName);
+        finding.ResolvedAtUtc = DateTime.UtcNow;
+        Audit(finding.AdviceCase.Id, "AdviceClientConfirmationRecorded", User(userName), new { finding.Id, finding.Resolution });
         await db.SaveChangesAsync();
     }
 
@@ -541,34 +576,44 @@ public sealed class ClientAdviceService(ApplicationDbContext db)
         return pdf;
     }
 
-    private static byte[] BuildPdf(ClientAdviceCase item, bool draftPreview, string? previewedBy)
+    public async Task<byte[]> ExportApprovedSamplePdfAsync(int caseId)
+    {
+        var item = await QueryCase().AsNoTracking().SingleAsync(value => value.Id == caseId);
+        if (item.Status is not (ClientAdviceStatuses.Draft or ClientAdviceStatuses.Returned or ClientAdviceStatuses.ReadyForReview))
+            throw new InvalidOperationException("The approved-letter sample is available only before approval.");
+        return BuildPdf(item, false, null, approvedSample: true);
+    }
+
+    private static byte[] BuildPdf(ClientAdviceCase item, bool draftPreview, string? previewedBy, bool approvedSample = false)
     {
         var methodology = Methodology(item.RiskMethodologyCode);
+        var clientName = ClientNameFormatter.FullNameAndSurname(item.Client);
         var writer = new InvestmentSummaryService.SimplePdfWriter(
-            draftPreview ? "DRAFT - KCAS Investment Risk Analyser and Client Advice Record" : "KCAS Investment Risk Analyser and Client Advice Record",
-            item.Client.DisplayName,
-            draftPreview ? "DRAFT - NOT FOR CLIENT ISSUE" : null);
-        writer.WriteReportHeader("Investment Risk Analyser and Client Advice Record", item.Client.DisplayName,
+            draftPreview ? "DRAFT - KCAS Investment Risk Analyser and Client Advice Record" : approvedSample ? "SAMPLE - KCAS Investment Risk Analyser and Client Advice Record" : "KCAS Investment Risk Analyser and Client Advice Record",
+            clientName,
+            draftPreview ? "DRAFT - NOT FOR CLIENT ISSUE" : approvedSample ? "SAMPLE - NOT APPROVED - NOT FOR CLIENT ISSUE" : null);
+        writer.WriteReportHeader("Investment Risk Analyser and Client Advice Record", clientName,
         [
             ("Advice date", item.AdviceDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
             ("Adviser", item.AdviserName),
             ("Revision", item.Revision.ToString(CultureInfo.InvariantCulture)),
-            ("Record", draftPreview ? "DRAFT PREVIEW - NOT APPROVED" : "Approved advice")
+            ("Record", draftPreview ? "DRAFT PREVIEW - NOT APPROVED" : approvedSample ? "SAMPLE - NOT APPROVED" : "Approved advice")
         ]);
         writer.WriteSection("Advice subjects");
         foreach (var participant in item.Participants.OrderBy(value => value.Client.DisplayName))
-            writer.WriteParagraph($"{participant.Client.DisplayName} (Kanaan ID {participant.Client.KanaanId ?? "-"}) - {participant.Role}");
+            writer.WriteParagraph($"{ClientNameFormatter.FullNameAndSurname(participant.Client)} (Kanaan ID {participant.Client.KanaanId ?? "-"}) - {Regex.Replace(participant.Role, "([a-z])([A-Z])", "$1 $2")}");
         writer.WriteSection("Material fact sources");
-        writer.WriteTable(["Fact", "Source date", "Document", "Notes"], [150, 85, 280, 215], item.FactSources.Select(value => new[]
-        {
-            value.FactName, value.SourceDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "-", value.DocumentPath, value.Notes ?? "-"
-        }));
+        foreach (var source in item.FactSources.OrderBy(value => value.FactName))
+            writer.WriteParagraph(draftPreview
+                ? $"{source.FactName} ({source.SourceDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "undated"}). Source: {source.DocumentPath}. {source.Notes}"
+                : $"{source.FactName} ({source.SourceDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "date not recorded"}).");
         if (item.InvestmentLinks.Count > 0)
         {
             writer.WriteSection("Existing investments considered");
             writer.WriteTable(["Client", "Account", "Product", "Administrator", "Status"], [170, 130, 180, 150, 90], item.InvestmentLinks.Select(value => new[]
             {
-                value.InvestmentAccount.Client.DisplayName, value.InvestmentAccount.AccountNumber ?? "-", value.InvestmentAccount.ProductName ?? "-",
+                ClientNameFormatter.FullNameAndSurname(value.InvestmentAccount.Client), value.InvestmentAccount.AccountNumber ?? "-", value.InvestmentAccount.ProductName ??
+                    item.Products.FirstOrDefault(product => value.InvestmentAccount.AccountNumber is { Length: > 0 } accountNumber && product.ProductName.Contains(accountNumber, StringComparison.OrdinalIgnoreCase))?.ProductType ?? "Existing investment",
                 value.InvestmentAccount.Administrator ?? "-", value.InvestmentAccount.SurrenderDate.HasValue ? "Historical" : "Current"
             }));
         }
@@ -585,16 +630,26 @@ public sealed class ClientAdviceService(ApplicationDbContext db)
         writer.WriteNote($"Calculated score: {item.CalculatedRiskScore}. Calculated profile: {item.CalculatedRiskLevel}. Final profile: {item.FinalRiskLevel}." +
                          (string.IsNullOrWhiteSpace(item.RiskOverrideReason) ? "" : $" Override reason: {item.RiskOverrideReason}"));
         writer.WriteSection("Products considered and recommendation");
-        writer.WriteTable(["Product", "Provider", "Type", "Recommended", "Allocation", "Motivation"], [180, 120, 100, 75, 75, 180],
-            item.Products.Select(value => new[] { value.ProductName, value.Provider ?? "-", value.ProductType ?? "-", value.IsRecommended ? "Yes" : "No", value.AllocationPercent.HasValue ? $"{value.AllocationPercent:0.##}%" : "-", value.Motivation ?? "-" }));
+        foreach (var product in item.Products.OrderBy(value => value.ProductName))
+            writer.WriteParagraph($"{product.ProductName} ({product.Provider ?? "provider not recorded"}; {product.ProductType ?? "type not recorded"}). Recommended: {(product.IsRecommended ? "Yes" : "No")}." +
+                                  (product.AllocationPercent.HasValue ? $" Allocation: {product.AllocationPercent:0.##}%." : "") + $" {product.Motivation}");
         Section(writer, "Recommendation and suitability", item.RecommendationSummary, item.RecommendationRationale);
         Section(writer, "Costs, tax, access and risks", item.CostsAndFees, item.TaxConsequences, item.LiquidityAndRestrictions, item.MaterialRisks);
         if (item.IsReplacement) Section(writer, "Replacement advice", item.ReplacementConsequences);
+        if (item.ReviewFindings.Any(value => value.Status == ClientAdviceFindingStatuses.AwaitingClientConfirmation ||
+            (value.Category.Equals("Client confirmation", StringComparison.OrdinalIgnoreCase) &&
+             value.Status == ClientAdviceFindingStatuses.Resolved && value.ResolvedAtUtc > item.ApprovedAtUtc)))
+        {
+            writer.WriteSection("Client confirmation of information");
+            writer.WriteParagraph("This proposal was prepared from the recorded client communication and information listed above. Please check the personal circumstances and Risk Analyser answers, and tell your adviser about any corrections before accepting or implementing the recommendation. A material correction may require revised advice.");
+        }
         writer.EnsureBlockSpace(145);
         Section(writer, "Client decision", item.ClientDeparture, item.WarningsGiven);
         writer.EnsureBlockSpace(82);
         writer.WriteSection("Approval and acceptance");
-        writer.WriteParagraph($"Prepared by: {item.PreparedBy}. Reviewed by: {item.Approvals.OrderByDescending(value => value.DecidedAtUtc).FirstOrDefault()?.Reviewer ?? "-"}.");
+        writer.WriteParagraph(draftPreview
+            ? $"Prepared by: {item.PreparedBy}. Reviewed by: -."
+            : $"Financial adviser: {item.AdviserName}. Independently reviewed by: {(approvedSample ? "Pending independent approval" : item.Approvals.OrderByDescending(value => value.DecidedAtUtc).FirstOrDefault()?.Reviewer ?? "-")}.");
         writer.WriteParagraph("Client signature: ______________________________    Date: __________________");
         writer.WriteParagraph("Financial adviser signature: ____________________    Date: __________________");
         if (draftPreview) WriteDraftReviewReport(writer, item, previewedBy!);
@@ -607,7 +662,7 @@ public sealed class ClientAdviceService(ApplicationDbContext db)
             .OrderBy(value => FindingSeverityOrder(value.Severity)).ThenBy(value => value.Category).ToList();
         var validationBlockers = Validate(item);
         writer.StartNewPage();
-        writer.WriteReportHeader("Internal draft review report", item.Client.DisplayName,
+        writer.WriteReportHeader("Internal draft review report", ClientNameFormatter.FullNameAndSurname(item.Client),
         [
             ("Generated", DateTime.Now.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)),
             ("Generated by", previewedBy),
@@ -615,10 +670,13 @@ public sealed class ClientAdviceService(ApplicationDbContext db)
             ("Open blockers", (openFindings.Count + validationBlockers.Count).ToString(CultureInfo.InvariantCulture))
         ]);
         writer.WriteNote("INTERNAL REVIEW MATERIAL - This report and the blocker appendix are not part of the client-facing advice record and must not be sent to the client.");
+        var pendingClientConfirmations = item.ReviewFindings.Count(value => value.Status == ClientAdviceFindingStatuses.AwaitingClientConfirmation);
         writer.WriteSection("Review conclusion");
         writer.WriteParagraph(openFindings.Count + validationBlockers.Count == 0
             ? "No recorded content blocker remains. Independent review and approval are still required before the final client PDF may be generated or issued."
             : $"The proposed Risk Analyser and Client Advice Record is not ready for issue. {openFindings.Count} open review finding(s) and {validationBlockers.Count} record-completeness blocker(s) require attention.");
+        if (pendingClientConfirmations > 0)
+            writer.WriteParagraph($"{pendingClientConfirmations} client confirmation(s) are requested with the proposal and must be recorded before the case is completed.");
 
         writer.WriteSection("Issue report");
         if (openFindings.Count == 0 && validationBlockers.Count == 0)
@@ -640,16 +698,12 @@ public sealed class ClientAdviceService(ApplicationDbContext db)
         }
 
         writer.WriteSection("Blocker appendix");
-        var rows = openFindings.Select(value => new[]
-            {
-                value.Severity, value.Category, value.AffectedField ?? "-", value.RecommendedCorrection ?? "Resolve before approval"
-            })
-            .Concat(validationBlockers.Select(value => new[] { "Blocking", "Record completeness", "Required field", value }))
-            .ToList();
-        if (rows.Count == 0)
+        if (openFindings.Count == 0 && validationBlockers.Count == 0)
             writer.WriteParagraph("No content blocker recorded. Independent approval remains outstanding.");
-        else
-            writer.WriteTable(["Severity", "Category", "Affected field", "Action required"], [80, 150, 150, 350], rows);
+        foreach (var finding in openFindings)
+            writer.WriteParagraph($"{finding.Severity} - {finding.Category} ({finding.AffectedField ?? "record"}): {finding.RecommendedCorrection ?? "Resolve before approval."}");
+        foreach (var blocker in validationBlockers)
+            writer.WriteParagraph($"Blocking - Record completeness: {blocker}");
     }
 
     private static string FindingImpact(ClientAdviceReviewFinding finding) => finding.Category switch

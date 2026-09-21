@@ -41,6 +41,9 @@ These repository-specific checks are performed by Codex. The user should not nee
 
 ## Cross-platform tests and PR checks
 
+- During local iteration, run the affected test class or feature area first; do not run the entire suite after every small edit. Broaden coverage when a change touches shared contracts, transfers, database migrations, or multiple modules, and rely on the full PR test run before handoff.
+- Do not delete passing regression tests merely because their feature is old. Consolidate only tests that duplicate the same assertion or fixture setup after checking what distinct failure each test catches.
+
 - GitHub PR checks run on Ubuntu while KCAS development and deployment are primarily Windows-based. Treat every filesystem, drive-mapping, evidence-path, and transfer test as cross-platform.
 - Keep Windows-path parsing separate from native filesystem operations. Do not assume `Path.GetFullPath`, `Path.Combine`, directory creation, or absolute-path detection will treat `C:`, `E:`, `Z:`, backslashes, and temporary paths identically on Windows and Linux.
 - In tests, assert against KCAS path-mapping and file-resolution contracts rather than hard-coded host-specific normalized paths. When a test needs a mapped folder to exist, create the exact mapped target returned by KCAS.
