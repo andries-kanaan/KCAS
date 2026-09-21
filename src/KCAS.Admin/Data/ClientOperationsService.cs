@@ -16,7 +16,7 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
         return ClientEditModel.FromClient(client);
     }
 
-    public async Task<int> SaveClientAsync(ClientEditModel model)
+    public async Task<int> SaveClientAsync(ClientEditModel model, bool canManageComplianceVisibility = false)
     {
         var surname = Normalize(model.SurnameOrEntityName);
         var displayName = Normalize(model.DisplayName);
@@ -59,6 +59,10 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
         client.ClientCategoryUpdatedAtUtc = DateTime.UtcNow;
         client.ClientCategoryUpdatedBy = Normalize(model.UpdatedBy);
         client.IsActive = model.IsActive;
+        if (canManageComplianceVisibility)
+        {
+            client.ExcludeFromComplianceLists = model.ExcludeFromComplianceLists;
+        }
 
         client.PersonalProfile ??= new ClientPersonalProfile { Client = client };
         client.PersonalProfile.SouthAfricanIdNumber = Normalize(model.SouthAfricanIdNumber);
@@ -1050,6 +1054,7 @@ public sealed class ClientEditModel
     public string? ClientCategoryUpdatedBy { get; set; }
     public string? UpdatedBy { get; set; }
     public bool IsActive { get; set; } = true;
+    public bool ExcludeFromComplianceLists { get; set; }
     public string? SouthAfricanIdNumber { get; set; }
     public string? Gender { get; set; }
     public string? MaritalStatus { get; set; }
@@ -1094,6 +1099,7 @@ public sealed class ClientEditModel
             ClientCategoryUpdatedAtUtc = client.ClientCategoryUpdatedAtUtc,
             ClientCategoryUpdatedBy = client.ClientCategoryUpdatedBy,
             IsActive = client.IsActive,
+            ExcludeFromComplianceLists = client.ExcludeFromComplianceLists,
             SouthAfricanIdNumber = client.PersonalProfile?.SouthAfricanIdNumber,
             Gender = client.PersonalProfile?.Gender,
             MaritalStatus = client.PersonalProfile?.MaritalStatus,

@@ -13,11 +13,16 @@ public sealed class ComplianceWorkService(ApplicationDbContext db)
         string? search = null,
         string? taskType = null,
         string? status = null,
-        string? view = null)
+        string? view = null,
+        bool includeExcludedClients = false)
     {
         var query = db.ComplianceTasks.AsNoTracking()
             .Include(item => item.Client)
             .AsQueryable();
+        if (!includeExcludedClients)
+        {
+            query = query.Where(item => item.Client == null || !item.Client.ExcludeFromComplianceLists);
+        }
         if (!string.IsNullOrWhiteSpace(search))
         {
             var term = search.Trim();
@@ -84,9 +89,11 @@ public sealed class ComplianceWorkService(ApplicationDbContext db)
         return new(task, approvals, RequiredClosureApprovals(task));
     }
 
-    public async Task<ComplianceWorkOptions> LoadOptionsAsync()
+    public async Task<ComplianceWorkOptions> LoadOptionsAsync(bool includeExcludedClients = false)
         => new(
-            await db.Clients.AsNoTracking().Where(item => item.IsActive).OrderBy(item => item.DisplayName)
+            await db.Clients.AsNoTracking()
+                .Where(item => item.IsActive && (includeExcludedClients || !item.ExcludeFromComplianceLists))
+                .OrderBy(item => item.DisplayName)
                 .Select(item => new ComplianceWorkOption(item.Id, item.DisplayName)).ToListAsync(),
             await db.BusinessRiskAssessments.AsNoTracking()
                 .Where(item => item.Status == ComplianceStatuses.Active || item.Status == ComplianceStatuses.Approved)
@@ -157,7 +164,8 @@ public sealed class ComplianceWorkService(ApplicationDbContext db)
         var user = RequireUser(userName);
         var assessments = await db.ClientRiskAssessments.AsNoTracking()
             .Include(item => item.Client)
-            .Where(item => (item.Status == ClientRiskAssessmentStatuses.Approved ||
+            .Where(item => !item.Client!.ExcludeFromComplianceLists &&
+                           (item.Status == ClientRiskAssessmentStatuses.Approved ||
                             item.Status == ClientRiskAssessmentStatuses.Finalised) &&
                            item.NextReviewDate != null &&
                            item.NextReviewDate <= throughDate)
@@ -204,6 +212,7 @@ public sealed class ComplianceWorkService(ApplicationDbContext db)
         var assessments = await db.ClientRiskAssessments.AsNoTracking()
             .Include(item => item.Client)
             .Where(item => item.Client!.IsActive &&
+                           !item.Client.ExcludeFromComplianceLists &&
                            (item.Status == ClientRiskAssessmentStatuses.Approved ||
                             item.Status == ClientRiskAssessmentStatuses.Finalised) &&
                            item.EffectiveDate != null)
@@ -249,12 +258,14 @@ public sealed class ComplianceWorkService(ApplicationDbContext db)
         return created;
     }
 
-    public async Task<IReadOnlyList<ComplianceWorkListItem>> LoadDueReviewNotificationsAsync()
+    public async Task<IReadOnlyList<ComplianceWorkListItem>> LoadDueReviewNotificationsAsync(
+        bool includeExcludedClients = false)
     {
         var today = DateOnly.FromDateTime(DateTime.Today);
         return await db.ComplianceTasks.AsNoTracking()
             .Include(item => item.Client)
-            .Where(item => item.Owner == ComplianceReviewAudience &&
+            .Where(item => (includeExcludedClients || item.Client == null || !item.Client.ExcludeFromComplianceLists) &&
+                           item.Owner == ComplianceReviewAudience &&
                            (item.TaskType == ComplianceTaskTypes.PeriodicReview ||
                             item.TaskType == ComplianceTaskTypes.TriggerReview) &&
                            item.DueDate <= today &&

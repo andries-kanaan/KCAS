@@ -108,18 +108,22 @@
 
     protected override async Task OnInitializedAsync()
     {
-        clientCount = await Db.Clients.CountAsync();
-        currentClientCount = await Db.Clients.CountAsync(
-            client => client.LifecycleStatus == ClientLifecycleStatuses.Current);
-        databaseStatus = "Online";
         var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var isAdministrator = state.User.IsInRole(KcasRoles.Administrator);
+        var clients = Db.Clients.Where(client => isAdministrator || !client.ExcludeFromComplianceLists);
+        clientCount = await clients.CountAsync();
+        currentClientCount = await Db.Clients.CountAsync(
+            client => (isAdministrator || !client.ExcludeFromComplianceLists) &&
+                      client.LifecycleStatus == ClientLifecycleStatuses.Current);
+        databaseStatus = "Online";
         var userName = state.User.Identity?.Name;
         var canReceiveComplianceReviews = state.User.IsInRole(KcasRoles.ComplianceAdministrator) ||
                                           state.User.IsInRole(KcasRoles.ComplianceApprover);
         if (canReceiveComplianceReviews && !string.IsNullOrWhiteSpace(userName))
         {
             annualNotificationsCreated = await WorkService.EnsureAnnualClientReviewTasksAsync(DateOnly.FromDateTime(DateTime.Today), userName);
-            reviewNotifications = await WorkService.LoadDueReviewNotificationsAsync();
+            reviewNotifications = await WorkService.LoadDueReviewNotificationsAsync(
+                state.User.IsInRole(KcasRoles.Administrator));
         }
     }
 }

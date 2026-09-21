@@ -7,6 +7,19 @@ namespace KCAS.Admin.Tests;
 [Collection(KcasTestCollection.Name)]
 public sealed class ClientAdviceTransferServiceTests(KcasWebApplicationFactory factory)
 {
+    [Theory]
+    [InlineData(@"C:\Download\_kanaan\ClientsKanaan\SUTTON AD\statement.pdf", true)]
+    [InlineData(@"\\server\clients\SUTTON AD\statement.pdf", true)]
+    [InlineData("/srv/kcas/clients/statement.pdf", true)]
+    [InlineData("KCAS client 1567, valuations for IA50137937 and LA50019430", false)]
+    [InlineData("KCAS client 1567, valuation for IW70048", false)]
+    public void Advice_evidence_references_distinguish_files_from_internal_kcas_sources(
+        string reference,
+        bool expected)
+    {
+        Assert.Equal(expected, ClientAdviceTransferService.IsFilePathReference(reference));
+    }
+
     [Fact]
     public async Task Export_embeds_referenced_advice_files_outside_the_client_folder()
     {
@@ -84,6 +97,7 @@ public sealed class ClientAdviceTransferServiceTests(KcasWebApplicationFactory f
             advice.RiskResponses.Add(new ClientAdviceRiskResponse { QuestionCode = "TIME_HORIZON", AnswerCode = "LONG", Score = 7, Explanation = "Supported by the review." });
             advice.Products.Add(new ClientAdviceProduct { ProductName = "Transfer product", Provider = "Transfer Provider", ProductType = "Investment", IsRecommended = true, Motivation = "Retain." });
             advice.FactSources.Add(new ClientAdviceFactSource { FactName = "Portfolio", SourceDate = new DateOnly(2026, 9, 1), DocumentPath = $@"{client.ClientFolder}\Statements\portfolio.pdf", Notes = "Current statement." });
+            advice.FactSources.Add(new ClientAdviceFactSource { FactName = "System valuation", SourceDate = new DateOnly(2026, 9, 1), DocumentPath = "KCAS client valuation for transfer account", Notes = "Current KCAS valuation." });
             advice.InvestmentLinks.Add(new ClientAdviceInvestmentLink { InvestmentAccount = account, Role = "ExistingPortfolio" });
             advice.ReviewFindings.Add(new ClientAdviceReviewFinding { Severity = ClientAdviceFindingSeverities.High, Category = "Suitability", Finding = "Independent review required.", RecommendedCorrection = "Complete review.", PerformedBy = "codex-assisted" });
             advice.Documents.Add(new ClientAdviceDocument { Client = client, DocumentType = ClientAdviceDocumentTypes.GeneratedAdviceRecord, FileName = "draft.pdf", FileSha256 = new string('a', 64), FileSizeBytes = 1234, RecordedBy = "codex-assisted" });
@@ -128,7 +142,10 @@ public sealed class ClientAdviceTransferServiceTests(KcasWebApplicationFactory f
             Assert.Equal(58, liveCase.CalculatedRiskScore);
             Assert.Single(liveCase.Participants); Assert.Single(liveCase.RiskResponses); Assert.Single(liveCase.Products);
             Assert.Single(liveCase.InvestmentLinks); Assert.Single(liveCase.ReviewFindings); Assert.Single(liveCase.Documents);
-            Assert.StartsWith(client.ClientFolder!, liveCase.FactSources.Single().DocumentPath, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(liveCase.FactSources, value =>
+                value.DocumentPath.StartsWith(client.ClientFolder!, StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(liveCase.FactSources, value =>
+                value.DocumentPath == "KCAS client valuation for transfer account");
             var historical = await db.ClientAdviceDocuments.AsNoTracking().SingleAsync(value => value.ClientId == client.Id && value.ClientAdviceCaseId == null);
             Assert.StartsWith(client.ClientFolder!, historical.SourcePath!, StringComparison.OrdinalIgnoreCase);
             Assert.True(await db.ComplianceAuditEvents.AnyAsync(value => value.EntityType == nameof(ClientAdviceCase) && value.EntityId == liveCase.Id && value.Action == "AdviceSubmittedForReview"));

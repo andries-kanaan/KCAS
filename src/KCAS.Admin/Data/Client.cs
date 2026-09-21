@@ -48,6 +48,8 @@ public class Client
 
     public bool IsActive { get; set; } = true;
 
+    public bool ExcludeFromComplianceLists { get; set; }
+
     [MaxLength(32)]
     public string LifecycleStatus { get; set; } = ClientLifecycleStatuses.Unreviewed;
 

@@ -15,11 +15,17 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
     };
     private static readonly string[] SupportedExtensions = [".pdf", ".doc", ".docx", ".docm", ".xls", ".xlsx", ".xlsm", ".jpg", ".jpeg", ".png", ".txt", ".msg", ".eml"];
 
-    public async Task<ClientEvidenceDashboardModel> LoadDashboardAsync()
+    public async Task<ClientEvidenceDashboardModel> LoadDashboardAsync(bool includeExcludedClients = false)
     {
         await EnsureDefaultRequirementsAsync();
 
-        var clients = await db.Clients
+        var clientQuery = db.Clients.AsQueryable();
+        if (!includeExcludedClients)
+        {
+            clientQuery = clientQuery.Where(client => !client.ExcludeFromComplianceLists);
+        }
+
+        var clients = await clientQuery
             .AsNoTracking()
             .OrderBy(client => client.DisplayName)
             .Select(client => new ClientEvidenceClientSummaryModel
