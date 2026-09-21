@@ -1,12 +1,10 @@
 @page "/clients/{ClientId:int}/compliance-review"
 @rendermode InteractiveServer
 @attribute [Authorize(Policy = KcasPermissions.ClientsView)]
-@implements IDisposable
 @using KCAS.Admin.Data
 @inject ClientComplianceReviewService ReviewService
 @inject ClientOperationalVerificationService VerificationService
 @inject ClientEvidenceReadinessService EvidenceService
-@inject ClientEvidenceScanCoordinator ScanCoordinator
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject DocumentPathDisplayService PathDisplay
 
@@ -102,44 +100,25 @@ else
         <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
             <div>
                 <p class="eyebrow mb-1">Step 1</p>
-                <h2>Client folder and evidence scan</h2>
-                <p class="text-muted">The selected folder is saved immediately. A new or changed folder is scanned automatically; an existing completed scan is reused.</p>
+                <h2>Client folder</h2>
+                <p class="text-muted">The selected folder is saved without changing linked evidence.</p>
             </div>
             @if (canManageEvidence)
             {
                 <div class="row-actions">
                     <button class="btn btn-primary" type="button" @onclick="OpenFolderPicker" disabled="@isBusy">@(string.IsNullOrWhiteSpace(model.ClientFolder) ? "Select client folder" : "Change folder")</button>
-                    @if (!string.IsNullOrWhiteSpace(model.ClientFolder))
-                    {
-                        <button class="btn btn-outline-secondary" type="button" @onclick="RescanAsync" disabled="@(isBusy || ScanIsRunning)">Rescan folder</button>
-                    }
                     <button class="btn btn-outline-secondary" type="button" @onclick="RefreshAsync" disabled="@isBusy">Refresh status</button>
                 </div>
             }
         </div>
         <dl class="mb-0">
             <dt>Selected folder</dt><dd>@Display(PathDisplay.ForWorkstation(model.ClientFolder))</dd>
-            <dt>Latest scan</dt>
-            <dd>
-                @if (model.LatestFolderScan is null)
-                {
-                    <span>No scan recorded for this folder.</span>
-                }
-                else
-                {
-                    <span>@model.LatestFolderScan.Status · @model.LatestFolderScan.LinkedFiles linked / @model.LatestFolderScan.TotalFiles files · started @model.LatestFolderScan.StartedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</span>
-                    @if (!string.IsNullOrWhiteSpace(model.LatestFolderScan.ErrorMessage))
-                    {
-                        <div class="text-danger">@model.LatestFolderScan.ErrorMessage</div>
-                    }
-                }
-            </dd>
         </dl>
         @if (!string.IsNullOrWhiteSpace(model.ClientFolder) && !model.ClientFolderExists)
         {
             <div class="alert alert-warning mt-3">
                 <strong>Saved folder is not available to this KCAS server.</strong>
-                <div class="small">Active evidence scan root: @Display(model.ActiveScanRoot)</div>
+                <div class="small">Client folder root: @Display(model.ActiveScanRoot)</div>
                 @if (model.FolderRecommendations.Count > 0)
                 {
                     <div class="list-group mt-2">
@@ -156,7 +135,6 @@ else
                                     {
                                         <div class="row-actions">
                                             <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="() => SaveRecommendedFolderAsync(recommendation.Path)" disabled="@isBusy">Save this folder</button>
-                                            <button class="btn btn-primary btn-sm" type="button" @onclick="() => SelectFolderAsync(recommendation.Path)" disabled="@isBusy">Scan this folder</button>
                                         </div>
                                     }
                                 </div>
@@ -166,23 +144,8 @@ else
                 }
                 else
                 {
-                    <div class="small mt-2">No likely folder was found under the active scan root. Browse from the scan root and choose the client folder manually.</div>
+                    <div class="small mt-2">No likely folder was found under the client folder root. Browse and choose the client folder manually.</div>
                 }
-            </div>
-        }
-        @if (ScanIsRunning && model.LatestFolderScan is not null)
-        {
-            <div class="mt-3" aria-live="polite">
-                <div class="d-flex justify-content-between gap-2 mb-1">
-                    <strong>Scanning client evidence...</strong>
-                    <span class="text-muted">@model.LatestFolderScan.TotalFiles processed</span>
-                </div>
-                <div class="progress" role="progressbar" aria-label="Client evidence scan in progress">
-                    <div class="progress-bar progress-bar-striped progress-bar-animated w-100"></div>
-                </div>
-                <div class="text-muted small mt-1">
-                    @model.LatestFolderScan.LinkedFiles linked · @model.LatestFolderScan.UnmatchedFiles unmatched · @model.LatestFolderScan.AmbiguousFiles ambiguous
-                </div>
             </div>
         }
         <ServerFolderPicker IsOpen="@folderPickerOpen"
@@ -367,9 +330,6 @@ else
     private bool isBusy;
     private bool hasError;
     private string? statusMessage;
-    private CancellationTokenSource? pollingCancellation;
-
-    private bool ScanIsRunning => model?.LatestFolderScan?.Status is ClientEvidenceScanStatuses.Running or ClientEvidenceScanStatuses.Cancelling;
     private List<ClientEvidenceRequirementStatusModel> BlockedEvidence => model?.EvidenceRequirements.Where(item => item.IsBlocked).ToList() ?? [];
     private List<ClientEvidenceRequirementStatusModel> BlockedScreening => model?.ScreeningRequirements.Where(item => item.IsBlocked).ToList() ?? [];
     private bool EvidenceComplete => BlockedEvidence.Count == 0 && (model?.Evidence.OwnershipBlockers.Count ?? 0) == 0;
@@ -381,16 +341,11 @@ else
 
     protected override async Task OnParametersSetAsync()
     {
-        StopPolling();
         var auth = await AuthenticationStateProvider.GetAuthenticationStateAsync();
         currentUser = auth.User.Identity?.Name;
         canManageClient = auth.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ClientsManage);
         canManageEvidence = auth.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage);
         await LoadAsync();
-        if (ScanIsRunning)
-        {
-            StartPolling();
-        }
     }
 
     private async Task LoadAsync() => model = await ReviewService.LoadAsync(ClientId);
@@ -400,28 +355,14 @@ else
 
     private async Task SelectFolderAsync(string path)
     {
-        if (model is null) return;
-        var changed = !string.Equals(model.ClientFolder?.Trim(), path.Trim(), StringComparison.OrdinalIgnoreCase);
         await ExecuteAsync(async () =>
         {
-            if (changed || model.LatestFolderScan is null)
-            {
-                var runId = await ScanCoordinator.StartClientScanAsync(
-                    ClientId,
-                    path,
-                    currentUser,
-                    "Select client folder and prepare unified compliance review.");
-                statusMessage = $"Client folder saved and evidence scan {runId} started.";
-            }
-            else
-            {
-                await EvidenceService.SaveClientEvidenceFolderAsync(
-                    ClientId,
-                    path,
-                    currentUser,
-                    "Confirm existing client folder for unified compliance review.");
-                statusMessage = "Existing client folder confirmed; completed scan results retained.";
-            }
+            await EvidenceService.SaveClientEvidenceFolderAsync(
+                ClientId,
+                path,
+                currentUser,
+                "Select client folder for unified compliance review.");
+            statusMessage = "Client folder saved. Linked evidence was not changed.";
         });
     }
 
@@ -434,21 +375,7 @@ else
                 path,
                 currentUser,
                 "Save recommended client folder for unified compliance review.");
-            statusMessage = "Client folder updated. Scan the folder when you are ready.";
-        });
-    }
-
-    private async Task RescanAsync()
-    {
-        if (model is null || string.IsNullOrWhiteSpace(model.ClientFolder)) return;
-        await ExecuteAsync(async () =>
-        {
-            var runId = await ScanCoordinator.StartClientScanAsync(
-                ClientId,
-                model.ClientFolder,
-                currentUser,
-                "Refresh evidence for unified client compliance review.");
-            statusMessage = $"Evidence rescan {runId} started.";
+            statusMessage = "Client folder saved. Linked evidence was not changed.";
         });
     }
 
@@ -479,10 +406,6 @@ else
         {
             await action();
             await LoadAsync();
-            if (ScanIsRunning)
-            {
-                StartPolling();
-            }
         }
         catch (Exception exception)
         {
@@ -495,51 +418,6 @@ else
         }
     }
 
-    private void StartPolling()
-    {
-        StopPolling();
-        pollingCancellation = new CancellationTokenSource();
-        _ = PollLatestScanAsync(pollingCancellation.Token);
-    }
-
-    private void StopPolling()
-    {
-        pollingCancellation?.Cancel();
-        pollingCancellation?.Dispose();
-        pollingCancellation = null;
-    }
-
-    private async Task PollLatestScanAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
-            while (await timer.WaitForNextTickAsync(cancellationToken))
-            {
-                await InvokeAsync(async () =>
-                {
-                    if (model is null)
-                    {
-                        return;
-                    }
-
-                    model.LatestFolderScan = await ReviewService.LoadLatestFolderScanAsync(ClientId, cancellationToken);
-                    if (!ScanIsRunning)
-                    {
-                        await LoadAsync();
-                        pollingCancellation?.Cancel();
-                    }
-
-                    StateHasChanged();
-                });
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        }
-    }
-
-    public void Dispose() => StopPolling();
 
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "Not captured" : value;
     private static string Money(decimal value) => $"R {value:N2}";

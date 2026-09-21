@@ -1,4 +1,5 @@
 using KCAS.Admin.Data;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace KCAS.Admin.Tests;
@@ -50,7 +51,7 @@ public sealed class ClientComplianceReviewServiceTests(KcasWebApplicationFactory
 
         Assert.Equal("folder", review.Sections[0].Code);
         Assert.False(review.Sections[0].IsComplete);
-        Assert.Equal("Select or scan client folder", review.NextAction.Label);
+        Assert.Equal("Select client folder", review.NextAction.Label);
         Assert.Equal(ClientLifecycleStatuses.Current, review.LifecycleProposal.Status);
         Assert.True(review.LifecycleProposal.CanConfirm);
         Assert.Equal(1, review.CurrentInvestmentCount);
@@ -225,10 +226,44 @@ public sealed class ClientComplianceReviewServiceTests(KcasWebApplicationFactory
 
             var folderSection = Assert.Single(review.Sections, item => item.Code == "folder");
             Assert.True(folderSection.IsComplete);
-            Assert.Equal("Client folder and evidence mapping", folderSection.Title);
-            Assert.Contains("no repeat scan is required", folderSection.Summary, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal("Client folder", folderSection.Title);
+            Assert.Equal("Saved client folder is available.", folderSection.Summary);
             var factsSection = Assert.Single(review.Sections, item => item.Code == "facts");
             Assert.Equal("Client facts are consistent; no unresolved conflicts.", factsSection.Summary);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Existing_client_folder_completes_folder_step_without_a_scan()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = scope.ServiceProvider.GetRequiredService<ClientComplianceReviewService>();
+        var folder = Path.Combine(Path.GetTempPath(), "kcas-compliance-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+
+        try
+        {
+            var client = new Client
+            {
+                LegacyClientId = Random.Shared.Next(900000, 999999),
+                KanaanId = $"FOLDER-{Guid.NewGuid():N}"[..30],
+                DisplayName = "Mapped Folder Client",
+                SurnameOrEntityName = "Client",
+                ClientFolder = folder
+            };
+            db.Clients.Add(client);
+            await db.SaveChangesAsync();
+
+            var review = await service.LoadAsync(client.Id);
+
+            Assert.True(review.Sections[0].IsComplete);
+            Assert.Equal("Saved client folder is available.", review.Sections[0].Summary);
+            Assert.False(await db.ClientEvidenceScanRuns.AnyAsync(run => run.RootPath == folder));
         }
         finally
         {
