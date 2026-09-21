@@ -15,7 +15,7 @@ public sealed class ClientOperationsServiceTests(KcasWebApplicationFactory facto
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var clientId = await service.SaveClientAsync(new ClientEditModel
         {
-            KanaanId = $"NEW-{Guid.NewGuid():N}",
+            KanaanId = $"NEW-{Guid.NewGuid():N}"[..30],
             SurnameOrEntityName = "New Review",
             DisplayName = $"New Review Client {Guid.NewGuid():N}",
             UpdatedBy = "creator@example.test"

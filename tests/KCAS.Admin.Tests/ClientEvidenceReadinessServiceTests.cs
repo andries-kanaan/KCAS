@@ -673,7 +673,7 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
         using var scope = factory.Services.CreateScope();
         var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        var clientId = await CreateClientAsync(db, "Manual Check Client", $"MANUAL-{Guid.NewGuid():N}", @"z:\Kanaan Trust\Clients\Manual Check Client");
+        var clientId = await CreateClientAsync(db, "Manual Check Client", $"MANUAL-{Guid.NewGuid():N}"[..30], @"z:\Kanaan Trust\Clients\Manual Check Client");
         var requirementId = await EnsureRequirementIdAsync(service, db, "Identity");
         var reviewDate = new DateOnly(2026, 9, 21);
         var nextReviewDate = reviewDate.AddYears(1);
