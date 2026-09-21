@@ -6,9 +6,15 @@ namespace KCAS.Admin.Data;
 
 public sealed class ClientOperationalVerificationService(ApplicationDbContext db)
 {
-    public async Task<List<ClientOperationalPortfolioItem>> LoadPortfolioAsync(string? lifecycleStatus = null)
+    public async Task<List<ClientOperationalPortfolioItem>> LoadPortfolioAsync(
+        string? lifecycleStatus = null,
+        bool includeExcludedClients = false)
     {
         var query = db.Clients.AsNoTracking();
+        if (!includeExcludedClients)
+        {
+            query = query.Where(client => !client.ExcludeFromComplianceLists);
+        }
         if (!string.IsNullOrWhiteSpace(lifecycleStatus))
         {
             query = query.Where(client => client.LifecycleStatus == lifecycleStatus);

@@ -3,6 +3,7 @@
 @rendermode InteractiveServer
 @attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
 @using KCAS.Admin.Data
+@using KCAS.Admin.Security
 @inject ClientEvidenceReadinessService EvidenceService
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject DocumentPathDisplayService PathDisplay
@@ -176,6 +177,7 @@ else
     private string? reason;
     private string? currentUser;
     private bool canManage;
+    private bool isAdministrator;
     private string? statusMessage;
     private string? clientSearch;
     private string? surnameSearch;
@@ -259,12 +261,13 @@ else
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
         currentUser = authState.User.Identity?.Name;
         canManage = authState.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage);
+        isAdministrator = authState.User.IsInRole(KcasRoles.Administrator);
         await LoadAsync();
     }
 
     private async Task LoadAsync()
     {
-        model = await EvidenceService.LoadDashboardAsync();
+        model = await EvidenceService.LoadDashboardAsync(isAdministrator);
         scanRootPath = model.ScanRootPath ?? scanRootPath;
         foreach (var client in model.Clients)
         {

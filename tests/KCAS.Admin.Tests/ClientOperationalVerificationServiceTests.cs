@@ -9,6 +9,21 @@ namespace KCAS.Admin.Tests;
 public sealed class ClientOperationalVerificationServiceTests(KcasWebApplicationFactory factory)
 {
     [Fact]
+    public async Task Compliance_portfolio_hides_excluded_clients_unless_administrator_view_is_requested()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = scope.ServiceProvider.GetRequiredService<ClientOperationalVerificationService>();
+        var client = NewClient($"Excluded compliance client {Guid.NewGuid():N}");
+        client.ExcludeFromComplianceLists = true;
+        db.Clients.Add(client);
+        await db.SaveChangesAsync();
+
+        Assert.DoesNotContain(await service.LoadPortfolioAsync(), item => item.ClientId == client.Id);
+        Assert.Contains(await service.LoadPortfolioAsync(includeExcludedClients: true), item => item.ClientId == client.Id);
+    }
+
+    [Fact]
     public async Task Lifecycle_classification_requires_reason_and_duplicate_target()
     {
         using var scope = factory.Services.CreateScope();

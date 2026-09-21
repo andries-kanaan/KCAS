@@ -146,7 +146,7 @@ public sealed class ClientAdviceTransferService(
         if (matches.TryGetValue(ClientKey(package.Client), out var targetClientId))
         {
             targetClient = await db.Clients.AsNoTracking().SingleAsync(value => value.Id == targetClientId, cancellationToken);
-            if (string.IsNullOrWhiteSpace(targetClient.ClientFolder) && package.AllDocumentPaths().Any(value => !string.IsNullOrWhiteSpace(value)))
+            if (string.IsNullOrWhiteSpace(targetClient.ClientFolder) && package.AllDocumentPaths().Any(IsFilePathReference))
                 conflicts.Add("The live client has no client folder, so advice document paths cannot be mapped safely.");
         }
 
@@ -165,7 +165,7 @@ public sealed class ClientAdviceTransferService(
 
         if (targetClient is not null)
         {
-            foreach (var path in package.AllDocumentPaths().Where(value => !string.IsNullOrWhiteSpace(value)).Distinct(StringComparer.OrdinalIgnoreCase))
+            foreach (var path in package.AllDocumentPaths().Where(IsFilePathReference).Distinct(StringComparer.OrdinalIgnoreCase))
             {
                 try
                 {
@@ -416,6 +416,7 @@ public sealed class ClientAdviceTransferService(
     private static string? MapPath(string? path, ClientAdviceTransferPackage package, string? targetFolder)
     {
         if (string.IsNullOrWhiteSpace(path)) return path;
+        if (!IsFilePathReference(path)) return path;
         if (string.IsNullOrWhiteSpace(targetFolder)) return path;
         var embedded = package.EmbeddedFiles.SingleOrDefault(value =>
             string.Equals(NormalizeWindowsPath(value.OriginalPath), NormalizeWindowsPath(path), StringComparison.OrdinalIgnoreCase));
@@ -437,7 +438,7 @@ public sealed class ClientAdviceTransferService(
         var result = new List<ClientAdviceEmbeddedFilePackage>();
         var sourceRoot = string.IsNullOrWhiteSpace(package.SourceClientFolder)
             ? null : NormalizeWindowsPath(package.SourceClientFolder).TrimEnd('\\');
-        foreach (var path in package.AllDocumentPaths().Where(value => !string.IsNullOrWhiteSpace(value))
+        foreach (var path in package.AllDocumentPaths().Where(IsFilePathReference)
                      .Select(value => value!).Distinct(StringComparer.OrdinalIgnoreCase))
         {
             var normalized = NormalizeWindowsPath(path);
@@ -481,6 +482,15 @@ public sealed class ClientAdviceTransferService(
     }
 
     private static string NormalizeWindowsPath(string value) => value.Trim().Replace('/', '\\');
+    internal static bool IsFilePathReference(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        var candidate = value.Trim();
+        return candidate.StartsWith("\\\\", StringComparison.Ordinal) ||
+               candidate[0] == '/' ||
+               (candidate.Length >= 3 && char.IsAsciiLetter(candidate[0]) && candidate[1] == ':' &&
+                candidate[2] is '\\' or '/');
+    }
     private static string ClientKey(ClientAdviceClientRef value) => value.LegacyClientId.HasValue ? $"L:{value.LegacyClientId}" : $"K:{value.KanaanId}|N:{value.DisplayName}";
     private static string InvestmentKey(ClientAdviceInvestmentPackage value) => $"{ClientKey(value.Owner)}|L:{value.LegacyInvestmentAccountId}|A:{ClientInvestmentStatusClassifier.NormalizeAccountNumber(value.AccountNumber)}|P:{value.Administrator?.Trim().ToUpperInvariant()}";
 

@@ -8,6 +8,27 @@ namespace KCAS.Admin.Tests;
 public sealed class ClientSearchServiceTests(KcasWebApplicationFactory factory)
 {
     [Fact]
+    public async Task Client_register_hides_excluded_clients_unless_administrator_view_is_requested()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = new ClientSearchService(db);
+        var client = new Client
+        {
+            DisplayName = $"Hidden Register Client {Guid.NewGuid():N}",
+            SurnameOrEntityName = "Hidden",
+            ExcludeFromComplianceLists = true
+        };
+        db.Clients.Add(client);
+        await db.SaveChangesAsync();
+
+        Assert.DoesNotContain(await service.SearchAsync(client.DisplayName), item => item.Id == client.Id);
+        Assert.Contains(
+            await service.SearchAsync(client.DisplayName, includeExcludedClients: true),
+            item => item.Id == client.Id);
+    }
+
+    [Fact]
     public async Task Search_finds_imported_clients_by_legacy_identity_and_contact_details()
     {
         using var scope = factory.Services.CreateScope();

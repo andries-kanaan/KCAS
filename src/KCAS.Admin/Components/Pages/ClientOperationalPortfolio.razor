@@ -2,7 +2,9 @@
 @rendermode InteractiveServer
 @attribute [Authorize(Policy = KcasPermissions.ClientsView)]
 @using KCAS.Admin.Data
+@using KCAS.Admin.Security
 @inject ClientOperationalVerificationService VerificationService
+@inject AuthenticationStateProvider AuthenticationStateProvider
 
 <PageTitle>Client reviews</PageTitle>
 
@@ -141,7 +143,9 @@
 
     protected override async Task OnInitializedAsync()
     {
-        allItems = await VerificationService.LoadPortfolioAsync();
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        allItems = await VerificationService.LoadPortfolioAsync(
+            includeExcludedClients: state.User.IsInRole(KcasRoles.Administrator));
         ApplyFilter();
     }
 

@@ -17,12 +17,18 @@ public sealed class ClientSearchService
         this.dbFactory = dbFactory;
     }
 
-    public async Task<List<ClientSearchResult>> SearchAsync(string? searchText, int take = 100)
+    public async Task<List<ClientSearchResult>> SearchAsync(
+        string? searchText,
+        int take = 100,
+        bool includeExcludedClients = false)
     {
-        return await SearchAsync(new ClientSearchRequest(GlobalSearch: searchText), take);
+        return await SearchAsync(new ClientSearchRequest(GlobalSearch: searchText), take, includeExcludedClients);
     }
 
-    public async Task<List<ClientSearchResult>> SearchAsync(ClientSearchRequest request, int take = 500)
+    public async Task<List<ClientSearchResult>> SearchAsync(
+        ClientSearchRequest request,
+        int take = 500,
+        bool includeExcludedClients = false)
     {
         await using var ownedDb = dbFactory is null ? null : await dbFactory.CreateDbContextAsync();
         var searchDb = ownedDb ?? db ?? throw new InvalidOperationException("Client search database context is not configured.");
@@ -44,6 +50,11 @@ public sealed class ClientSearchService
             .Include(client => client.FundValuations)
             .AsSplitQuery()
             .AsQueryable();
+
+        if (!includeExcludedClients)
+        {
+            query = query.Where(client => !client.ExcludeFromComplianceLists);
+        }
 
         if (!string.IsNullOrWhiteSpace(normalizedQuery))
         {

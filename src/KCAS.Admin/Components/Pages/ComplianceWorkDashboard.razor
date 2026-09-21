@@ -125,16 +125,19 @@
     private string? currentUser;
     private string? message;
     private bool canManage;
+    private bool isAdministrator;
 
     protected override async Task OnInitializedAsync()
     {
         var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
         currentUser = state.User.Identity?.Name;
         canManage = state.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage);
-        if (canManage) options = await WorkService.LoadOptionsAsync();
+        isAdministrator = state.User.IsInRole(KcasRoles.Administrator);
+        if (canManage) options = await WorkService.LoadOptionsAsync(isAdministrator);
         await LoadAsync();
     }
-    private async Task LoadAsync() => items = await WorkService.LoadWorklistAsync(search, filterType, filterStatus, filterView);
+    private async Task LoadAsync() => items = await WorkService.LoadWorklistAsync(
+        search, filterType, filterStatus, filterView, isAdministrator);
     private async Task CreateAsync()
     {
         try

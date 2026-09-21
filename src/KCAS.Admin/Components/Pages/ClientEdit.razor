@@ -4,6 +4,7 @@
 @attribute [Authorize(Policy = KcasPermissions.ClientsManage)]
 @using System.ComponentModel.DataAnnotations
 @using KCAS.Admin.Data
+@using KCAS.Admin.Security
 @using Microsoft.AspNetCore.Components.Authorization
 @inject ClientOperationsService ClientOperations
 @inject NavigationManager Navigation
@@ -47,6 +48,10 @@
                 </InputSelect>
             </label>
             <label class="check-row"><InputCheckbox @bind-Value="model.IsActive" /> Active</label>
+            @if (isAdministrator)
+            {
+                <label class="check-row"><InputCheckbox @bind-Value="model.ExcludeFromComplianceLists" /> Hide from client and compliance lists for non-administrators</label>
+            }
         </article>
 
         <article class="detail-panel form-panel">
@@ -185,10 +190,13 @@
 
     private ClientEditModel model = new();
     private string? statusMessage;
+    private bool isAdministrator;
     private static readonly IReadOnlyList<string> RelationshipTypes = ["Spouse", "Child", "Dependent", "FamilyContact", "Other"];
 
     protected override async Task OnParametersSetAsync()
     {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        isAdministrator = authState.User.IsInRole(KcasRoles.Administrator);
         model = await ClientOperations.LoadClientAsync(Id);
         EnsureEditableRows();
     }
@@ -199,7 +207,7 @@
         {
             var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
             model.UpdatedBy = authState.User.Identity?.Name;
-            var clientId = await ClientOperations.SaveClientAsync(model);
+            var clientId = await ClientOperations.SaveClientAsync(model, isAdministrator);
             Navigation.NavigateTo(Id is null
                 ? $"/clients/{clientId}?complianceReviewNotification=created"
                 : $"/clients/{clientId}");

@@ -191,11 +191,13 @@
     private List<ClientSearchResult> clients = [];
     private IReadOnlyList<ComplianceWorkListItem> reviewNotifications = [];
     private int annualNotificationsCreated;
+    private bool isAdministrator;
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadClientsAsync();
         var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        isAdministrator = state.User.IsInRole(KcasRoles.Administrator);
+        await LoadClientsAsync();
         var userName = state.User.Identity?.Name;
         if ((state.User.IsInRole(KcasRoles.ComplianceAdministrator) ||
              state.User.IsInRole(KcasRoles.ComplianceApprover)) &&
@@ -203,7 +205,8 @@
         {
             annualNotificationsCreated = await WorkService.EnsureAnnualClientReviewTasksAsync(
                 DateOnly.FromDateTime(DateTime.Today), userName);
-            reviewNotifications = await WorkService.LoadDueReviewNotificationsAsync();
+            reviewNotifications = await WorkService.LoadDueReviewNotificationsAsync(
+                isAdministrator);
         }
     }
 
@@ -233,7 +236,8 @@
             Status: statusFilter,
             InvestmentPosition: investmentPositionFilter,
             SortColumn: sortColumn,
-            SortDescending: sortDescending));
+            SortDescending: sortDescending),
+            includeExcludedClients: isAdministrator);
     }
 
     private string SortIndicator(string column)

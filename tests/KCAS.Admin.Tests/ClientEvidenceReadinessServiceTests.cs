@@ -10,6 +10,25 @@ namespace KCAS.Admin.Tests;
 public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactory factory)
 {
     [Fact]
+    public async Task Evidence_dashboard_hides_excluded_clients_unless_administrator_view_is_requested()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var clientId = await CreateClientAsync(
+            db,
+            $"Excluded Evidence {Guid.NewGuid():N}",
+            $"EXC-{Guid.NewGuid():N}"[..30],
+            @"z:\Kanaan Trust\Clients\Excluded Evidence");
+        var client = await db.Clients.SingleAsync(item => item.Id == clientId);
+        client.ExcludeFromComplianceLists = true;
+        await db.SaveChangesAsync();
+
+        Assert.DoesNotContain((await service.LoadDashboardAsync()).Clients, item => item.ClientId == clientId);
+        Assert.Contains((await service.LoadDashboardAsync(includeExcludedClients: true)).Clients, item => item.ClientId == clientId);
+    }
+
+    [Fact]
     public async Task Saving_client_folder_persists_selection_without_starting_scan()
     {
         using var scope = factory.Services.CreateScope();

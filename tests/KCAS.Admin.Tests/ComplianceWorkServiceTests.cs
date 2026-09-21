@@ -9,6 +9,39 @@ namespace KCAS.Admin.Tests;
 public sealed class ComplianceWorkServiceTests(KcasWebApplicationFactory factory)
 {
     [Fact]
+    public async Task Client_work_is_hidden_for_non_administrators_when_client_is_excluded()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ComplianceWorkService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var client = new Client
+        {
+            DisplayName = $"Private compliance client {Guid.NewGuid():N}",
+            SurnameOrEntityName = "Private",
+            ExcludeFromComplianceLists = true
+        };
+        db.Clients.Add(client);
+        await db.SaveChangesAsync();
+        var task = new ComplianceTask
+        {
+            TaskType = ComplianceTaskTypes.TriggerReview,
+            Title = $"Private client review {Guid.NewGuid():N}",
+            Owner = ComplianceWorkService.ComplianceReviewAudience,
+            DueDate = DateOnly.FromDateTime(DateTime.Today),
+            Status = ComplianceWorkStatuses.Open,
+            Priority = "Normal",
+            ClientId = client.Id
+        };
+        db.ComplianceTasks.Add(task);
+        await db.SaveChangesAsync();
+
+        Assert.DoesNotContain(await service.LoadWorklistAsync(), item => item.Id == task.Id);
+        Assert.Contains(await service.LoadWorklistAsync(includeExcludedClients: true), item => item.Id == task.Id);
+        Assert.DoesNotContain(await service.LoadDueReviewNotificationsAsync(), item => item.Id == task.Id);
+        Assert.Contains(await service.LoadDueReviewNotificationsAsync(includeExcludedClients: true), item => item.Id == task.Id);
+    }
+
+    [Fact]
     public async Task Ordinary_work_requires_evidence_and_authorised_approval_before_closure()
     {
         using var scope = factory.Services.CreateScope();
