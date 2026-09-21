@@ -204,6 +204,7 @@ public static class ClientAdviceFindingStatuses
     public const string Open = "Open";
     public const string Resolved = "Resolved";
     public const string Accepted = "Accepted";
+    public const string AwaitingClientConfirmation = "AwaitingClientConfirmation";
 }
 
 public static class ClientAdviceFindingSeverities

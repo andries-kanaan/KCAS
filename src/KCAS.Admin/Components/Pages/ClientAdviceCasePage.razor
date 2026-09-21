@@ -19,6 +19,7 @@ else
         <div class="header-actions">
             @if (IsApproved) { <a class="btn btn-primary" href="@($"/advice/{CaseId}/record.pdf")" target="_blank">Download approved PDF</a> }
             @if (!IsApproved) { <a class="btn btn-primary" href="@($"/advice/{CaseId}/draft-preview.pdf")" target="_blank">Download draft preview</a> }
+            @if (!IsApproved) { <a class="btn btn-outline-primary" href="@($"/advice/{CaseId}/approved-sample.pdf")" target="_blank">Download approved letter sample</a> }
             @if (CanRevise) { <button type="button" class="btn btn-outline-primary" @onclick="CreateRevisionAsync">Create revision</button> }
             @if (!IsApproved) { <a class="btn btn-outline-primary" href="@($"/advice/{CaseId}/review-manifest.json")">Download review manifest</a> }
                 <AuthorizeView Policy="@KcasPolicies.AdministratorOnly">
@@ -149,8 +150,44 @@ else
 
     <section class="work-area">
         <h2>5. Independent review findings</h2>
-        @if (model.Findings.Count == 0) { <p class="text-muted">No review findings recorded.</p> }
-        @foreach (var finding in model.Findings) { <div class="alert @(finding.Status == ClientAdviceFindingStatuses.Open ? "alert-warning" : "alert-light")"><strong>@finding.Severity · @finding.Category</strong><div>@finding.Finding</div><div class="small text-muted">Evidence: @Display(finding.EvidenceReference) · Performed by @finding.PerformedBy at @finding.PerformedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</div>@if (finding.Status == ClientAdviceFindingStatuses.Open) { <div class="mt-2"><input class="form-control mb-2" placeholder="Resolution" @bind="findingResolution" /><button type="button" class="btn btn-sm btn-outline-primary me-2" @onclick="() => ResolveAsync(finding.Id, false)">Resolved</button><button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => ResolveAsync(finding.Id, true)">Accept with reason</button></div> } else { <div class="small">@finding.Status: @finding.Resolution</div> }</div> }
+        @if (model.Findings.All(value => value.Status != ClientAdviceFindingStatuses.Open))
+        {
+            <p class="text-muted">No open adviser findings.</p>
+        }
+        @foreach (var finding in model.Findings.Where(value => value.Status is ClientAdviceFindingStatuses.Open or ClientAdviceFindingStatuses.AwaitingClientConfirmation))
+        {
+            <div class="alert @(finding.Status == ClientAdviceFindingStatuses.Open ? "alert-warning" : "alert-info")">
+                <strong>@(finding.Status == ClientAdviceFindingStatuses.Open ? "Open" : "With client proposal") · @finding.Category</strong>
+                <div>@finding.Finding</div>
+                <div class="small text-muted">Evidence: @Display(finding.EvidenceReference) · Performed by @finding.PerformedBy at @finding.PerformedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</div>
+                @if (finding.Status == ClientAdviceFindingStatuses.Open)
+                {
+                    <div class="mt-2"><input class="form-control mb-2" placeholder="Resolution" @bind="findingResolution" /><button type="button" class="btn btn-sm btn-outline-primary me-2" @onclick="() => ResolveAsync(finding.Id, false)">Resolved</button><button type="button" class="btn btn-sm btn-outline-secondary me-2" @onclick="() => ResolveAsync(finding.Id, true)">Accept with reason</button>@if (finding.Category.Equals("Client confirmation", StringComparison.OrdinalIgnoreCase)) { <button type="button" class="btn btn-sm btn-outline-primary" @onclick="() => RequestClientConfirmationAsync(finding.Id)">Request confirmation with proposal</button> }</div>
+                }
+                else if (finding.Status == ClientAdviceFindingStatuses.AwaitingClientConfirmation)
+                {
+                    <div class="small">Client response is recorded after issue; this does not block independent approval.</div>
+                    @if (model.Status == ClientAdviceStatuses.Issued)
+                    {
+                        <div class="mt-2"><input class="form-control mb-2" placeholder="Client response date and evidence reference" @bind="findingResolution" /><button type="button" class="btn btn-sm btn-outline-primary" @onclick="() => RecordClientConfirmationAsync(finding.Id)">Record client confirmation</button></div>
+                    }
+                }
+            </div>
+        }
+        @if (model.Findings.Any(value => value.Status is ClientAdviceFindingStatuses.Resolved or ClientAdviceFindingStatuses.Accepted))
+        {
+            <details class="mb-3">
+                <summary>Resolved findings (@model.Findings.Count(value => value.Status is ClientAdviceFindingStatuses.Resolved or ClientAdviceFindingStatuses.Accepted))</summary>
+                @foreach (var finding in model.Findings.Where(value => value.Status is ClientAdviceFindingStatuses.Resolved or ClientAdviceFindingStatuses.Accepted))
+                {
+                    <div class="border-top py-2">
+                        <strong>@finding.Status · @finding.Category</strong>
+                        <div class="small">@finding.Finding</div>
+                        <div class="small text-muted">Resolution: @finding.Resolution</div>
+                    </div>
+                }
+            </details>
+        }
         @if (!IsApproved)
         {
             <div class="border rounded p-3 mb-3">
@@ -237,6 +274,8 @@ else
         catch (Exception ex) { message = ex.Message; error = true; }
     }
     private async Task ResolveAsync(int id, bool accept) => await RunAsync(user => AdviceService.ResolveFindingAsync(id, accept, findingResolution, user), "Review finding updated.");
+    private async Task RequestClientConfirmationAsync(int id) => await RunAsync(user => AdviceService.RequestClientConfirmationAsync(id, user), "Client confirmation will be requested with the proposal.");
+    private async Task RecordClientConfirmationAsync(int id) => await RunAsync(user => AdviceService.RecordClientConfirmationAsync(id, findingResolution, user), "Client confirmation recorded.");
     private async Task RunAsync(Func<string?, Task> action, string success) { try { var auth = await AuthenticationStateProvider.GetAuthenticationStateAsync(); await action(auth.User.Identity?.Name); message = success; error = false; findingResolution = ""; await ReloadAsync(); } catch (Exception ex) { message = ex.Message; error = true; } }
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
     private static string Label(string value) => string.Concat(value.Select((c, i) => i > 0 && char.IsUpper(c) ? $" {c}" : c.ToString()));

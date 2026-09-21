@@ -303,6 +303,14 @@ app.MapGet("/advice/{caseId:int}/draft-preview.pdf", async Task<IResult> (
     return Results.File(pdf, "application/pdf", $"DRAFT-KCAS-advice-record-{caseId}-{DateTime.Today:yyyy-MM-dd}.pdf");
 }).RequireAuthorization(KcasPermissions.AdvicePrepare);
 
+app.MapGet("/advice/{caseId:int}/approved-sample.pdf", async Task<IResult> (
+    int caseId,
+    ClientAdviceService advice) =>
+{
+    var pdf = await advice.ExportApprovedSamplePdfAsync(caseId);
+    return Results.File(pdf, "application/pdf", $"SAMPLE-KCAS-advice-record-{caseId}-{DateTime.Today:yyyy-MM-dd}.pdf");
+}).RequireAuthorization(KcasPermissions.AdvicePrepare);
+
 app.MapGet("/advice/{caseId:int}/review-manifest.json", async Task<IResult> (
     int caseId,
     ClientAdviceService advice) =>

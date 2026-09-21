@@ -159,15 +159,67 @@ public sealed class ClientAdviceServiceTests(KcasWebApplicationFactory factory)
     }
 
     [Fact]
+    public async Task Client_confirmation_can_follow_issue_but_blocks_completion_until_recorded()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = scope.ServiceProvider.GetRequiredService<ClientAdviceService>();
+        var clientId = await CreateClientAsync(db, "Client Response Test");
+        var caseId = await service.CreateDraftAsync(clientId, ClientAdviceTypes.AnnualReview, "preparer@example.test");
+        var edit = Complete(await service.LoadCaseAsync(caseId));
+        edit.InvestmentAmount = null;
+        edit.MeetingSummary = "Client described their objectives in email correspondence.";
+        await service.SaveDraftAsync(edit, "preparer@example.test");
+        await service.AddFindingAsync(caseId, new ClientAdviceFindingEditModel
+        {
+            Severity = ClientAdviceFindingSeverities.High,
+            Category = "Client confirmation",
+            Finding = "Ask the client to confirm the recorded personal circumstances and risk answers.",
+            EvidenceReference = "Client email",
+            RecommendedCorrection = "Include a confirmation request with the proposal."
+        }, "Codex");
+        var findingId = await db.ClientAdviceReviewFindings.Where(value => value.ClientAdviceCaseId == caseId)
+            .Select(value => value.Id).SingleAsync();
+        await service.RequestClientConfirmationAsync(findingId, "preparer@example.test");
+        await service.SubmitForReviewAsync(caseId, "preparer@example.test");
+        await service.ApproveAsync(caseId, "reviewer@example.test", "Suitability and correspondence reviewed.");
+        var approvedPdf = System.Text.Encoding.ASCII.GetString(await service.ExportPdfAsync(caseId));
+        Assert.Contains("Client confirmation of information", approvedPdf);
+        await service.MarkIssuedAsync(caseId, "issuer@example.test");
+
+        var path = Path.Combine(Path.GetTempPath(), $"signed-advice-{Guid.NewGuid():N}.pdf");
+        try
+        {
+            await File.WriteAllBytesAsync(path, "%PDF-1.4 test signed record"u8.ToArray());
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.RecordSignedDocumentAsync(caseId, path, "issuer@example.test"));
+            await service.RecordClientConfirmationAsync(findingId, "Signed response received 2026-09-21; no corrections.", "issuer@example.test");
+            await service.RecordSignedDocumentAsync(caseId, path, "issuer@example.test");
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+        Assert.Equal(ClientAdviceStatuses.Complete,
+            await db.ClientAdviceCases.Where(value => value.Id == caseId).Select(value => value.Status).SingleAsync());
+        Assert.Equal(approvedPdf, System.Text.Encoding.ASCII.GetString(await service.ExportPdfAsync(caseId)));
+    }
+
+    [Fact]
     public async Task Draft_preview_contains_client_record_issue_report_and_blocker_appendix_without_approving_case()
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var service = scope.ServiceProvider.GetRequiredService<ClientAdviceService>();
         var clientId = await CreateClientAsync(db, "Draft Preview Client");
+        var client = await db.Clients.SingleAsync(item => item.Id == clientId);
+        client.FullName = "Draft Preview";
+        client.SurnameOrEntityName = "Client";
+        await db.SaveChangesAsync();
         var caseId = await service.CreateDraftAsync(clientId, ClientAdviceTypes.AnnualReview, "preparer@example.test");
         var edit = Complete(await service.LoadCaseAsync(caseId));
         edit.InvestmentAmount = null;
+        edit.FactSources[0].Notes = "The complete source note must remain visible through its final confirmation marker END-SOURCE-NOTE.";
         await service.SaveDraftAsync(edit, "preparer@example.test");
         await service.AddFindingAsync(caseId, new ClientAdviceFindingEditModel
         {
@@ -176,7 +228,7 @@ public sealed class ClientAdviceServiceTests(KcasWebApplicationFactory factory)
             AffectedField = "RecommendationRationale",
             Finding = "Explain why the proposed allocation is suitable.",
             EvidenceReference = "Risk Analyser and portfolio",
-            RecommendedCorrection = "Add the allocation comparison and adviser conclusion."
+            RecommendedCorrection = "Add the allocation comparison and adviser conclusion, including the final confirmation marker END-REVIEW-ACTION."
         }, "Codex");
 
         var pdf = await service.ExportDraftPreviewPdfAsync(caseId, "preparer@example.test");
@@ -187,11 +239,45 @@ public sealed class ClientAdviceServiceTests(KcasWebApplicationFactory factory)
         Assert.Contains("Why it matters", content);
         Assert.Contains("Blocker appendix", content);
         Assert.Contains("Explain why the proposed allocation is suitable", content);
+        Assert.Contains("Draft Preview Client", content);
+        Assert.DoesNotContain(client.DisplayName, content);
+        Assert.Contains("END-SOURCE-NOTE", content);
+        Assert.Contains("END-REVIEW-ACTION", content);
         Assert.Equal(ClientAdviceStatuses.Draft,
             await db.ClientAdviceCases.Where(item => item.Id == caseId).Select(item => item.Status).SingleAsync());
         Assert.False(await db.ClientAdviceDocuments.AnyAsync(item => item.ClientAdviceCaseId == caseId));
         Assert.True(await db.ComplianceAuditEvents.AnyAsync(item => item.EntityType == nameof(ClientAdviceCase) &&
             item.EntityId == caseId && item.Action == "AdviceDraftPreviewExported"));
+    }
+
+    [Fact]
+    public async Task Approved_letter_sample_uses_client_layout_without_changing_workflow_state()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = scope.ServiceProvider.GetRequiredService<ClientAdviceService>();
+        var clientId = await CreateClientAsync(db, "Approved Sample Client");
+        var caseId = await service.CreateDraftAsync(clientId, ClientAdviceTypes.AnnualReview, "preparer@example.test");
+        var edit = Complete(await service.LoadCaseAsync(caseId));
+        edit.InvestmentAmount = null;
+        edit.FactSources[0].DocumentPath = @"C:\Private\InternalEvidence.pdf";
+        edit.FactSources[0].Notes = "INTERNAL-EVIDENCE-NOTE";
+        await service.SaveDraftAsync(edit, "preparer@example.test");
+
+        var auditCount = await db.ComplianceAuditEvents.CountAsync(value => value.EntityType == nameof(ClientAdviceCase) && value.EntityId == caseId);
+        var content = System.Text.Encoding.ASCII.GetString(await service.ExportApprovedSamplePdfAsync(caseId));
+
+        Assert.Contains("SAMPLE - NOT APPROVED - NOT FOR CLIENT ISSUE", content);
+        Assert.Contains("Record: SAMPLE - NOT APPROVED", content);
+        Assert.Contains("Financial adviser: ", content);
+        Assert.Contains("Independently reviewed by: Pending independent approval", content);
+        Assert.DoesNotContain(@"C:\Private\InternalEvidence.pdf", content);
+        Assert.DoesNotContain("INTERNAL-EVIDENCE-NOTE", content);
+        Assert.DoesNotContain("Internal draft review report", content);
+        Assert.Equal(ClientAdviceStatuses.Draft,
+            await db.ClientAdviceCases.Where(value => value.Id == caseId).Select(value => value.Status).SingleAsync());
+        Assert.Equal(auditCount, await db.ComplianceAuditEvents.CountAsync(value => value.EntityType == nameof(ClientAdviceCase) && value.EntityId == caseId));
+        Assert.False(await db.ClientAdviceDocuments.AnyAsync(value => value.ClientAdviceCaseId == caseId));
     }
 
     [Fact]
