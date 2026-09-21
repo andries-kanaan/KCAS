@@ -1,7 +1,10 @@
 @page "/"
 @using Microsoft.EntityFrameworkCore
 @using KCAS.Admin.Data
+@using KCAS.Admin.Security
 @inject ApplicationDbContext Db
+@inject ComplianceWorkService WorkService
+@inject AuthenticationStateProvider AuthenticationStateProvider
 
 <PageTitle>KCAS Admin</PageTitle>
 
@@ -47,6 +50,37 @@
     </div>
 </section>
 
+@if (annualNotificationsCreated > 0)
+{
+    <div class="alert alert-success">
+        @annualNotificationsCreated annual compliance-review notification(s) sent to users with ComplianceAdministrator or ComplianceApprover rights.
+    </div>
+}
+
+@if (reviewNotifications.Count > 0)
+{
+    <section class="work-area">
+        <h2>Client compliance reviews due</h2>
+        <p class="text-muted">These reminders are shared with Compliance Administrators and Compliance Approvers.</p>
+        <div class="list-group">
+            @foreach (var item in reviewNotifications)
+            {
+                <div class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2">
+                    <div>
+                        <strong>@item.Title</strong>
+                        <div class="text-muted small">Due: @(item.DueDate?.ToString("yyyy-MM-dd") ?? "-")</div>
+                    </div>
+                    @if (item.ClientId.HasValue)
+                    {
+                        <a class="btn btn-sm btn-primary" href="@($"/clients/{item.ClientId}/evidence")">Review client</a>
+                    }
+                </div>
+            }
+        </div>
+        <a class="btn btn-outline-secondary mt-3" href="/compliance/work-register">Open compliance worklist</a>
+    </section>
+}
+
 <section class="work-area">
     <h2>Foundation areas</h2>
     <div class="workspace-grid">
@@ -69,6 +103,8 @@
     private int clientCount;
     private int currentClientCount;
     private string databaseStatus = "Pending";
+    private IReadOnlyList<ComplianceWorkListItem> reviewNotifications = [];
+    private int annualNotificationsCreated;
 
     protected override async Task OnInitializedAsync()
     {
@@ -76,5 +112,14 @@
         currentClientCount = await Db.Clients.CountAsync(
             client => client.LifecycleStatus == ClientLifecycleStatuses.Current);
         databaseStatus = "Online";
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var userName = state.User.Identity?.Name;
+        var canReceiveComplianceReviews = state.User.IsInRole(KcasRoles.ComplianceAdministrator) ||
+                                          state.User.IsInRole(KcasRoles.ComplianceApprover);
+        if (canReceiveComplianceReviews && !string.IsNullOrWhiteSpace(userName))
+        {
+            annualNotificationsCreated = await WorkService.EnsureAnnualClientReviewTasksAsync(DateOnly.FromDateTime(DateTime.Today), userName);
+            reviewNotifications = await WorkService.LoadDueReviewNotificationsAsync();
+        }
     }
 }

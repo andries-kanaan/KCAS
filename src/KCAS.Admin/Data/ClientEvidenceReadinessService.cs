@@ -261,6 +261,10 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                     .ToList();
                 var activeException = exceptions.FirstOrDefault(exception => exception.ClientEvidenceRequirementId == requirement.Id && !IsExpired(exception.ReviewDate, today));
                 var completeItems = matchedItems.Where(item => IsEvidenceComplete(requirement, item, today)).ToList();
+                var latestCompletion = completeItems
+                    .OrderByDescending(item => item.ScreeningReviewedAtUtc ?? item.UpdatedAtUtc ?? item.CreatedAtUtc)
+                    .ThenByDescending(item => item.Id)
+                    .FirstOrDefault();
                 var coveredInvestmentIds = completeItems
                     .SelectMany(item => item.InvestmentLinks)
                     .Select(link => link.ClientInvestmentAccountId)
@@ -276,6 +280,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                     RequirementGroup = requirement.RequirementGroup,
                     EvidenceType = requirement.EvidenceType,
                     Title = requirement.Title,
+                    SortOrder = requirement.SortOrder,
                     IsBlocking = requirement.IsBlocking,
                     RequiresVerification = requirement.RequiresVerification,
                     RequiresExpiryDate = requirement.RequiresExpiryDate,
@@ -285,7 +290,11 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                 ExceptionReason = activeException?.Reason,
                 LinkedItemCount = matchedItems.Count,
                 VerifiedItemCount = matchedItems.Count(item => item.VerifiedDate is not null),
-                CanRecordReview = IsReviewOnlyEvidenceType(requirement.EvidenceType),
+                CanRecordReview = true,
+                CompletedBy = CompletionActor(latestCompletion),
+                CompletedAtUtc = CompletionTime(latestCompletion),
+                ExceptionApprovedBy = DisplayActor(activeException?.ApprovedBy),
+                ExceptionApprovedAtUtc = activeException?.ApprovedAtUtc,
                 CanApplyRecommendedException = recommendedExceptionReason is not null,
                 RecommendedExceptionReason = recommendedExceptionReason,
                 UsesInvestmentCoverage = usesInvestmentCoverage,
@@ -306,8 +315,8 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
                 Items = matchedItems.Select(ClientEvidenceItemModel.FromItem).ToList()
             };
             })
-            .OrderBy(row => row.RequirementGroup)
-            .ThenBy(row => row.Title)
+            .OrderBy(row => row.RequirementGroup == "Screening" ? 0 : 1)
+            .ThenBy(row => row.SortOrder)
             .ToList();
 
         return new ClientEvidenceReadinessModel
@@ -1297,6 +1306,8 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         var riskSignal = Normalize(request.RiskSignal) ?? throw new ValidationException("Risk signal is required.");
         var notes = Normalize(request.Notes);
         var screeningSources = Normalize(request.Sources) ?? throw new ValidationException("Screening sources are required.");
+        var evidencePath = Normalize(request.EvidencePath);
+        var sourcePath = ResolveManualEvidencePath(client.ClientFolder, evidencePath);
         var performedBy = Normalize(request.PerformedBy) ?? ClientEvidenceScreeningPerformers.HumanReviewer;
         if (!ClientEvidenceScreeningPerformers.All.Contains(performedBy, StringComparer.Ordinal))
         {
@@ -1321,8 +1332,12 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             ClientEvidenceRequirementId = requirement.Id,
             EvidenceType = requirement.EvidenceType,
             Title = $"{requirement.Title}: {subjectName}",
+            SourcePath = sourcePath,
+            RelativePath = ManualEvidenceRelativePath(client.ClientFolder, evidencePath),
+            FileName = EvidenceFileName(evidencePath),
             ReceivedDate = reviewDate,
             VerifiedDate = reviewDate,
+            ExpiryDate = request.NextReviewDate ?? reviewDate.AddYears(1),
             Reviewer = userName,
             Status = ClientEvidenceStatuses.Verified,
             ScreeningReviewDate = reviewDate,
@@ -1360,6 +1375,76 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             item.EscalationRequired,
             item.Notes
         }, userName, auditReason);
+        await db.SaveChangesAsync();
+        return item.Id;
+    }
+
+    public async Task<int> RecordManualCheckAsync(
+        int clientId,
+        int requirementId,
+        ClientEvidenceManualCheckRequest request,
+        string? userName,
+        string? reason)
+    {
+        var auditReason = Normalize(reason) ?? "Record manual evidence check.";
+        var user = Normalize(userName) ?? throw new ValidationException("A signed-in reviewer is required.");
+        var client = await db.Clients.AsNoTracking().SingleOrDefaultAsync(item => item.Id == clientId)
+            ?? throw new InvalidOperationException("Client not found.");
+        var requirement = await db.ClientEvidenceRequirements.AsNoTracking().SingleOrDefaultAsync(item => item.Id == requirementId)
+            ?? throw new InvalidOperationException("Evidence requirement not found.");
+        var evidencePath = Normalize(request.EvidencePath)
+            ?? throw new ValidationException("Evidence path or reference is required.");
+        var sourcePath = ResolveManualEvidencePath(client.ClientFolder, evidencePath);
+        var reviewDate = request.ReviewDate ?? DateOnly.FromDateTime(DateTime.Today);
+        var nextReviewDate = request.NextReviewDate ?? reviewDate.AddYears(1);
+        if (nextReviewDate <= reviewDate)
+        {
+            throw new ValidationException("The next review date must be after the check date.");
+        }
+
+        var item = new ClientEvidenceItem
+        {
+            ClientId = client.Id,
+            ClientEvidenceRequirementId = requirement.Id,
+            EvidenceType = requirement.EvidenceType,
+            Title = Normalize(request.Title) ?? $"{requirement.Title}: manual check",
+            SourcePath = sourcePath,
+            RelativePath = ManualEvidenceRelativePath(client.ClientFolder, evidencePath),
+            FileName = EvidenceFileName(evidencePath),
+            ReceivedDate = reviewDate,
+            VerifiedDate = reviewDate,
+            ExpiryDate = nextReviewDate,
+            Reviewer = user,
+            Status = ClientEvidenceStatuses.Verified,
+            OwnershipStatus = ClientEvidenceOwnershipStatuses.Confirmed,
+            OwnershipConfidence = 100,
+            OwnershipReason = "Manually checked by the signed-in reviewer.",
+            OwnershipReviewedAtUtc = DateTime.UtcNow,
+            OwnershipReviewedBy = user,
+            SelectionStatus = ClientEvidenceSelectionStatuses.Current,
+            SelectionConfidence = 100,
+            SelectionReason = "Current evidence selected during a manual compliance check.",
+            SelectedAtUtc = DateTime.UtcNow,
+            SelectedBy = user,
+            VerificationPolicy = "VerifiedByReviewer",
+            Notes = Normalize(request.Notes),
+            UpdatedAtUtc = DateTime.UtcNow,
+            UpdatedBy = user
+        };
+        db.ClientEvidenceItems.Add(item);
+        await db.SaveChangesAsync();
+        await AddAuditAsync(nameof(ClientEvidenceItem), item.Id, "RecordManualCheck", new
+        {
+            item.ClientId,
+            item.ClientEvidenceRequirementId,
+            item.EvidenceType,
+            item.Title,
+            item.RelativePath,
+            item.VerifiedDate,
+            item.ExpiryDate,
+            item.Reviewer,
+            item.Notes
+        }, user, auditReason);
         await db.SaveChangesAsync();
         return item.Id;
     }
@@ -1631,6 +1716,73 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
 
         return true;
     }
+
+    private static string? CompletionActor(ClientEvidenceItem? item)
+    {
+        if (item is null) return null;
+        return string.Equals(item.ScreeningPerformedBy, ClientEvidenceScreeningPerformers.Codex, StringComparison.OrdinalIgnoreCase)
+            ? ClientEvidenceScreeningPerformers.Codex
+            : DisplayActor(item.Reviewer);
+    }
+
+    private static DateTime? CompletionTime(ClientEvidenceItem? item)
+    {
+        if (item is null) return null;
+        if (item.ScreeningReviewedAtUtc.HasValue) return item.ScreeningReviewedAtUtc;
+        return item.VerifiedDate?.ToDateTime(TimeOnly.MinValue);
+    }
+
+    private static string? DisplayActor(string? actor)
+    {
+        var value = Normalize(actor);
+        return value is not null && (value.Equals("codex@local", StringComparison.OrdinalIgnoreCase) ||
+                                     value.Equals("codex", StringComparison.OrdinalIgnoreCase))
+            ? ClientEvidenceScreeningPerformers.Codex
+            : value;
+    }
+
+    private static string? EvidenceFileName(string? path)
+    {
+        var value = Normalize(path);
+        if (value is null) return null;
+        var fileName = value.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault();
+        return fileName is not null && SupportedExtensions.Contains(Path.GetExtension(fileName), StringComparer.OrdinalIgnoreCase)
+            ? fileName
+            : null;
+    }
+
+    private static string? ResolveManualEvidencePath(string? clientFolder, string? evidencePath)
+    {
+        var path = Normalize(evidencePath);
+        if (path is null) return null;
+        if (IsWindowsAbsolutePath(path) || Path.IsPathFullyQualified(path)) return path;
+        var folder = Normalize(clientFolder);
+        if (folder is null) return path;
+        return IsWindowsAbsolutePath(folder)
+            ? folder.Replace('/', '\\').TrimEnd('\\') + "\\" + path.Replace('/', '\\').TrimStart('\\')
+            : Path.GetFullPath(Path.Combine(folder, path));
+    }
+
+    private static string? ManualEvidenceRelativePath(string? clientFolder, string? evidencePath)
+    {
+        var path = Normalize(evidencePath);
+        var folder = Normalize(clientFolder);
+        if (path is null) return null;
+        if (folder is not null && IsWindowsAbsolutePath(path) && IsWindowsAbsolutePath(folder))
+        {
+            var normalizedPath = path.Replace('/', '\\');
+            var normalizedFolder = folder.Replace('/', '\\').TrimEnd('\\');
+            if (normalizedPath.StartsWith(normalizedFolder + "\\", StringComparison.OrdinalIgnoreCase))
+            {
+                return normalizedPath[(normalizedFolder.Length + 1)..];
+            }
+        }
+        return IsWindowsAbsolutePath(path) || Path.IsPathFullyQualified(path) ? EvidenceFileName(path) : path;
+    }
+
+    private static bool IsWindowsAbsolutePath(string path) =>
+        (path.Length >= 3 && char.IsLetter(path[0]) && path[1] == ':' && path[2] is '\\' or '/') ||
+        path.StartsWith("\\\\", StringComparison.Ordinal);
 
     private static bool IsExpired(DateOnly? date, DateOnly today) => date.HasValue && date.Value < today;
 
@@ -2458,6 +2610,7 @@ public sealed class ClientEvidenceRequirementStatusModel
     public string RequirementGroup { get; set; } = "";
     public string EvidenceType { get; set; } = "";
     public string Title { get; set; } = "";
+    public int SortOrder { get; set; }
     public bool IsBlocking { get; set; }
     public bool RequiresVerification { get; set; }
     public bool RequiresExpiryDate { get; set; }
@@ -2467,6 +2620,10 @@ public sealed class ClientEvidenceRequirementStatusModel
     public int LinkedItemCount { get; set; }
     public int VerifiedItemCount { get; set; }
     public bool CanRecordReview { get; set; }
+    public string? CompletedBy { get; set; }
+    public DateTime? CompletedAtUtc { get; set; }
+    public string? ExceptionApprovedBy { get; set; }
+    public DateTime? ExceptionApprovedAtUtc { get; set; }
     public bool CanApplyRecommendedException { get; set; }
     public string? RecommendedExceptionReason { get; set; }
     public string? ExceptionReason { get; set; }
@@ -2498,6 +2655,7 @@ public sealed class ClientEvidenceItemModel
     public DateOnly? VerifiedDate { get; set; }
     public DateOnly? ExpiryDate { get; set; }
     public string? Reviewer { get; set; }
+    public DateTime? RecordedAtUtc { get; set; }
     public DateOnly? ScreeningReviewDate { get; set; }
     public DateTime? ScreeningReviewedAtUtc { get; set; }
     public string? ScreeningPerformedBy { get; set; }
@@ -2533,6 +2691,7 @@ public sealed class ClientEvidenceItemModel
         VerifiedDate = item.VerifiedDate,
         ExpiryDate = item.ExpiryDate,
         Reviewer = item.Reviewer,
+        RecordedAtUtc = item.ScreeningReviewedAtUtc ?? item.UpdatedAtUtc ?? item.CreatedAtUtc,
         ScreeningReviewDate = item.ScreeningReviewDate,
         ScreeningReviewedAtUtc = item.ScreeningReviewedAtUtc,
         ScreeningPerformedBy = item.ScreeningPerformedBy,
@@ -2592,9 +2751,20 @@ public sealed class ClientEvidenceScreeningReviewRequest
     public string? Outcome { get; set; }
     public string? RiskSignal { get; set; }
     public DateOnly? ReviewDate { get; set; }
+    public DateOnly? NextReviewDate { get; set; }
     public DateTime? ReviewedAtUtc { get; set; }
     public string? PerformedBy { get; set; }
     public string? Sources { get; set; }
+    public string? EvidencePath { get; set; }
+    public string? Notes { get; set; }
+}
+
+public sealed class ClientEvidenceManualCheckRequest
+{
+    public string? Title { get; set; }
+    public string? EvidencePath { get; set; }
+    public DateOnly? ReviewDate { get; set; }
+    public DateOnly? NextReviewDate { get; set; }
     public string? Notes { get; set; }
 }
 

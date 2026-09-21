@@ -8,6 +8,27 @@ namespace KCAS.Admin.Tests;
 public sealed class ClientOperationsServiceTests(KcasWebApplicationFactory factory)
 {
     [Fact]
+    public async Task New_client_creates_initial_compliance_review_notification()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientOperationsService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var clientId = await service.SaveClientAsync(new ClientEditModel
+        {
+            KanaanId = $"NEW-{Guid.NewGuid():N}"[..30],
+            SurnameOrEntityName = "New Review",
+            DisplayName = $"New Review Client {Guid.NewGuid():N}",
+            UpdatedBy = "creator@example.test"
+        });
+
+        var task = await db.ComplianceTasks.AsNoTracking().SingleAsync(value =>
+            value.ClientId == clientId && value.TaskType == ComplianceTaskTypes.TriggerReview);
+        Assert.Equal(ComplianceWorkService.ComplianceReviewAudience, task.Owner);
+        Assert.Equal(ComplianceWorkStatuses.Open, task.Status);
+        Assert.Equal(DateOnly.FromDateTime(DateTime.Today), task.DueDate);
+    }
+
+    [Fact]
     public async Task SaveClientAsync_creates_and_updates_normalized_client_details()
     {
         using var scope = factory.Services.CreateScope();
