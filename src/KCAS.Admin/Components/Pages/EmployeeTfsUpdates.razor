@@ -1,0 +1,55 @@
+@page "/compliance/employees/tfs-updates"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.EmployeesView)]
+@using System.Security.Claims
+@using KCAS.Admin.Data
+@inject EmployeeComplianceService Employees
+@inject AuthenticationStateProvider Authentication
+
+<PageTitle>Employee TFS coverage</PageTitle>
+<div class="page-header"><h1>Employee TFS coverage</h1><a class="btn btn-outline-secondary" href="/compliance/employees"><i class="bi bi-arrow-left" aria-hidden="true"></i> Employees</a></div>
+@if (message is not null) { <div class="alert alert-info" role="status">@message</div> }
+<section class="work-area"><h2>Recorded list updates</h2>
+    <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Official source / version</th><th>Recorded</th><th>Population</th><th>Clear checks</th><th>Remaining</th><th>Follow-up</th></tr></thead><tbody>
+        @foreach (var row in batches) { <tr><td><a href="@row.Batch.SourceUrl" target="_blank" rel="noopener">@row.Batch.SourceVersion</a></td><td>@row.Batch.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td><td>@row.Total</td><td>@row.Checked</td><td>@row.Remaining</td><td>@row.FollowUp</td></tr> }
+    </tbody></table></div>
+    @if (batches.Count == 0) { <p>No official list-update batches recorded.</p> }
+</section>
+@if (permissions?.CanManage == true)
+{
+    <section class="work-area"><details><summary>Record official list update</summary>
+        <label class="d-block mt-3">Official version / update reference<input class="form-control" @bind="version" /></label>
+        <label class="d-block mt-3">Official source URL (HTTPS)<input class="form-control" @bind="url" /></label>
+        <label class="d-block mt-3">Reason / source notice<textarea class="form-control" @bind="reason"></textarea></label>
+        <button class="btn btn-primary mt-3" disabled="@busy" @onclick="CreateAsync"><i class="bi bi-bell" aria-hidden="true"></i> Queue current-employee checks</button>
+    </details></section>
+}
+@code {
+    private ClaimsPrincipal principal = new();
+    private EmployeePermissionState? permissions;
+    private IReadOnlyList<EmployeeBatchRow> batches = [];
+    private string version = "";
+    private string url = "";
+    private string reason = "";
+    private string? message;
+    private bool busy;
+    protected override async Task OnInitializedAsync()
+    {
+        principal = (await Authentication.GetAuthenticationStateAsync()).User;
+        try { permissions = await Employees.PermissionsAsync(principal); batches = await Employees.BatchesAsync(principal); }
+        catch (Exception ex) { message = ex.Message; }
+    }
+    private async Task CreateAsync()
+    {
+        busy = true;
+        try
+        {
+            var id = await Employees.CreateTfsBatchAsync(version, url, reason, principal);
+            batches = await Employees.BatchesAsync(principal);
+            var batch = batches.Single(x => x.Batch.Id == id);
+            message = $"Batch recorded: {batch.Total} current employees; {batch.Remaining} checks outstanding. In-app tasks retained with recipient accounts. No screening run or email is claimed.";
+        }
+        catch (Exception ex) { message = ex.Message; }
+        finally { busy = false; }
+    }
+}

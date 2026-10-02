@@ -59,6 +59,9 @@ public static class KcasSecuritySeeder
         ],
         [KcasRoles.ComplianceAdministrator] =
         [
+            KcasPermissions.EmployeesView,
+            KcasPermissions.EmployeesManage,
+            KcasPermissions.EmployeesReview,
             KcasPermissions.ComplianceView,
             KcasPermissions.ComplianceManage,
             KcasPermissions.ComplianceApprove,
@@ -75,6 +78,8 @@ public static class KcasSecuritySeeder
         ],
         [KcasRoles.ComplianceApprover] =
         [
+            KcasPermissions.EmployeesView,
+            KcasPermissions.EmployeesReview,
             KcasPermissions.ComplianceView,
             KcasPermissions.ComplianceApprove,
             KcasPermissions.ComplianceAudit,
@@ -85,6 +90,12 @@ public static class KcasSecuritySeeder
             KcasPermissions.InspectionsExport,
             KcasPermissions.AdviceView,
             KcasPermissions.AdviceAudit
+        ],
+        [KcasRoles.EmployeeReviewer] =
+        [
+            KcasPermissions.ComplianceView,
+            KcasPermissions.EmployeesView,
+            KcasPermissions.EmployeesReview
         ],
         [KcasRoles.ComplianceReadOnly] =
         [

@@ -111,6 +111,13 @@
                         <div class="nav-item px-3">
                             <NavLink class="nav-link" href="compliance/organisation">4. Organisation and governance</NavLink>
                         </div>
+                        <AuthorizeView Policy="@KcasPermissions.EmployeesView">
+                            <Authorized Context="employeeContext">
+                                <div class="nav-item px-3">
+                                    <NavLink class="nav-link" href="compliance/employees">Employee compliance</NavLink>
+                                </div>
+                            </Authorized>
+                        </AuthorizeView>
                         <div class="nav-item px-3">
                             <NavLink class="nav-link" href="compliance/references">5. Regulatory references</NavLink>
                         </div>

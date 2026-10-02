@@ -1,0 +1,86 @@
+@page "/compliance/employees/{Id:int}/checks/new"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.EmployeesManage)]
+@using System.Security.Claims
+@using KCAS.Admin.Data
+@inject EmployeeComplianceService Employees
+@inject AuthenticationStateProvider Authentication
+@inject NavigationManager Navigation
+
+<PageTitle>Record employee check</PageTitle>
+<div class="page-header"><div><p class="eyebrow">@(page?.Profile.DisplayName)</p><h1>Record employee check</h1></div><a class="btn btn-outline-secondary" href="@($"/compliance/employees/{Id}")"><i class="bi bi-arrow-left" aria-hidden="true"></i> Review</a></div>
+@if (message is not null) { <div class="alert alert-warning" role="alert">@message</div> }
+@if (page?.CurrentReview is not null)
+{
+    <EditForm Model="edit" OnSubmit="SaveAsync"><section class="work-area">
+        <div class="workspace-grid">
+            <label>Check<select class="form-select" @bind="edit.Kind" @bind:after="ChangedKind">@foreach (var v in EmployeeComplianceValues.CheckKinds) { <option value="@v">@EmployeeComplianceValues.CheckLabel(v)</option> }</select></label>
+            <label>Outcome<select class="form-select" @bind="edit.Outcome">@foreach (var v in EmployeeComplianceValues.CheckOutcomes.Where(v => edit.Kind == "TFS" ? v != "Satisfied" : v is not ("NoMatch" or "FalsePositive" or "ConfirmedDesignation"))) { <option value="@v">@v</option> }</select></label>
+            <label>Performed by<select class="form-select" @bind="edit.PerformerType"><option value="Manual">Manual - signed-in person</option><option value="Codex">Codex - actual assisted check</option></select></label>
+            <label>Actual date/time (server local)<input class="form-control" type="datetime-local" @bind="edit.PerformedAtLocal" @bind:format="yyyy-MM-ddTHH:mm" /></label>
+        </div>
+        <label class="d-block mt-3">Evidence/source reference<textarea class="form-control" rows="3" @bind="edit.SourceReference"></textarea></label>
+        <label class="d-block mt-3">Existing linked source document<select class="form-select" @bind="edit.EvidencePath" @bind:after="SelectedEvidence"><option value="">No linked file selected</option>@foreach (var document in evidence) { <option value="@document.EvidencePath">@document.Title</option> }</select></label>
+        <div class="workspace-grid mt-3"><label>Source website (HTTPS)<input class="form-control" @bind="edit.SourceUrl" /></label><label>List/version reference<input class="form-control" @bind="edit.ListVersion" /></label></div>
+        @if (edit.Kind == "TFS")
+        {
+            <label class="d-block mt-3">Recorded list-update batch<select class="form-select" @bind="edit.EmployeeTfsBatchId" @bind:after="ChangedBatch"><option value="">Initial / periodic check, no batch</option>@foreach (var batch in batches.Where(b => page.Tasks.Any(t => t.EmployeeTfsBatchId == b.Batch.Id))) { <option value="@batch.Batch.Id">@batch.Batch.SourceVersion</option> }</select></label>
+        }
+        <label class="d-block mt-3">Identifiers and aliases actually checked<textarea class="form-control" @bind="edit.IdentifierScope"></textarea></label>
+        <label class="d-block mt-3">Finding and reason<textarea class="form-control" rows="4" @bind="edit.Finding"></textarea></label>
+        <label class="d-block mt-3">Limitations / unresolved matters<textarea class="form-control" @bind="edit.Limitations"></textarea></label>
+        <label class="d-block mt-3">Evidence file (relative to Compliance, optional)<input class="form-control" @bind="edit.EvidencePath" /></label>
+        @if (edit.SupersedesCheckId.HasValue) { <p class="mt-3">Replaces check @edit.SupersedesCheckId; the earlier finding is retained.</p> }
+        <button class="btn btn-primary mt-3" disabled="@busy"><i class="bi bi-save" aria-hidden="true"></i> Record check</button>
+    </section></EditForm>
+}
+@code {
+    [Parameter] public int Id { get; set; }
+    [SupplyParameterFromQuery(Name = "kind")] public string? Kind { get; set; }
+    private ClaimsPrincipal principal = new();
+    private EmployeeReviewPage? page;
+    private IReadOnlyList<EmployeeBatchRow> batches = [];
+    private IReadOnlyList<EmployeeEvidenceDocument> evidence = [];
+    private EmployeeCheckEdit edit = new();
+    private bool busy;
+    private string? message;
+    protected override async Task OnParametersSetAsync()
+    {
+        principal = (await Authentication.GetAuthenticationStateAsync()).User;
+        try
+        {
+            page = await Employees.LoadAsync(Id, principal); batches = await Employees.BatchesAsync(principal); evidence = await Employees.EvidenceAsync(Id, principal);
+            edit.Kind = EmployeeComplianceValues.CheckKinds.Contains(Kind ?? "") ? Kind! : "Competence";
+            ChangedKind();
+        }
+        catch (Exception ex) { message = ex.Message; }
+    }
+    private void ChangedKind()
+    {
+        edit.Outcome = edit.Kind == "TFS" ? "Unresolved" : "Satisfied";
+        edit.SupersedesCheckId = page?.Checks.FirstOrDefault(c => c.EmployeeComplianceReviewId == page.CurrentReview?.Id && c.Kind == edit.Kind)?.Id;
+        if (edit.SupersedesCheckId is null)
+        {
+            var earlier = page?.Checks.FirstOrDefault(c => c.Kind == edit.Kind);
+            if (earlier?.Outcome is "Unresolved" or "SourceFailed" or "Concern" or "ConfirmedDesignation") edit.SupersedesCheckId = earlier.Id;
+        }
+        edit.EmployeeTfsBatchId = null;
+    }
+    private void ChangedBatch()
+    {
+        var batch = batches.FirstOrDefault(x => x.Batch.Id == edit.EmployeeTfsBatchId);
+        if (batch is not null) { edit.SourceUrl = batch.Batch.SourceUrl; edit.ListVersion = batch.Batch.SourceVersion; }
+    }
+    private void SelectedEvidence()
+    {
+        var document = evidence.FirstOrDefault(x => x.EvidencePath == edit.EvidencePath);
+        if (document is not null) edit.SourceReference = document.Title + ": " + document.SourceNote + "\nCompliance/" + document.EvidencePath;
+    }
+    private async Task SaveAsync()
+    {
+        busy = true;
+        try { await Employees.RecordCheckAsync(page!.CurrentReview!.Id, page.CurrentReview.Version, edit, principal); Navigation.NavigateTo($"/compliance/employees/{Id}"); }
+        catch (Exception ex) { message = ex.Message; }
+        finally { busy = false; }
+    }
+}

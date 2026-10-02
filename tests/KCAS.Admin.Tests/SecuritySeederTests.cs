@@ -43,6 +43,7 @@ public sealed class SecuritySeederTests(KcasWebApplicationFactory factory)
             KcasRoles.ComplianceAdministrator,
             KcasRoles.ComplianceApprover,
             KcasRoles.ComplianceReadOnly,
+            KcasRoles.EmployeeReviewer,
             KcasRoles.Operations,
             KcasRoles.ReadOnly,
             KcasRoles.Reports
@@ -100,6 +101,9 @@ public sealed class SecuritySeederTests(KcasWebApplicationFactory factory)
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
 
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        db.EmployeeAccountLinks.RemoveRange(db.EmployeeAccountLinks);
+        await db.SaveChangesAsync();
         foreach (var existingUser in userManager.Users.ToList())
         {
             var deleteResult = await userManager.DeleteAsync(existingUser);

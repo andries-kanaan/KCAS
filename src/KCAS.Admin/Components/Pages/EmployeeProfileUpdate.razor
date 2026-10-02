@@ -1,0 +1,80 @@
+@page "/compliance/employees/new"
+@page "/compliance/employees/{Id:int}/update"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.EmployeesManage)]
+@using System.Security.Claims
+@using System.Text.Json
+@using KCAS.Admin.Data
+@inject EmployeeComplianceService Employees
+@inject AuthenticationStateProvider Authentication
+@inject NavigationManager Navigation
+
+<PageTitle>Update employee</PageTitle>
+<div class="page-header"><h1>@(Id.HasValue ? "Update employee" : "Add employee")</h1><a class="btn btn-outline-secondary" href="@(Id.HasValue ? $"/compliance/employees/{Id}" : "/compliance/employees")"><i class="bi bi-arrow-left" aria-hidden="true"></i> Back</a></div>
+@if (message is not null) { <div class="alert alert-warning" role="alert">@message</div> }
+@if (ready)
+{
+    <EditForm Model="edit" OnSubmit="SaveAsync">
+        <section class="work-area">
+            <h2>Identity and employment</h2>
+            <div class="workspace-grid">
+                <label>Display name<InputText class="form-control" @bind-Value="edit.DisplayName" /></label>
+                <label>Legal name<InputText class="form-control" @bind-Value="edit.LegalName" /></label>
+                <label>Aliases<InputText class="form-control" @bind-Value="edit.Aliases" /></label>
+                <label>Email<InputText class="form-control" @bind-Value="edit.Email" /></label>
+                <label>Employment<select class="form-select" @bind="edit.EmploymentStatus">@foreach (var s in EmployeeComplianceValues.EmploymentStatuses) { <option value="@s">@s</option> }</select></label>
+                <label>Actual employment start<InputDate class="form-control" @bind-Value="edit.EmploymentStart" /></label>
+                <label>Actual employment end<InputDate class="form-control" @bind-Value="edit.EmploymentEnd" /></label>
+            </div>
+            <label class="d-block mt-3">Identity source / restricted identifier reference<InputTextArea class="form-control" @bind-Value="edit.IdentityReference" /></label>
+        </section>
+        <section class="work-area">
+            <h2>Duties, authority and role exposure</h2>
+            <label class="d-block">Responsibilities<InputTextArea class="form-control" rows="3" @bind-Value="edit.Responsibilities" /></label>
+            <label class="d-block mt-3">Authority limits<InputTextArea class="form-control" rows="3" @bind-Value="edit.AuthorityLimits" /></label>
+            <label class="d-block mt-3">Source references<InputTextArea class="form-control" @bind-Value="edit.SourceReference" /></label>
+            <div class="workspace-grid mt-3">
+                <label>Proposed role exposure<select class="form-select" @bind="edit.RoleExposure">@foreach (var s in EmployeeComplianceValues.RoleExposures) { <option value="@s">@s</option> }</select></label>
+                <label>Proposed review interval (months)<InputNumber class="form-control" min="1" max="60" @bind-Value="edit.ProposedReviewMonths" /></label>
+            </div>
+            <label class="d-block mt-3">ML / TF / PF role-risk rationale<InputTextArea class="form-control" rows="3" @bind-Value="edit.RiskRationale" /></label>
+            <label class="d-block mt-3">Selected competence/integrity checks and proportionality reason<InputTextArea class="form-control" rows="3" @bind-Value="edit.SelectedChecks" /></label>
+            <label class="d-block mt-3"><InputCheckbox @bind-Value="edit.RequireTraining" /> Role-relevant training evidence required</label>
+            <label class="d-block"><InputCheckbox @bind-Value="edit.RequireRegulatedCompetence" /> Regulated-role / current-cycle competence evidence required</label>
+            <label class="d-block"><InputCheckbox @bind-Value="edit.RequireAdditionalCheck" /> Additional selected check required by this role assessment</label>
+            <label class="d-block mt-3">External systems / shared-folder access scope<InputTextArea class="form-control" rows="3" @bind-Value="edit.ExternalAccessScope" /></label>
+            <label class="d-block mt-3">Change reason<InputTextArea class="form-control" @bind-Value="reason" /></label>
+            <button class="btn btn-primary mt-3" disabled="@busy"><i class="bi bi-save" aria-hidden="true"></i> Save employee</button>
+        </section>
+    </EditForm>
+}
+@code {
+    [Parameter] public int? Id { get; set; }
+    private ClaimsPrincipal principal = new();
+    private EmployeeProfileEdit edit = new();
+    private string reason = "";
+    private string? message;
+    private bool ready;
+    private bool busy;
+    protected override async Task OnParametersSetAsync()
+    {
+        principal = (await Authentication.GetAuthenticationStateAsync()).User;
+        try
+        {
+            if (Id.HasValue)
+            {
+                var page = await Employees.LoadAsync(Id.Value, principal);
+                edit = JsonSerializer.Deserialize<EmployeeProfileEdit>(JsonSerializer.Serialize(page.Profile))!;
+            }
+            ready = true;
+        }
+        catch (Exception ex) { message = ex.Message; }
+    }
+    private async Task SaveAsync()
+    {
+        busy = true;
+        try { var id = await Employees.SaveProfileAsync(edit, reason, principal); Navigation.NavigateTo($"/compliance/employees/{id}?saved=true"); }
+        catch (Exception ex) { message = ex.Message; }
+        finally { busy = false; }
+    }
+}

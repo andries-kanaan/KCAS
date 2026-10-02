@@ -4,6 +4,8 @@
 @using KCAS.Admin.Security
 @inject ApplicationDbContext Db
 @inject ComplianceWorkService WorkService
+@inject EmployeeComplianceService Employees
+@inject IAuthorizationService Authorization
 @inject AuthenticationStateProvider AuthenticationStateProvider
 
 <PageTitle>KCAS Admin</PageTitle>
@@ -57,6 +59,25 @@
     </div>
 }
 
+@if (employeeNotifications.Count > 0)
+{
+    <section class="work-area">
+        <h2>Employee compliance reviews</h2>
+        @if (employeeNotificationsCreated > 0) { <p class="text-success">@employeeNotificationsCreated due-review in-app task(s) created; no email sent.</p> }
+        <div class="list-group">
+            @foreach (var item in employeeNotifications.Take(10))
+            {
+                <div class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2">
+                    <div><strong>@item.EmployeeName</strong><div class="small">@item.Task.Kind · @item.Task.Status · Due: @(item.Task.DueDate?.ToString("yyyy-MM-dd") ?? "On creation")</div></div>
+                    <a class="btn btn-sm btn-outline-primary" href="@($"/compliance/employees/{item.Task.EmployeeProfileId}")">Review employee</a>
+                </div>
+            }
+        </div>
+        <a class="btn btn-outline-secondary mt-3" href="/compliance/employees/tasks">All employee review tasks (@employeeNotifications.Count)</a>
+    </section>
+}
+@if (employeeNotificationError is not null) { <div class="alert alert-warning">Employee review notifications could not be loaded. @employeeNotificationError</div> }
+
 @if (reviewNotifications.Count > 0)
 {
     <section class="work-area">
@@ -105,6 +126,9 @@
     private string databaseStatus = "Pending";
     private IReadOnlyList<ComplianceWorkListItem> reviewNotifications = [];
     private int annualNotificationsCreated;
+    private IReadOnlyList<EmployeeTaskRow> employeeNotifications = [];
+    private int employeeNotificationsCreated;
+    private string? employeeNotificationError;
 
     protected override async Task OnInitializedAsync()
     {
@@ -116,6 +140,15 @@
             client => (isAdministrator || !client.ExcludeFromComplianceLists) &&
                       client.LifecycleStatus == ClientLifecycleStatuses.Current);
         databaseStatus = "Online";
+        if ((await Authorization.AuthorizeAsync(state.User, null, KcasPermissions.EmployeesView)).Succeeded)
+        {
+            try
+            {
+                employeeNotificationsCreated = await Employees.RefreshDueTasksAsync(state.User);
+                employeeNotifications = await Employees.TasksAsync(state.User);
+            }
+            catch (Exception ex) { employeeNotificationError = ex.Message; }
+        }
         var userName = state.User.Identity?.Name;
         var canReceiveComplianceReviews = state.User.IsInRole(KcasRoles.ComplianceAdministrator) ||
                                           state.User.IsInRole(KcasRoles.ComplianceApprover);

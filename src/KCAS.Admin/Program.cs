@@ -61,9 +61,14 @@ builder.Services.AddAuthorization(options =>
     foreach (var permission in KcasPermissions.All)
     {
         options.AddPolicy(permission, policy =>
-            policy.RequireClaim(KcasClaimTypes.Permission, permission));
+        {
+            if (permission.StartsWith("Employees.", StringComparison.Ordinal))
+                policy.RequireAuthenticatedUser().AddRequirements(new EmployeePermissionRequirement(permission));
+            else policy.RequireClaim(KcasClaimTypes.Permission, permission);
+        });
     }
 });
+builder.Services.AddScoped<IAuthorizationHandler, EmployeePermissionAuthorizationHandler>();
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
@@ -74,6 +79,7 @@ builder.Services.AddScoped(provider =>
     new ClientSearchService(provider.GetRequiredService<IDbContextFactory<ApplicationDbContext>>()));
 builder.Services.AddScoped<ClientCodeGenerator>();
 builder.Services.AddScoped<ClientOperationsService>();
+builder.Services.AddScoped<ClientVisibilityService>();
 builder.Services.AddScoped<InvestmentSummaryService>();
 builder.Services.AddScoped<InvestmentReconciliationService>();
 builder.Services.AddScoped<ClientReviewTransferService>();
@@ -91,6 +97,13 @@ builder.Services.AddSingleton<DocumentPathDisplayService>();
 builder.Services.AddScoped<BusinessRiskAssessmentService>();
 builder.Services.AddScoped<RmcpService>();
 builder.Services.AddScoped<ComplianceWorkService>();
+builder.Services.AddSingleton<EmployeeEvidenceFiles>();
+builder.Services.AddScoped<EmployeeComplianceService>();
+builder.Services.AddScoped<EmployeeTransferService>();
+if (!builder.Environment.IsEnvironment("Testing"))
+{
+    builder.Services.AddHostedService<EmployeeReviewReminderJob>();
+}
 builder.Services.AddScoped<InspectionService>();
 builder.Services.AddScoped<GoAmlDailyCheckService>();
 builder.Services.AddScoped<GoAmlTransferService>();
@@ -154,6 +167,44 @@ app.MapGet("/kcas-bootstrap.css", () =>
     Results.Text(File.ReadAllText(Path.Combine(webRoot, "lib", "bootstrap", "dist", "css", "bootstrap.min.css")), "text/css"));
 
 app.MapGet("/health/live", () => Results.Ok(new { status = "Healthy" }));
+app.MapGet("/compliance/employees/transfers/{id}/download", async Task<IResult> (
+    string id, HttpContext context, EmployeeTransferService transfers) =>
+{
+    try
+    {
+        var result = await transfers.DownloadAsync(id, context.User);
+        return result is null ? Results.NotFound() : Results.File(result.Value.Content, "application/octet-stream", result.Value.FileName);
+    }
+    catch (UnauthorizedAccessException) { return Results.Forbid(); }
+}).RequireAuthorization(KcasPermissions.EmployeesTransfer);
+app.MapGet("/compliance/employees/documents/{id:int}/file", async Task<IResult> (
+    int id, HttpContext context, EmployeeComplianceService employees) =>
+{
+    try
+    {
+        var evidence = await employees.OpenDocumentAsync(id, context.User);
+        if (evidence is null) return Results.NotFound();
+        var types = new FileExtensionContentTypeProvider();
+        if (!types.TryGetContentType(evidence.Value.FileName, out var contentType)) contentType = "application/octet-stream";
+        return Results.File(evidence.Value.Stream, contentType, enableRangeProcessing: true);
+    }
+    catch (UnauthorizedAccessException) { return Results.Forbid(); }
+    catch (System.ComponentModel.DataAnnotations.ValidationException ex) { return Results.BadRequest(ex.Message); }
+}).RequireAuthorization(KcasPermissions.EmployeesView);
+app.MapGet("/compliance/employees/checks/{id:int}/file", async Task<IResult> (
+    int id, HttpContext context, EmployeeComplianceService employees) =>
+{
+    try
+    {
+        var evidence = await employees.OpenEvidenceAsync(id, context.User);
+        if (evidence is null) return Results.NotFound();
+        var types = new FileExtensionContentTypeProvider();
+        if (!types.TryGetContentType(evidence.Value.FileName, out var contentType)) contentType = "application/octet-stream";
+        return Results.File(evidence.Value.Stream, contentType, enableRangeProcessing: true);
+    }
+    catch (UnauthorizedAccessException) { return Results.Forbid(); }
+    catch (System.ComponentModel.DataAnnotations.ValidationException ex) { return Results.BadRequest(ex.Message); }
+}).RequireAuthorization(KcasPermissions.EmployeesView);
 app.MapGet("/health/ready", async (ApplicationDbContext db, CancellationToken cancellationToken) =>
     await db.Database.CanConnectAsync(cancellationToken)
         ? Results.Ok(new { status = "Healthy" })

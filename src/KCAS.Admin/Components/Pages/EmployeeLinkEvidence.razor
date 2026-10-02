@@ -1,0 +1,39 @@
+@page "/compliance/employees/{Id:int}/evidence/new"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.EmployeesManage)]
+@using System.Security.Claims
+@using KCAS.Admin.Data
+@inject EmployeeComplianceService Employees
+@inject AuthenticationStateProvider Authentication
+@inject NavigationManager Navigation
+
+<PageTitle>Link employee evidence</PageTitle>
+<div class="page-header"><h1>Link employee evidence</h1><a class="btn btn-outline-secondary" href="@($"/compliance/employees/{Id}")"><i class="bi bi-arrow-left" aria-hidden="true"></i> Employee</a></div>
+@if (message is not null) { <div class="alert alert-warning" role="alert">@message</div> }
+<section class="work-area">
+    <label class="d-block">Document title<input class="form-control" @bind="edit.Title" /></label>
+    <label class="d-block mt-3">Category<select class="form-select" @bind="edit.Category">@foreach (var value in new[] { "Identity", "Appointment", "Competence", "Integrity", "Training", "TFS", "Access", "Other" }) { <option>@value</option> }</select></label>
+    <label class="d-block mt-3">File path relative to Compliance<input class="form-control" @bind="edit.EvidencePath" /></label>
+    <label class="d-block mt-3">Source date, person/page coverage and applicability<textarea class="form-control" rows="3" @bind="edit.SourceNote"></textarea></label>
+    <button class="btn btn-primary mt-3" disabled="@(busy || page is null)" @onclick="SaveAsync"><i class="bi bi-link-45deg" aria-hidden="true"></i> Link source evidence</button>
+</section>
+@code {
+    [Parameter] public int Id { get; set; }
+    private ClaimsPrincipal principal = new();
+    private EmployeeReviewPage? page;
+    private EmployeeEvidenceEdit edit = new();
+    private string? message;
+    private bool busy;
+    protected override async Task OnParametersSetAsync()
+    {
+        principal = (await Authentication.GetAuthenticationStateAsync()).User;
+        try { page = await Employees.LoadAsync(Id, principal); } catch (Exception ex) { message = ex.Message; }
+    }
+    private async Task SaveAsync()
+    {
+        busy = true;
+        try { await Employees.LinkEvidenceAsync(Id, page!.Profile.Version, edit, principal); Navigation.NavigateTo($"/compliance/employees/{Id}"); }
+        catch (Exception ex) { message = ex.Message; }
+        finally { busy = false; }
+    }
+}

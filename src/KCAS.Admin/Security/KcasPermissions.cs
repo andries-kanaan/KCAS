@@ -31,6 +31,10 @@ public static class KcasPermissions
     public const string AdviceReview = "Advice.Review";
     public const string AdviceIssue = "Advice.Issue";
     public const string AdviceAudit = "Advice.Audit";
+    public const string EmployeesView = "Employees.View";
+    public const string EmployeesManage = "Employees.Manage";
+    public const string EmployeesReview = "Employees.Review";
+    public const string EmployeesTransfer = "Employees.Transfer";
 
     public static readonly IReadOnlyList<string> All =
     [
@@ -62,6 +66,10 @@ public static class KcasPermissions
         AdvicePrepare,
         AdviceReview,
         AdviceIssue,
-        AdviceAudit
+        AdviceAudit,
+        EmployeesView,
+        EmployeesManage,
+        EmployeesReview,
+        EmployeesTransfer
     ];
 }

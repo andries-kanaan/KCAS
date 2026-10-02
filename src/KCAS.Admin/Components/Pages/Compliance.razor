@@ -13,6 +13,11 @@
         <p class="lede">Controlled configuration, responsible roles, document reviews, methodology status and audit evidence.</p>
     </div>
     <div class="header-actions">
+        <AuthorizeView Policy="@KcasPermissions.EmployeesView">
+            <Authorized Context="employeeContext">
+                <a class="btn btn-outline-primary" href="/compliance/employees"><i class="bi bi-people" aria-hidden="true"></i> Employee compliance</a>
+            </Authorized>
+        </AuthorizeView>
         <AuthorizeView Policy="@KcasPermissions.ClientsView">
             <Authorized>
                 <a class="btn btn-primary" href="/clients/operational-review">Continue client reviews</a>

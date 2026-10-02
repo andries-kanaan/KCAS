@@ -7,6 +7,17 @@ namespace KCAS.Admin.Data;
 
 public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : IdentityDbContext<ApplicationUser, IdentityRole, string>(options)
 {
+    public DbSet<EmployeeProfile> EmployeeProfiles => Set<EmployeeProfile>();
+    public DbSet<EmployeeTransferRecord> EmployeeTransferRecords => Set<EmployeeTransferRecord>();
+    public DbSet<EmployeeAccountLink> EmployeeAccountLinks => Set<EmployeeAccountLink>();
+    public DbSet<EmployeeComplianceReview> EmployeeComplianceReviews => Set<EmployeeComplianceReview>();
+    public DbSet<EmployeeComplianceCheck> EmployeeComplianceChecks => Set<EmployeeComplianceCheck>();
+    public DbSet<EmployeeEvidenceDocument> EmployeeEvidenceDocuments => Set<EmployeeEvidenceDocument>();
+    public DbSet<EmployeeAccessConfirmation> EmployeeAccessConfirmations => Set<EmployeeAccessConfirmation>();
+    public DbSet<EmployeeReviewDecision> EmployeeReviewDecisions => Set<EmployeeReviewDecision>();
+    public DbSet<EmployeeComplianceTask> EmployeeComplianceTasks => Set<EmployeeComplianceTask>();
+    public DbSet<EmployeeTfsBatch> EmployeeTfsBatches => Set<EmployeeTfsBatch>();
+    public DbSet<EmployeeComplianceAuditEvent> EmployeeComplianceAuditEvents => Set<EmployeeComplianceAuditEvent>();
     public DbSet<Client> Clients => Set<Client>();
     public DbSet<ClientPersonalProfile> ClientPersonalProfiles => Set<ClientPersonalProfile>();
     public DbSet<ClientFinancialProfile> ClientFinancialProfiles => Set<ClientFinancialProfile>();
@@ -87,6 +98,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
+        EmployeeComplianceModel.Configure(builder);
 
         builder.Entity<ClientAdviceCase>(entity =>
         {
@@ -1200,7 +1212,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         });
     }
 
-    private static void ConfigureDateOnly<TProperty>(Microsoft.EntityFrameworkCore.Metadata.Builders.PropertyBuilder<TProperty> propertyBuilder)
+    internal static void ConfigureDateOnly<TProperty>(Microsoft.EntityFrameworkCore.Metadata.Builders.PropertyBuilder<TProperty> propertyBuilder)
     {
         if (typeof(TProperty) == typeof(DateOnly))
         {

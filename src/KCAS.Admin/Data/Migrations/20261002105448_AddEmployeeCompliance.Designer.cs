@@ -3,6 +3,7 @@ using System;
 using KCAS.Admin.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace KCAS.Admin.Data.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261002105448_AddEmployeeCompliance")]
+    partial class AddEmployeeCompliance
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -4111,11 +4114,6 @@ namespace KCAS.Admin.Data.Migrations
                         .IsRequired()
                         .HasColumnType("longtext");
 
-                    b.Property<string>("TransferKey")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)");
-
                     b.Property<DateTime>("UpdatedAtUtc")
                         .HasColumnType("datetime(6)");
 
@@ -4126,9 +4124,6 @@ namespace KCAS.Admin.Data.Migrations
                         .HasColumnType("varchar(64)");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("TransferKey")
-                        .IsUnique();
 
                     b.HasIndex("EmploymentStatus", "DisplayName");
 
@@ -4224,88 +4219,6 @@ namespace KCAS.Admin.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("EmployeeTfsBatches");
-                });
-
-            modelBuilder.Entity("KCAS.Admin.Data.EmployeeTransferRecord", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("ActorNamesJson")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("Direction")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("varchar(16)");
-
-                    b.Property<string>("EmployeeKey")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)");
-
-                    b.Property<int>("EmployeeProfileId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasMaxLength(191)
-                        .HasColumnType("varchar(191)");
-
-                    b.Property<string>("LocalDigest")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)");
-
-                    b.Property<string>("MappingJson")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<DateTime>("PackageCreatedAtUtc")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("PackageId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<DateTime>("RecordedAtUtc")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("SourceDigest")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)");
-
-                    b.Property<string>("SourceSystemKey")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)");
-
-                    b.Property<string>("StoragePath")
-                        .IsRequired()
-                        .HasMaxLength(1024)
-                        .HasColumnType("varchar(1024)");
-
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("EmployeeProfileId");
-
-                    b.HasIndex("PackageId", "Direction", "EmployeeKey")
-                        .IsUnique();
-
-                    b.ToTable("EmployeeTransferRecords");
                 });
 
             modelBuilder.Entity("KCAS.Admin.Data.GoAmlDailyCheck", b =>
@@ -6457,15 +6370,6 @@ namespace KCAS.Admin.Data.Migrations
                     b.HasOne("KCAS.Admin.Data.EmployeeProfile", null)
                         .WithMany()
                         .HasForeignKey("ReviewerEmployeeProfileId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("KCAS.Admin.Data.EmployeeTransferRecord", b =>
-                {
-                    b.HasOne("KCAS.Admin.Data.EmployeeProfile", null)
-                        .WithMany()
-                        .HasForeignKey("EmployeeProfileId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
