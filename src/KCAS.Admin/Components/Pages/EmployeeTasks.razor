@@ -1,0 +1,38 @@
+@page "/compliance/employees/tasks"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.EmployeesView)]
+@using System.Security.Claims
+@using KCAS.Admin.Data
+@inject EmployeeComplianceService Employees
+@inject AuthenticationStateProvider Authentication
+
+<PageTitle>Employee review tasks</PageTitle>
+<div class="page-header"><h1>Employee review tasks</h1><a class="btn btn-outline-secondary" href="/compliance/employees"><i class="bi bi-arrow-left" aria-hidden="true"></i> Employees</a></div>
+@if (message is not null) { <div class="alert alert-info" role="status">@message</div> }
+<section class="work-area">
+    <label><input type="checkbox" @bind="includeClosed" @bind:after="LoadAsync" /> Include completed tasks</label>
+    <div class="table-responsive mt-3"><table class="table align-middle"><thead><tr><th>Employee</th><th>Review trigger</th><th>Due</th><th>Status</th><th>Notification record</th><th></th></tr></thead><tbody>
+        @foreach (var item in tasks)
+        {
+            <tr><td><a href="@($"/compliance/employees/{item.Task.EmployeeProfileId}")">@item.EmployeeName</a></td><td>@item.Task.Kind<div class="small">@item.Task.Reason</div></td>
+                <td>@(item.Task.DueDate?.ToString("yyyy-MM-dd") ?? "On creation")</td><td>@item.Task.Status</td><td class="small">Created: @item.Task.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")<div>In-app recipients: @item.RecipientNames</div>
+                    @if (item.Task.AcknowledgedAtUtc.HasValue) { <div>Acknowledged: @item.Task.AcknowledgedAtUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm") · @item.AcknowledgedByName</div> }</td>
+                <td>@if (item.Task.Status == "Open") { <button class="btn btn-sm btn-outline-primary" @onclick="() => AcknowledgeAsync(item.Task.Id)"><i class="bi bi-check2" aria-hidden="true"></i> Acknowledge</button> }</td></tr>
+        }
+    </tbody></table></div>
+    @if (tasks.Count == 0) { <p>No employee review tasks in this selection.</p> }
+</section>
+@code {
+    private ClaimsPrincipal principal = new();
+    private IReadOnlyList<EmployeeTaskRow> tasks = [];
+    private bool includeClosed;
+    private string? message;
+    protected override async Task OnInitializedAsync()
+    {
+        principal = (await Authentication.GetAuthenticationStateAsync()).User;
+        try { var count = await Employees.RefreshDueTasksAsync(principal); if (count > 0) message = $"{count} due-review in-app task(s) created; no email sent."; await LoadAsync(); }
+        catch (Exception ex) { message = ex.Message; }
+    }
+    private async Task LoadAsync() { try { tasks = await Employees.TasksAsync(principal, includeClosed); } catch (Exception ex) { message = ex.Message; } }
+    private async Task AcknowledgeAsync(int id) { try { await Employees.AcknowledgeAsync(id, principal); await LoadAsync(); } catch (Exception ex) { message = ex.Message; } }
+}

@@ -4,6 +4,7 @@
 @using KCAS.Admin.Data
 @using KCAS.Admin.Security
 @inject ClientSearchService ClientSearch
+@inject ClientVisibilityService ClientVisibility
 @inject ComplianceWorkService WorkService
 @inject AuthenticationStateProvider AuthenticationStateProvider
 
@@ -20,6 +21,38 @@
         </Authorized>
     </AuthorizeView>
 </div>
+
+@if (isAdministrator)
+{
+    <section class="work-area mb-3">
+        <h2>Client visibility</h2>
+        <div class="d-flex flex-wrap align-items-end gap-2">
+            <div>
+                <label class="form-label" for="visibility-action">Bulk action</label>
+                <select id="visibility-action" class="form-select" @bind="visibilityAction" @bind:after="ClearVisibilityPreview" disabled="@visibilityBusy">
+                    <option value="@ClientVisibilityActions.HideZeroBalance">Hide zero-balance clients</option>
+                    <option value="@ClientVisibilityActions.UnhideZeroBalance">Unhide zero-balance clients</option>
+                    <option value="@ClientVisibilityActions.UnhideAll">Unhide all clients</option>
+                </select>
+            </div>
+            <button type="button" class="btn btn-outline-secondary" @onclick="PreviewVisibilityAsync" disabled="@visibilityBusy">Preview</button>
+        </div>
+        @if (visibilityPreviewCount.HasValue)
+        {
+            <div class="alert alert-warning mt-3 mb-0">
+                <p>@visibilityPreviewCount client(s) will be changed. Only clients with a known R0.00 current value qualify for zero-balance actions; missing valuations are excluded.</p>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-primary" @onclick="ApplyVisibilityAsync" disabled="@(visibilityBusy || visibilityPreviewCount == 0)">Confirm</button>
+                    <button type="button" class="btn btn-outline-secondary" @onclick="ClearVisibilityPreview" disabled="@visibilityBusy">Cancel</button>
+                </div>
+            </div>
+        }
+        @if (!string.IsNullOrWhiteSpace(visibilityMessage))
+        {
+            <div class="alert @(visibilityError ? "alert-danger" : "alert-success") mt-3 mb-0">@visibilityMessage</div>
+        }
+    </section>
+}
 
 @if (annualNotificationsCreated > 0)
 {
@@ -192,6 +225,11 @@
     private IReadOnlyList<ComplianceWorkListItem> reviewNotifications = [];
     private int annualNotificationsCreated;
     private bool isAdministrator;
+    private string visibilityAction = ClientVisibilityActions.HideZeroBalance;
+    private int? visibilityPreviewCount;
+    private bool visibilityBusy;
+    private bool visibilityError;
+    private string? visibilityMessage;
 
     protected override async Task OnInitializedAsync()
     {
@@ -238,6 +276,66 @@
             SortColumn: sortColumn,
             SortDescending: sortDescending),
             includeExcludedClients: isAdministrator);
+    }
+
+    private void ClearVisibilityPreview()
+    {
+        visibilityPreviewCount = null;
+        visibilityMessage = null;
+    }
+
+    private async Task PreviewVisibilityAsync()
+    {
+        if (!await IsAdministratorAsync()) return;
+        visibilityBusy = true;
+        visibilityPreviewCount = null;
+        visibilityMessage = null;
+        try
+        {
+            visibilityPreviewCount = await ClientVisibility.PreviewAsync(visibilityAction);
+        }
+        catch (Exception ex)
+        {
+            visibilityError = true;
+            visibilityMessage = ex.Message;
+        }
+        finally
+        {
+            visibilityBusy = false;
+        }
+    }
+
+    private async Task ApplyVisibilityAsync()
+    {
+        if (!await IsAdministratorAsync() || !visibilityPreviewCount.HasValue) return;
+        visibilityBusy = true;
+        visibilityMessage = null;
+        try
+        {
+            var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            var changed = await ClientVisibility.ApplyAsync(
+                visibilityAction, visibilityPreviewCount.Value, state.User.Identity?.Name);
+            visibilityError = false;
+            visibilityMessage = $"Updated visibility for {changed} client(s).";
+            visibilityPreviewCount = null;
+            await LoadClientsAsync();
+        }
+        catch (Exception ex)
+        {
+            visibilityError = true;
+            visibilityMessage = ex.Message;
+            visibilityPreviewCount = null;
+        }
+        finally
+        {
+            visibilityBusy = false;
+        }
+    }
+
+    private async Task<bool> IsAdministratorAsync()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        return state.User.IsInRole(KcasRoles.Administrator);
     }
 
     private string SortIndicator(string column)

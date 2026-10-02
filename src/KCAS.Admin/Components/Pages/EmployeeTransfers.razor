@@ -1,0 +1,117 @@
+@page "/compliance/employees/transfers"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.EmployeesTransfer)]
+@using System.Security.Claims
+@using KCAS.Admin.Data
+@inject EmployeeComplianceService Employees
+@inject EmployeeTransferService Transfers
+@inject AuthenticationStateProvider Authentication
+
+<PageTitle>Employee transfers</PageTitle>
+<div class="page-header">
+    <div><p class="eyebrow">Confidential compliance transfer</p><h1>Employee transfers</h1></div>
+    <a class="btn btn-outline-secondary" href="/compliance/employees"><i class="bi bi-arrow-left" aria-hidden="true"></i> Employees</a>
+</div>
+@if (message is not null) { <div class="alert @(error ? "alert-danger" : "alert-success")" role="status">@message</div> }
+<section class="work-area">
+    <h2>1. Create encrypted package</h2>
+    @if (rows is null) { <p>Loading employees...</p> }
+    else
+    {
+        <div class="d-flex flex-wrap gap-3 mb-3">
+            <label class="form-check"><input class="form-check-input" type="checkbox" checked="@(selected.Count == rows.Count && rows.Count > 0)" @onchange="SelectAll" /> Select all employees</label>
+            <span>@selected.Count selected</span>
+        </div>
+        <div class="table-responsive"><table class="table align-middle"><thead><tr><th></th><th>Employee</th><th>Employment</th><th>Review</th></tr></thead><tbody>
+            @foreach (var row in rows)
+            {
+                <tr><td><input type="checkbox" aria-label="@($"Select {row.Profile.DisplayName}")" checked="@selected.Contains(row.Profile.Id)" @onchange="e => Select(row.Profile.Id, e)" /></td>
+                    <td>@row.Profile.DisplayName</td><td>@row.Profile.EmploymentStatus</td><td>@(row.LatestReview?.Status ?? "Not started")</td></tr>
+            }
+        </tbody></table></div>
+    }
+    <label class="d-block mt-3">Export reason<textarea class="form-control" rows="2" @bind="exportReason"></textarea></label>
+    <div class="employee-transfer-fields mt-3">
+        <label>Package passphrase<input class="form-control" type="password" autocomplete="new-password" @bind="exportPassphrase" /></label>
+        <label>Confirm passphrase<input class="form-control" type="password" autocomplete="new-password" @bind="confirmPassphrase" /></label>
+    </div>
+    <button class="btn btn-primary mt-3" disabled="@(busy || selected.Count == 0)" @onclick="ExportAsync"><i class="bi bi-lock" aria-hidden="true"></i> Create encrypted package</button>
+    @if (exported is not null)
+    {
+        <div class="alert alert-success mt-3"><strong>@exported.FileName</strong><p>@exported.Employees employee(s) · @((exported.Bytes / 1024d / 1024d).ToString("N2")) MB</p>
+            <a class="btn btn-outline-primary" href="@($"/compliance/employees/transfers/{exported.PackageId}/download")"><i class="bi bi-download" aria-hidden="true"></i> Download package</a></div>
+    }
+</section>
+<section class="work-area">
+    <h2>2. Preview and apply package</h2>
+    <label class="d-block">Encrypted employee package<InputFile class="form-control" accept=".kcas-employees" OnChange="ChooseAsync" disabled="@busy" /></label>
+    <label class="d-block mt-3">Package passphrase<input class="form-control" type="password" autocomplete="current-password" @bind="importPassphrase" @bind:after="ClearPreview" /></label>
+    <button class="btn btn-outline-primary mt-3" disabled="@(busy || importBytes is null)" @onclick="PreviewAsync"><i class="bi bi-eye" aria-hidden="true"></i> Preview package</button>
+    @if (preview is not null)
+    {
+        <h3 class="mt-3">Preview</h3>
+        <dl class="employee-details"><dt>Exported by:</dt><dd>@preview.Package.ExportedBy</dd><dt>Created:</dt><dd>@preview.Package.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</dd><dt>Reason:</dt><dd>@preview.Package.Reason</dd></dl>
+        <div class="table-responsive"><table class="table"><thead><tr><th>Employee</th><th>Action</th><th>Reviews</th><th>Checks</th><th>Documents</th></tr></thead><tbody>
+            @foreach (var row in preview.Rows) { <tr><td>@row.Employee</td><td>@row.Action</td><td>@row.Reviews</td><td>@row.Checks</td><td>@row.Documents</td></tr> }
+        </tbody></table></div>
+        @foreach (var conflict in preview.Conflicts.Distinct()) { <div class="alert alert-danger">@conflict</div> }
+        @if (preview.Warnings.Count > 0) { <details class="mb-3"><summary>Mapping and follow-up notes (@preview.Warnings.Count)</summary>@foreach (var warning in preview.Warnings.Distinct()) { <p class="mt-2 mb-0">@warning</p> }</details> }
+        @if (preview.CanApply)
+        {
+            <label class="d-block mt-3">Import reason<textarea class="form-control" rows="2" @bind="importReason"></textarea></label>
+            <label class="form-check mt-3"><input class="form-check-input" type="checkbox" @bind="confirmed" /> I confirm the source, employees and preview. Live login rights are not granted by this import.</label>
+            <button class="btn btn-primary mt-3" disabled="@(busy || !confirmed)" @onclick="ApplyAsync"><i class="bi bi-check2-circle" aria-hidden="true"></i> Apply employee package</button>
+        }
+    }
+</section>
+@code {
+    [SupplyParameterFromQuery] public int? EmployeeId { get; set; }
+    private ClaimsPrincipal principal = new();
+    private IReadOnlyList<EmployeeRegisterRow>? rows;
+    private readonly HashSet<int> selected = [];
+    private string exportReason = "Transfer employee compliance records to live KCAS.";
+    private string exportPassphrase = "";
+    private string confirmPassphrase = "";
+    private string importPassphrase = "";
+    private string importReason = "Reviewed employee compliance transfer.";
+    private EmployeeTransferExport? exported;
+    private EmployeeTransferPreview? preview;
+    private byte[]? importBytes;
+    private bool confirmed, busy, error;
+    private string? message;
+    protected override async Task OnParametersSetAsync()
+    {
+        principal = (await Authentication.GetAuthenticationStateAsync()).User;
+        try { rows = await Employees.RegisterAsync(principal); if (EmployeeId.HasValue && rows.Any(x => x.Profile.Id == EmployeeId)) { selected.Clear(); selected.Add(EmployeeId.Value); } }
+        catch (Exception ex) { error = true; message = ex.Message; }
+    }
+    private void Select(int id, ChangeEventArgs e) { if (e.Value is true) selected.Add(id); else selected.Remove(id); }
+    private void SelectAll(ChangeEventArgs e) { selected.Clear(); if (e.Value is true && rows is not null) foreach (var row in rows) selected.Add(row.Profile.Id); }
+    private void ClearPreview() { preview = null; confirmed = false; }
+    private async Task ChooseAsync(InputFileChangeEventArgs e)
+    {
+        ClearPreview(); importBytes = null;
+        await RunAsync(async () => { using var stream = e.File.OpenReadStream(50 * 1024 * 1024 + 1024); using var memory = new MemoryStream(); await stream.CopyToAsync(memory); importBytes = memory.ToArray(); });
+    }
+    private async Task ExportAsync() => await RunAsync(async () =>
+    {
+        exported = null;
+        if (exportPassphrase != confirmPassphrase) throw new InvalidOperationException("The package passphrases do not match.");
+        exported = await Transfers.ExportAsync(selected, exportPassphrase, exportReason, principal);
+        exportPassphrase = confirmPassphrase = ""; message = "Encrypted employee package created. Download it below.";
+    });
+    private async Task PreviewAsync() => await RunAsync(async () => { ClearPreview(); preview = await Transfers.PreviewAsync(importBytes!, importPassphrase, principal); message = preview.CanApply ? "Preview complete. Confirm before applying." : "Preview found conflicts; nothing was applied."; error = !preview.CanApply; });
+    private async Task ApplyAsync() => await RunAsync(async () =>
+    {
+        if (!confirmed || preview is null) throw new InvalidOperationException("Preview and confirm the employee package first.");
+        var count = await Transfers.ApplyAsync(importBytes!, importPassphrase, preview.TargetStamp, importReason, principal);
+        message = $"Employee package applied: {count} employee(s) imported or updated. Previously imported records were skipped. No live login rights were granted.";
+        ClearPreview(); importBytes = null; importPassphrase = ""; rows = await Employees.RegisterAsync(principal);
+    });
+    private async Task RunAsync(Func<Task> action)
+    {
+        if (busy) return;
+        busy = true; error = false; message = null;
+        try { await action(); } catch (Exception ex) { error = true; message = ex.Message; } finally { busy = false; }
+    }
+}

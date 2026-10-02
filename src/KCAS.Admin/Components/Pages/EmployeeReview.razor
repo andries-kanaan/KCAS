@@ -1,0 +1,173 @@
+@page "/compliance/employees/{Id:int}"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.EmployeesView)]
+@using System.Security.Claims
+@using KCAS.Admin.Data
+@inject EmployeeComplianceService Employees
+@inject AuthenticationStateProvider Authentication
+
+<PageTitle>@(page?.Profile.DisplayName ?? "Employee review")</PageTitle>
+<div class="page-header">
+    <div><p class="eyebrow">Employee compliance</p><h1>@(page?.Profile.DisplayName ?? "Employee review")</h1></div>
+    <div class="header-actions"><a class="btn btn-outline-secondary" href="/compliance/employees"><i class="bi bi-arrow-left" aria-hidden="true"></i> Employees</a>
+        @if (permissions?.CanManage == true) { <a class="btn btn-outline-primary" href="@($"/compliance/employees/{Id}/update")"><i class="bi bi-pencil" aria-hidden="true"></i> Update profile</a> }
+        <AuthorizeView Policy="@KcasPermissions.EmployeesTransfer"><a class="btn btn-outline-primary" href="@($"/compliance/employees/transfers?employeeId={Id}")"><i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> Transfer employee</a></AuthorizeView>
+    </div>
+</div>
+@if (message is not null) { <div class="alert alert-info" role="status">@message</div> }
+@if (page is not null)
+{
+    var p = page.Profile;
+    var review = page.CurrentReview;
+    var draft = review?.Status == "Draft" && review.ProfileVersion == p.Version;
+    <section class="work-area">
+        <h2>1. Identity, duties and role assessment</h2>
+        <dl class="employee-details"><dt>Legal name:</dt><dd>@p.LegalName</dd><dt>Aliases:</dt><dd>@Display(p.Aliases)</dd>
+            <dt>Employment:</dt><dd>@p.EmploymentStatus</dd>
+            <dt>Responsibilities:</dt><dd>@p.Responsibilities</dd><dt>Authority:</dt><dd>@p.AuthorityLimits</dd>
+            <dt>Proposed exposure:</dt><dd>@p.RoleExposure</dd>
+            <dt>Proposed review:</dt><dd>@p.ProposedReviewMonths months; management decision pending unless approved below.</dd></dl>
+        <details class="mt-3"><summary>Role-risk rationale, selected checks and source references</summary>
+            <dl class="employee-details mt-3"><dt>Identity source:</dt><dd>@Display(p.IdentityReference)</dd><dt>Rationale:</dt><dd>@p.RiskRationale</dd><dt>Selected checks:</dt><dd>@p.SelectedChecks</dd><dt>Source:</dt><dd>@p.SourceReference</dd></dl>
+        </details>
+        <details class="mt-3"><summary>Linked source documents (@evidence.Count)</summary>
+        @foreach (var document in evidence)
+        {
+            <div class="employee-history"><a href="@($"/compliance/employees/documents/{document.Id}/file")" target="_blank" rel="noopener">@document.Title</a><div class="small">@document.Category · Linked, not a completed check</div><details><summary>Source coverage and date</summary><p class="employee-text mb-0">@document.SourceNote</p></details></div>
+        }
+        </details>
+        @if (permissions?.CanManage == true) { <a class="btn btn-sm btn-outline-secondary mt-3 me-2" href="@($"/compliance/employees/{Id}/evidence/new")"><i class="bi bi-link-45deg" aria-hidden="true"></i> Link source evidence</a> }
+        @if (permissions?.CanManage == true && p.EmploymentStatus != "Inactive")
+        {
+            if (!draft) { <button class="btn btn-primary" disabled="@busy" @onclick="StartAsync"><i class="bi bi-play" aria-hidden="true"></i> Start @(review is null ? "review" : "new review")</button> }
+        }
+    </section>
+    <section class="work-area">
+        <h2>2. Screening and competence</h2>
+        @foreach (var kind in RequiredKinds(p))
+        {
+            var check = page.Checks.FirstOrDefault(x => x.EmployeeComplianceReviewId == review?.Id && x.Kind == kind);
+            <div class="employee-check-row">
+                <div><strong>@EmployeeComplianceValues.CheckLabel(kind)</strong><div>@(check?.Outcome ?? "Not recorded")</div>
+                    @if (check is not null)
+                    {
+                        <div class="text-muted small">Performed by: @check.Performer · @LocalTime(check.PerformedAtUtc) · Recorded by: @UserName(check.RecordedByUserId)</div>
+                        <p class="mb-1 employee-text">@check.Finding</p><div class="small employee-text">Source: @check.SourceReference</div>
+                        @if (check.SourceUrl is not null) { <a href="@check.SourceUrl" target="_blank" rel="noopener">Source website</a> }
+                        @if (check.ListVersion is not null) { <div class="small">List/version: @check.ListVersion</div> }
+                        @if (check.IdentifierScope.Length > 0) { <div class="small employee-text">Identifiers/aliases: @check.IdentifierScope</div> }
+                        @if (check.Limitations.Length > 0) { <div class="small employee-text">Limitations: @check.Limitations</div> }
+                        @if (check.EvidencePath is not null) { <a class="btn btn-sm btn-outline-secondary mt-2" href="@($"/compliance/employees/checks/{check.Id}/file")" target="_blank" rel="noopener"><i class="bi bi-file-earmark" aria-hidden="true"></i> Open evidence</a> }
+                    }
+                </div>
+                @if (permissions?.CanManage == true && draft) { <a class="btn btn-sm btn-outline-primary" href="@($"/compliance/employees/{Id}/checks/new?kind={kind}")"><i class="bi bi-check2-square" aria-hidden="true"></i> Record @(check is null ? "check" : "replacement check")</a> }
+            </div>
+        }
+        @if (permissions?.CanManage == true && draft) { <a class="btn btn-sm btn-outline-secondary mt-3" href="@($"/compliance/employees/{Id}/checks/new?kind=Additional")">Record additional selected check</a> }
+    </section>
+    <section class="work-area">
+        <h2>3. Actual access verification</h2>
+        <p>Linked accounts: @(page.Accounts.Count == 0 ? "None linked" : string.Join("; ", page.Accounts.Select(a => a.Label)))</p>
+        @foreach (var kind in new[] { "KCAS", "External" })
+        {
+            var access = page.Access.FirstOrDefault(x => x.EmployeeComplianceReviewId == review?.Id && x.Kind == kind);
+            <div class="employee-check-row"><div><strong>@kind</strong><div>@(access is null ? "Not verified" : access.IsAligned ? "Aligned" : "Action required")</div>
+                @if (access is not null) { <div class="small">Verified by: @access.VerifiedBy · @LocalTime(access.VerifiedAtUtc)</div><p class="employee-text mb-0">@access.ActualScope</p><p class="employee-text mb-0">@access.ActionConfirmation</p> }
+            </div>@if (permissions?.CanManage == true && draft) { <a class="btn btn-sm btn-outline-primary" href="@($"/compliance/employees/{Id}/access/new?kind={kind}")">Record verification</a> }</div>
+        }
+        <details class="mt-3"><summary>Current KCAS account permissions</summary><pre class="employee-permissions">@(page.CurrentAccountScope)</pre></details>
+        @if (permissions?.CanManage == true && permissions.CanLinkAccounts)
+        {
+            <details class="mt-3"><summary>Link another verified account</summary><div class="workspace-grid mt-3">
+                <select class="form-select" aria-label="Account" @bind="accountId"><option value="">Select account</option>@foreach (var option in accountOptions) { <option value="@option.Id">@option.Label</option> }</select>
+                <input class="form-control" aria-label="Identity link evidence" placeholder="Identity verification reference" @bind="accountReason" />
+                <button class="btn btn-outline-primary" disabled="@busy" @onclick="LinkAsync">Link account</button>
+            </div></details>
+        }
+    </section>
+    <section class="work-area">
+        <h2>4. Management decision</h2>
+        <p>Review status: <strong>@(review?.Status ?? "Not started")</strong></p>
+        @if (page.Blockers.Count > 0) { <ul>@foreach (var blocker in page.Blockers) { <li>@blocker</li> }</ul> }
+        else { <p class="text-success">Recorded prerequisites are complete.</p> }
+        @if (permissions?.CanReview == true && draft) { <a class="btn btn-primary" href="@($"/compliance/employees/{Id}/decision")"><i class="bi bi-person-check" aria-hidden="true"></i> Review and decide</a> }
+        @foreach (var decision in page.Decisions)
+        {
+            <div class="employee-history mt-3"><strong>@decision.Decision · @decision.ReviewerName · @LocalTime(decision.DecidedAtUtc)</strong><p class="employee-text">@decision.Reason</p>
+                @if (decision.ApprovedReviewMonths.HasValue) { <div>Approved review interval: @decision.ApprovedReviewMonths months</div> }
+                @if (decision.RestrictionsAndFollowUp.Length > 0) { <p class="employee-text">@decision.RestrictionsAndFollowUp</p> }</div>
+        }
+        <p class="mt-3">Next periodic review: <strong>@(review?.NextReviewDate?.ToString("yyyy-MM-dd") ?? "Not yet approved")</strong></p>
+    </section>
+    <section class="work-area">
+        <h2>5. Review tasks and retained history</h2>
+        @foreach (var task in page.Tasks.Where(x => x.Status != "Closed"))
+        {
+            <div class="employee-history"><strong>@task.Kind · @task.Status</strong><p class="mb-0 employee-text">@task.Reason</p><div class="small">Created: @LocalTime(task.CreatedAtUtc) · In-app recipients: @Recipients(task)</div></div>
+        }
+        @if (permissions?.CanManage == true && p.EmploymentStatus != "Inactive")
+        {
+            <details class="mt-3"><summary>Record material event / request review</summary><label class="d-block mt-2">Event and reason<textarea class="form-control" @bind="eventReason"></textarea></label><button class="btn btn-outline-primary mt-2" disabled="@busy" @onclick="TriggerAsync"><i class="bi bi-bell" aria-hidden="true"></i> Create review task</button></details>
+        }
+        <details class="mt-3"><summary>Review and check history</summary>
+            @foreach (var old in page.History)
+            {
+                <div class="employee-history"><strong>Review @old.Id · @old.Status · @LocalTime(old.StartedAtUtc)</strong>
+                    @foreach (var c in page.Checks.Where(x => x.EmployeeComplianceReviewId == old.Id)) { <p class="mb-1 employee-text">@c.Kind: @c.Outcome · @c.Performer · @LocalTime(c.PerformedAtUtc) · @c.Finding</p> }
+                    <details><summary>Frozen profile</summary><pre class="employee-permissions">@old.ProfileSnapshotJson</pre></details>
+                </div>
+            }
+        </details>
+        <details class="mt-3"><summary>Restricted employee audit trail</summary>
+            @foreach (var item in page.Audit) { <div class="employee-history"><strong>@item.Action · @LocalTime(item.TimestampUtc)</strong><div>Recorded by: @UserName(item.UserId)</div><p class="employee-text mb-0">@item.Reason</p></div> }
+        </details>
+    </section>
+}
+@code {
+    [Parameter] public int Id { get; set; }
+    [SupplyParameterFromQuery(Name = "saved")] public bool Saved { get; set; }
+    private ClaimsPrincipal principal = new();
+    private EmployeeReviewPage? page;
+    private EmployeePermissionState? permissions;
+    private IReadOnlyList<EmployeeAccountOption> accountOptions = [];
+    private IReadOnlyList<EmployeeEvidenceDocument> evidence = [];
+    private string? message;
+    private string accountId = "";
+    private string accountReason = "";
+    private string eventReason = "";
+    private bool busy;
+    protected override async Task OnParametersSetAsync()
+    {
+        principal = (await Authentication.GetAuthenticationStateAsync()).User;
+        try
+        {
+            permissions = await Employees.PermissionsAsync(principal);
+            if (permissions.CanManage && permissions.CanLinkAccounts) accountOptions = await Employees.AccountOptionsAsync(principal);
+            await LoadAsync();
+            if (Saved) message = "Employee saved. An in-app review/access task was created; recipient accounts are recorded below. No email was sent.";
+        }
+        catch (Exception ex) { message = ex.Message; }
+    }
+    private async Task LoadAsync() { page = await Employees.LoadAsync(Id, principal); evidence = await Employees.EvidenceAsync(Id, principal); }
+    private async Task RunAsync(Func<Task> action, string success)
+    {
+        busy = true;
+        try { await action(); message = success; await LoadAsync(); }
+        catch (Exception ex) { message = ex.Message; }
+        finally { busy = false; }
+    }
+    private Task StartAsync() => RunAsync(async () => { await Employees.StartReviewAsync(Id, page!.Profile.Version, "Begin evidence-based employee review.", principal); }, "Review started; record actual checks and access verification.");
+    private Task TriggerAsync() => RunAsync(() => Employees.TriggerReviewAsync(Id, page!.Profile.Version, eventReason, principal), "In-app review task created. Start a fresh review against the event-updated profile.");
+    private Task LinkAsync() => RunAsync(async () => { await Employees.LinkAccountAsync(Id, page!.Profile.Version, accountId, accountReason, principal); accountOptions = await Employees.AccountOptionsAsync(principal); }, "Verified account linked. An in-app access-review task was created.");
+    private static IEnumerable<string> RequiredKinds(EmployeeProfile p)
+    {
+        yield return "TFS"; yield return "Identity"; yield return "Competence"; yield return "Integrity";
+        if (p.RequireTraining) yield return "Training";
+        if (p.RequireRegulatedCompetence) yield return "RegulatedCompetence";
+        if (p.RequireAdditionalCheck) yield return "Additional";
+    }
+    private static string LocalTime(DateTime value) => DateTime.SpecifyKind(value, DateTimeKind.Utc).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz");
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "Not recorded" : value;
+    private string UserName(string id) => page?.UserNames.GetValueOrDefault(id, id) ?? id;
+    private string Recipients(EmployeeComplianceTask task) => string.Join("; ", (System.Text.Json.JsonSerializer.Deserialize<List<string>>(task.RecipientUserIdsJson) ?? []).Select(UserName));
+}

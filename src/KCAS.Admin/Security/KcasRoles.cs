@@ -10,4 +10,5 @@ public static class KcasRoles
     public const string ComplianceAdministrator = "ComplianceAdministrator";
     public const string ComplianceApprover = "ComplianceApprover";
     public const string ComplianceReadOnly = "ComplianceReadOnly";
+    public const string EmployeeReviewer = "EmployeeReviewer";
 }

@@ -1,0 +1,48 @@
+@page "/compliance/employees/{Id:int}/access/new"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.EmployeesManage)]
+@using System.Security.Claims
+@using KCAS.Admin.Data
+@inject EmployeeComplianceService Employees
+@inject AuthenticationStateProvider Authentication
+@inject NavigationManager Navigation
+
+<PageTitle>Verify employee access</PageTitle>
+<div class="page-header"><div><p class="eyebrow">@(page?.Profile.DisplayName)</p><h1>Verify employee access</h1></div><a class="btn btn-outline-secondary" href="@($"/compliance/employees/{Id}")"><i class="bi bi-arrow-left" aria-hidden="true"></i> Review</a></div>
+@if (message is not null) { <div class="alert alert-warning" role="alert">@message</div> }
+@if (page?.CurrentReview is not null)
+{
+    <EditForm Model="edit" OnSubmit="SaveAsync"><section class="work-area">
+        <div class="workspace-grid"><label>Access type<select class="form-select" @bind="edit.Kind"><option>KCAS</option><option>External</option></select></label><label>Actual verification time (server local)<input class="form-control" type="datetime-local" @bind="edit.VerifiedAtLocal" @bind:format="yyyy-MM-ddTHH:mm" /></label></div>
+        <label class="d-block mt-3">Systems and coverage<textarea class="form-control" @bind="edit.SystemAndScope"></textarea></label>
+        <label class="d-block mt-3">Approved responsibilities/access scope<textarea class="form-control" rows="3" @bind="edit.ApprovedScope"></textarea></label>
+        <label class="d-block mt-3">Actual access found<textarea class="form-control" rows="3" @bind="edit.ActualScope"></textarea></label>
+        @if (edit.Kind == "KCAS") { <details class="mt-3"><summary>Current linked-account permissions</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">@(page.CurrentAccountScope)</pre></details> }
+        <label class="d-block mt-3">Responsible-owner confirmation / actual action / no change<textarea class="form-control" rows="3" @bind="edit.ActionConfirmation"></textarea></label>
+        <label class="d-block mt-3">Evidence reference<textarea class="form-control" @bind="edit.EvidenceReference"></textarea></label>
+        <label class="d-block mt-3"><InputCheckbox @bind-Value="edit.IsAligned" /> Actual access is aligned with the authorised duties</label>
+        <button class="btn btn-primary mt-3" disabled="@busy"><i class="bi bi-save" aria-hidden="true"></i> Record verification</button>
+    </section></EditForm>
+}
+@code {
+    [Parameter] public int Id { get; set; }
+    [SupplyParameterFromQuery(Name = "kind")] public string? Kind { get; set; }
+    private ClaimsPrincipal principal = new();
+    private EmployeeReviewPage? page;
+    private EmployeeAccessEdit edit = new();
+    private bool busy;
+    private string? message;
+    protected override async Task OnParametersSetAsync()
+    {
+        principal = (await Authentication.GetAuthenticationStateAsync()).User;
+        try { page = await Employees.LoadAsync(Id, principal); edit.Kind = Kind == "External" ? "External" : "KCAS"; edit.ApprovedScope = page.Profile.AuthorityLimits; }
+        catch (Exception ex) { message = ex.Message; }
+    }
+    private async Task SaveAsync()
+    {
+        busy = true;
+        try { await Employees.RecordAccessAsync(page!.CurrentReview!.Id, page.CurrentReview.Version, edit, principal); Navigation.NavigateTo($"/compliance/employees/{Id}"); }
+        catch (Exception ex) { message = ex.Message; }
+        finally { busy = false; }
+    }
+}

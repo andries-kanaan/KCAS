@@ -1,0 +1,48 @@
+@page "/compliance/employees/{Id:int}/decision"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.EmployeesReview)]
+@using System.Security.Claims
+@using KCAS.Admin.Data
+@inject EmployeeComplianceService Employees
+@inject AuthenticationStateProvider Authentication
+@inject NavigationManager Navigation
+
+<PageTitle>Employee review decision</PageTitle>
+<div class="page-header"><div><p class="eyebrow">@(page?.Profile.DisplayName)</p><h1>Employee review decision</h1></div><a class="btn btn-outline-secondary" href="@($"/compliance/employees/{Id}")"><i class="bi bi-arrow-left" aria-hidden="true"></i> Review evidence</a></div>
+@if (message is not null) { <div class="alert alert-warning" role="alert">@message</div> }
+@if (page is not null)
+{
+    @if (page.Blockers.Count > 0) { <div class="alert alert-warning"><strong>Approval prerequisites outstanding</strong><ul class="mb-0">@foreach (var blocker in page.Blockers) { <li>@blocker</li> }</ul></div> }
+    <section class="work-area">
+        <h2>Role assessment and review</h2><p><strong>@(page.Profile.RoleExposure)</strong> · @(page.Profile.RiskRationale)</p><p>@(page.Profile.SelectedChecks)</p>
+        <label class="d-block">Decision<select class="form-select" @bind="decision">@foreach (var v in EmployeeComplianceValues.DecisionTypes) { <option value="@v">@v</option> }</select></label>
+        @if (decision == "Approved") { <label class="d-block mt-3">Approved review interval (months)<input type="number" class="form-control" min="1" max="60" @bind="months" /></label> }
+        <label class="d-block mt-3">Evidenced decision reason<textarea class="form-control" rows="4" @bind="reason"></textarea></label>
+        <label class="d-block mt-3">Restrictions / follow-up / limitations<textarea class="form-control" rows="3" @bind="followUp"></textarea></label>
+        <button class="btn btn-primary mt-3" disabled="@(busy || page.CurrentReview?.Status != "Draft")" @onclick="SaveAsync"><i class="bi bi-person-check" aria-hidden="true"></i> Record decision</button>
+    </section>
+}
+@code {
+    [Parameter] public int Id { get; set; }
+    private ClaimsPrincipal principal = new();
+    private EmployeeReviewPage? page;
+    private string decision = "FollowUp";
+    private string reason = "";
+    private string followUp = "";
+    private int months = 12;
+    private bool busy;
+    private string? message;
+    protected override async Task OnParametersSetAsync()
+    {
+        principal = (await Authentication.GetAuthenticationStateAsync()).User;
+        try { page = await Employees.LoadAsync(Id, principal); months = page.Profile.ProposedReviewMonths; decision = page.Blockers.Count == 0 ? "Approved" : "FollowUp"; }
+        catch (Exception ex) { message = ex.Message; }
+    }
+    private async Task SaveAsync()
+    {
+        busy = true;
+        try { await Employees.DecideAsync(page!.CurrentReview!.Id, page.CurrentReview.Version, decision, reason, followUp, months, principal); Navigation.NavigateTo($"/compliance/employees/{Id}"); }
+        catch (Exception ex) { message = ex.Message; }
+        finally { busy = false; }
+    }
+}

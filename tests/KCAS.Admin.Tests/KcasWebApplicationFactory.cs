@@ -67,10 +67,12 @@ public sealed class KcasWebApplicationFactory : WebApplicationFactory<Program>, 
         await connection.OpenAsync();
 
         await using var command = connection.CreateCommand();
-        command.CommandText = $"""
-            DROP DATABASE IF EXISTS `{databaseName.Replace("`", "``")}`;
-            CREATE DATABASE `{databaseName.Replace("`", "``")}` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
-            """;
+        command.CommandText = Environment.GetEnvironmentVariable("KCAS_TEST_PRESERVE_DATABASE") == "1"
+            ? $"CREATE DATABASE IF NOT EXISTS `{databaseName.Replace("`", "``")}` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
+            : $"""
+                DROP DATABASE IF EXISTS `{databaseName.Replace("`", "``")}`;
+                CREATE DATABASE `{databaseName.Replace("`", "``")}` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+                """;
         await command.ExecuteNonQueryAsync();
     }
 }

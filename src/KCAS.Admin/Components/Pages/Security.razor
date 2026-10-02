@@ -7,6 +7,8 @@
 @inject UserManager<ApplicationUser> UserManager
 @inject RoleManager<IdentityRole> RoleManager
 @inject AuthenticationStateProvider AuthenticationStateProvider
+@inject EmployeeComplianceService Employees
+@inject ApplicationDbContext SecurityDb
 
 <PageTitle>Security</PageTitle>
 
@@ -104,6 +106,9 @@
 
     private async Task LoadAsync()
     {
+        // Employee access changes use their own short-lived transactional context.
+        // Avoid displaying Identity assignments cached before that change.
+        SecurityDb.ChangeTracker.Clear();
         roles = [];
         foreach (var role in await RoleManager.Roles.OrderBy(role => role.Name).ToListAsync())
         {
@@ -128,26 +133,25 @@
 
     private async Task ApproveUserAsync(UserRow row)
     {
-        row.User.IsApproved = true;
-        row.User.ApprovedAtUtc = DateTime.UtcNow;
-        row.User.ApprovedByUserId = currentUserId;
-        var result = await UserManager.UpdateAsync(row.User);
-        statusMessage = result.Succeeded
-            ? $"Approved {row.User.Email ?? row.User.UserName}."
-            : string.Join("; ", result.Errors.Select(error => error.Description));
-        await LoadAsync();
+        try
+        {
+            await Employees.ActivateAccountAsync(row.User.Id, (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User);
+            statusMessage = $"Approved {row.User.Email ?? row.User.UserName}.";
+            await LoadAsync();
+        }
+        catch (Exception ex) { statusMessage = ex.Message; }
     }
 
     private async Task ToggleRoleAsync(UserRow row, RoleRow role, bool shouldHaveRole)
     {
-        var result = shouldHaveRole
-            ? await UserManager.AddToRoleAsync(row.User, role.Name)
-            : await UserManager.RemoveFromRoleAsync(row.User, role.Name);
-
-        statusMessage = result.Succeeded
-            ? $"Updated roles for {row.User.Email ?? row.User.UserName}."
-            : string.Join("; ", result.Errors.Select(error => error.Description));
-        await LoadAsync();
+        var principal = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User;
+        try
+        {
+            await Employees.ChangeAccountRoleAsync(row.User.Id, role.Name, shouldHaveRole, principal);
+            statusMessage = $"Updated roles for {row.User.Email ?? row.User.UserName}.";
+            await LoadAsync();
+        }
+        catch (Exception ex) { statusMessage = ex.Message; return; }
     }
 
     private sealed record UserRow(ApplicationUser User, HashSet<string> RoleNames)

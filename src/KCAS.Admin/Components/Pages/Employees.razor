@@ -1,0 +1,88 @@
+@page "/compliance/employees"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.EmployeesView)]
+@using System.Security.Claims
+@using System.Text.Json
+@using KCAS.Admin.Data
+@inject EmployeeComplianceService EmployeeService
+@inject AuthenticationStateProvider Authentication
+
+<PageTitle>Employee compliance</PageTitle>
+<div class="page-header">
+    <div><p class="eyebrow">Compliance</p><h1>Employee compliance</h1></div>
+    <div class="header-actions">
+        <a class="btn btn-outline-primary" href="/compliance/employees/tasks"><i class="bi bi-bell" aria-hidden="true"></i> Review tasks</a>
+        <a class="btn btn-outline-secondary" href="/compliance/employees/tfs-updates">TFS coverage</a>
+        <AuthorizeView Policy="@KcasPermissions.EmployeesTransfer"><a class="btn btn-outline-primary" href="/compliance/employees/transfers"><i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> Transfer employees</a></AuthorizeView>
+        @if (permissions?.CanManage == true) { <a class="btn btn-primary" href="/compliance/employees/new"><i class="bi bi-person-plus" aria-hidden="true"></i> Add employee</a> }
+    </div>
+</div>
+@if (message is not null) { <div class="alert alert-info" role="status">@message</div> }
+<section class="work-area">
+    <div class="d-flex flex-wrap gap-2 mb-3">
+        <input class="form-control employee-search" aria-label="Search employees" placeholder="Search employee or alias" @bind="search" @bind:event="oninput" @bind:after="LoadAsync" />
+        <select class="form-select employee-filter" aria-label="Employment status" @bind="status" @bind:after="LoadAsync">
+            <option value="">All employees</option>
+            @foreach (var value in EmployeeComplianceValues.EmploymentStatuses) { <option value="@value">@value</option> }
+        </select>
+    </div>
+    @if (rows is null) { <p>Loading employees...</p> }
+    else
+    {
+        <div class="investment-summary mb-3"><div><span>Current:</span><strong>@rows.Count(x => x.Profile.EmploymentStatus == "Current")</strong></div><div><span>Review tasks:</span><strong>@rows.Sum(x => x.OpenTasks)</strong></div></div>
+        <div class="table-responsive"><table class="table align-middle">
+            <thead><tr><th>Employee</th><th>Employment</th><th>Proposed role exposure</th><th>Latest review</th><th>Next review</th><th>Open tasks</th><th></th></tr></thead>
+            <tbody>@foreach (var row in rows)
+            {
+                <tr><td><a href="@($"/compliance/employees/{row.Profile.Id}")">@row.Profile.DisplayName</a><div class="small text-muted">@row.Profile.LegalName</div></td>
+                    <td>@row.Profile.EmploymentStatus</td><td>@row.Profile.RoleExposure</td>
+                    <td>@(row.LatestReview?.Status ?? "Not started")@if (row.LatestReview is not null && row.LatestReview.ProfileVersion != row.Profile.Version) { <div class="small text-warning">Profile changed</div> }</td>
+                    <td>@(row.LatestReview?.NextReviewDate?.ToString("yyyy-MM-dd") ?? "Not yet approved")</td><td>@row.OpenTasks</td>
+                    <td><a class="btn btn-sm btn-outline-primary" href="@($"/compliance/employees/{row.Profile.Id}")">@(row.LatestReview is null ? "Start review" : row.LatestReview.Status == "Approved" && row.OpenTasks == 0 && row.LatestReview.ProfileVersion == row.Profile.Version ? "View review" : "Continue review")</a></td></tr>
+            }</tbody>
+        </table></div>
+        @if (rows.Count == 0) { <p class="text-muted">No employees match this selection.</p> }
+    }
+</section>
+@if (permissions?.CanManage == true)
+{
+    <section class="work-area">
+        <details><summary>Import sourced employee baseline</summary>
+            <div class="mt-3"><InputFile OnChange="ImportAsync" accept=".json" disabled="@busy" /></div>
+        </details>
+    </section>
+}
+@code {
+    private ClaimsPrincipal principal = new();
+    private EmployeePermissionState? permissions;
+    private IReadOnlyList<EmployeeRegisterRow>? rows;
+    private string? search;
+    private string? status = "Current";
+    private string? message;
+    private bool busy;
+    protected override async Task OnInitializedAsync()
+    {
+        principal = (await Authentication.GetAuthenticationStateAsync()).User;
+        try { permissions = await EmployeeService.PermissionsAsync(principal); await LoadAsync(); }
+        catch (Exception ex) { message = ex.Message; }
+    }
+    private async Task LoadAsync()
+    {
+        try { rows = await EmployeeService.RegisterAsync(principal, search, status); }
+        catch (Exception ex) { message = ex.Message; }
+    }
+    private async Task ImportAsync(InputFileChangeEventArgs e)
+    {
+        busy = true;
+        try
+        {
+            await using var stream = e.File.OpenReadStream(1024 * 1024);
+            var baseline = await JsonSerializer.DeserializeAsync<EmployeeBaseline>(stream, new JsonSerializerOptions(JsonSerializerDefaults.Web)) ?? throw new InvalidOperationException("Invalid baseline.");
+            var count = await EmployeeService.ImportBaselineAsync(baseline, principal);
+            message = $"{count} pending employee profile(s) imported. In-app review tasks created; no screening or approval inferred.";
+            await LoadAsync();
+        }
+        catch (Exception ex) { message = ex.Message; }
+        finally { busy = false; }
+    }
+}
