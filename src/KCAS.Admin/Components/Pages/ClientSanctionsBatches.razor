@@ -1,0 +1,20 @@
+@page "/compliance/sanctions"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
+@using System.Security.Claims
+@using KCAS.Admin.Data
+@inject ClientSanctionsCoverageService Coverage
+@inject AuthenticationStateProvider Authentication
+
+<PageTitle>Client sanctions coverage</PageTitle>
+<div class="page-header"><h1>Client sanctions coverage</h1><AuthorizeView Policy="@KcasPermissions.ComplianceManage"><Authorized><a class="btn btn-primary" href="/compliance/sanctions/new"><i class="bi bi-plus-lg" aria-hidden="true"></i> Record list update</a></Authorized></AuthorizeView></div>
+@if (error is not null) { <div class="alert alert-danger" role="alert">@error</div> }
+<div class="table-responsive"><table class="table align-middle"><thead><tr><th>Official source / version</th><th>Published</th><th>Subjects</th><th>Clear</th><th>Excluded</th><th>Outstanding</th><th>Matches</th></tr></thead><tbody>
+@foreach (var row in rows) { <tr><td><a href="@($"/compliance/sanctions/{row.Batch.Id}")">@row.Batch.SourceVersion</a></td><td>@row.Batch.SourcePublishedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td><td>@row.Total</td><td>@row.Clear</td><td>@row.Excluded</td><td>@row.Remaining</td><td>@row.Matches</td></tr> }
+</tbody></table></div>
+@if (rows.Count == 0 && error is null) { <p>No official list-update coverage batches recorded.</p> }
+@code {
+    private IReadOnlyList<SanctionsBatchRow> rows = [];
+    private string? error;
+    protected override async Task OnInitializedAsync() { try { rows = await Coverage.RegisterAsync((await Authentication.GetAuthenticationStateAsync()).User); } catch (Exception ex) { error = ex.Message; } }
+}

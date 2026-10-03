@@ -1,0 +1,47 @@
+@page "/compliance/sanctions/{Id:int}"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
+@implements IAsyncDisposable
+@using System.Security.Claims
+@using KCAS.Admin.Data
+@inject ClientSanctionsCoverageService Coverage
+@inject AuthenticationStateProvider Authentication
+@inject IJSRuntime JS
+
+<PageTitle>TFS coverage batch</PageTitle>
+<div class="page-header"><h1>TFS coverage batch</h1><a class="btn btn-outline-secondary" href="/compliance/sanctions"><i class="bi bi-arrow-left" aria-hidden="true"></i> All batches</a></div>
+@if (message is not null) { <div class="alert alert-info" role="status">@message</div> }
+@if (error is not null) { <div class="alert alert-danger" role="alert">@error</div> }
+@if (view is not null) {
+<section class="work-area sanctions-coverage-details"><h2>@view.Batch.SourceVersion</h2><p>Source: <a href="@view.Batch.SourceUrl" target="_blank" rel="noopener">@view.Batch.SourceUrl</a></p><p>Published: @view.Batch.SourcePublishedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm") · Recorded by: @view.Batch.CreatedBy · Recorded: @view.Batch.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</p>
+<p>Subjects: @view.Subjects.Count · Clear: @view.Subjects.Count(x => x.Status == "Clear") · Outstanding: @view.Subjects.Count(x => x.Status is not ("Clear" or "Excluded"))</p>
+@if (!view.IsAdministrator) { <p class="text-muted">Restricted clients are omitted from this view; the full population remains recorded.</p> }
+@if (view.PopulationChanged) { <div class="alert alert-warning">Client or party scope changed. Refresh the population before treating coverage as complete.</div> }
+@if (view.CanManage) { <button class="btn btn-outline-secondary" disabled="@busy" @onclick="RefreshAsync"><i class="bi bi-arrow-repeat" aria-hidden="true"></i> Refresh current population</button> }
+</section>
+<section class="work-area"><h2>Codex handoff</h2><textarea @ref="briefElement" class="form-control" rows="9" readonly>@view.CodexBrief</textarea><button class="btn btn-outline-secondary mt-2" @onclick="CopyAsync"><i class="bi bi-clipboard" aria-hidden="true"></i> Copy brief</button></section>
+<div class="table-responsive"><table class="table align-middle"><thead><tr><th>Client / Kanaan ID</th><th>Subject</th><th>Coverage</th><th>Completed by / time</th><th>Evidence / action</th></tr></thead><tbody>
+@foreach (var row in view.Subjects) { <tr><td><a href="@($"/clients/{row.Subject.ClientId}/evidence")">@row.Subject.Client.DisplayName (@row.Subject.Client.KanaanId)</a></td><td>@row.Subject.SubjectName<div class="small">@row.Subject.SubjectType</div></td><td>@row.Status</td><td>@(row.Record?.Evidence?.ScreeningPerformedBy == "Codex" ? "Codex" : row.Record?.Evidence?.Reviewer ?? row.Record?.RecordedBy ?? "-")<div class="small">@(row.Record?.Evidence?.ScreeningReviewedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? row.Record?.RecordedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm"))</div></td><td>
+@if (row.Record is not null) { <div class="small">@row.Record.Reason</div> }
+@if (view.CanManage) { <a class="btn btn-sm btn-outline-primary" href="@($"/compliance/sanctions/{Id}/subjects/{row.Subject.Id}")">Record coverage</a> }
+</td></tr> }
+</tbody></table></div>
+<details class="mt-3 sanctions-coverage-details"><summary>Coverage history (@view.History.Count)</summary>
+@foreach (var record in view.History) {
+    <div class="border-bottom py-2"><strong>@record.Subject.SubjectName</strong> · @record.Outcome · @record.RecordedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+        <p class="mb-1">@record.Reason</p><div class="small">Recorded by: @record.RecordedBy · Scope: @record.Subject.ScopeHash</div>
+        @if (record.Evidence is not null) { <div class="small">Evidence: @record.Evidence.Title · Checked by: @record.Evidence.ScreeningPerformedBy · Sources: @record.Evidence.ScreeningSources</div> }
+        @if (record.ExclusionReference is not null) { <div class="small">Exclusion evidence: @record.ExclusionReference</div> }
+    </div>
+}
+</details>
+}
+@code {
+    [Parameter] public int Id { get; set; } [SupplyParameterFromQuery] public int? Created { get; set; }
+    private SanctionsBatchPage? view; private ClaimsPrincipal principal = new(); private string? error; private string? message; private bool busy; private ElementReference briefElement; private IJSObjectReference? clipboard;
+    protected override async Task OnParametersSetAsync() { principal = (await Authentication.GetAuthenticationStateAsync()).User; await LoadAsync(); if (Created == 1 && view is not null) message = "Coverage tasks created for approved Compliance Administrators and Approvers. This is an in-app notification, not a screening run or an email."; }
+    private async Task LoadAsync() { try { view = await Coverage.LoadAsync(Id, principal); } catch (Exception ex) { error = ex.Message; } }
+    private async Task RefreshAsync() { if (view is null) return; busy = true; try { await Coverage.RefreshPopulationAsync(Id, view.Batch.Version, "Refresh current client and party identifiers; retain prior scopes and findings.", principal); await LoadAsync(); message = "Population refreshed. Previous checks retained; changed/new subjects require current coverage."; } catch (Exception ex) { error = ex.Message; } finally { busy = false; } }
+    private async Task CopyAsync() { clipboard ??= await JS.InvokeAsync<IJSObjectReference>("import", "./Components/Pages/ClientOnboarding.razor.js"); message = await clipboard.InvokeAsync<bool>("copyBrief", briefElement) ? "Copied to clipboard." : "The brief is selected; use your browser's Copy command."; }
+    public async ValueTask DisposeAsync() { if (clipboard is not null) try { await clipboard.DisposeAsync(); } catch (JSDisconnectedException) { } }
+}

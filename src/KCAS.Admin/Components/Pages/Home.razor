@@ -6,6 +6,8 @@
 @inject ComplianceWorkService WorkService
 @inject EmployeeComplianceService Employees
 @inject ClientOnboardingService Onboarding
+@inject ClientSanctionsCoverageService Sanctions
+@inject ComplaintRegisterService Complaints
 @inject IAuthorizationService Authorization
 @inject AuthenticationStateProvider AuthenticationStateProvider
 
@@ -71,6 +73,19 @@
         }
     </div></section>
 }
+@if (controlReminders.Count > 0)
+{
+    <section class="work-area compliance-control-follow-up"><h2>Compliance follow-up</h2><div class="list-group">
+        @foreach (var item in controlReminders)
+        {
+            <div class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <span><strong>@item.Title</strong> · Outstanding: @item.Outstanding</span>
+                <a class="btn btn-sm btn-outline-primary" href="@item.Url">Review</a>
+            </div>
+        }
+    </div></section>
+}
+@if (controlReminderError is not null) { <div class="alert alert-warning">Compliance follow-up could not be loaded. @controlReminderError</div> }
 @if (employeeNotifications.Count > 0)
 {
     <section class="work-area">
@@ -142,6 +157,8 @@
     private IReadOnlyList<EmployeeTaskRow> employeeNotifications = [];
     private int employeeNotificationsCreated;
     private string? employeeNotificationError;
+    private List<ComplianceControlReminder> controlReminders = [];
+    private string? controlReminderError;
 
     protected override async Task OnInitializedAsync()
     {
@@ -167,6 +184,12 @@
                                           state.User.IsInRole(KcasRoles.ComplianceApprover);
         if (canReceiveComplianceReviews && !string.IsNullOrWhiteSpace(userName))
         {
+            try
+            {
+                if (await Sanctions.ReminderAsync(state.User) is { } sanctions) controlReminders.Add(sanctions);
+                if (await Complaints.ReminderAsync(state.User) is { } complaints) controlReminders.Add(complaints);
+            }
+            catch (Exception ex) { controlReminderError = ex.Message; }
             codexNotifications = await Onboarding.NotificationsAsync(state.User);
             annualNotificationsCreated = await WorkService.EnsureAnnualClientReviewTasksAsync(DateOnly.FromDateTime(DateTime.Today), userName);
             reviewNotifications = await WorkService.LoadDueReviewNotificationsAsync(

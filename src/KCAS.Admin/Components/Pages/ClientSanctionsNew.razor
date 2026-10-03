@@ -1,0 +1,22 @@
+@page "/compliance/sanctions/new"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ComplianceManage)]
+@using KCAS.Admin.Data
+@inject ClientSanctionsCoverageService Coverage
+@inject AuthenticationStateProvider Authentication
+@inject NavigationManager Navigation
+
+<PageTitle>Record TFS list update</PageTitle>
+<div class="page-header"><h1>Record TFS list update</h1><a class="btn btn-outline-secondary" href="/compliance/sanctions"><i class="bi bi-arrow-left" aria-hidden="true"></i> Coverage</a></div>
+@if (error is not null) { <div class="alert alert-danger" role="alert">@error</div> }
+<EditForm Model="edit" OnSubmit="SaveAsync" FormName="sanctions-list-update"><DataAnnotationsValidator />
+<div class="row g-3"><div class="col-md-6"><label class="form-label">Official list/version reference</label><InputText class="form-control" @bind-Value="edit.SourceVersion" /></div>
+<div class="col-md-6"><label class="form-label">Official source URL</label><InputText class="form-control" @bind-Value="edit.SourceUrl" /></div>
+<div class="col-md-6"><label class="form-label">Publication / snapshot time (local)</label><InputDate Type="InputDateType.DateTimeLocal" class="form-control" @bind-Value="publishedLocal" /></div>
+<div class="col-12"><label class="form-label">Update notice / reason</label><InputTextArea class="form-control" rows="3" @bind-Value="edit.Reason" /></div></div>
+<button class="btn btn-primary mt-3" disabled="@busy" type="submit"><i class="bi bi-bell" aria-hidden="true"></i> Create coverage tasks</button>
+</EditForm>
+@code {
+    private SanctionsBatchEdit edit = new(); private DateTime publishedLocal = DateTime.Now; private bool busy; private string? error;
+    private async Task SaveAsync() { busy = true; try { edit.SourcePublishedAtUtc = DateTime.SpecifyKind(publishedLocal, DateTimeKind.Local).ToUniversalTime(); var id = await Coverage.CreateAsync(edit, (await Authentication.GetAuthenticationStateAsync()).User); Navigation.NavigateTo($"/compliance/sanctions/{id}?created=1"); } catch (Exception ex) { error = ex.Message; } finally { busy = false; } }
+}

@@ -7,6 +7,11 @@ namespace KCAS.Admin.Data;
 
 public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : IdentityDbContext<ApplicationUser, IdentityRole, string>(options)
 {
+    public DbSet<ClientSanctionsBatch> ClientSanctionsBatches => Set<ClientSanctionsBatch>();
+    public DbSet<ClientSanctionsSubject> ClientSanctionsSubjects => Set<ClientSanctionsSubject>();
+    public DbSet<ClientSanctionsCoverageRecord> ClientSanctionsCoverageRecords => Set<ClientSanctionsCoverageRecord>();
+    public DbSet<ComplaintCase> ComplaintCases => Set<ComplaintCase>();
+    public DbSet<ComplaintEvent> ComplaintEvents => Set<ComplaintEvent>();
     public DbSet<EmployeeProfile> EmployeeProfiles => Set<EmployeeProfile>();
     public DbSet<ClientOnboardingProfile> ClientOnboardingProfiles => Set<ClientOnboardingProfile>();
     public DbSet<ClientBraRiskReport> ClientBraRiskReports => Set<ClientBraRiskReport>();
@@ -102,6 +107,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
+        ComplianceCoverageAndComplaintsModel.Configure(builder);
         EmployeeComplianceModel.Configure(builder);
         builder.Entity<ClientBraRiskReport>(entity =>
         {

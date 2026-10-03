@@ -1,0 +1,33 @@
+@page "/compliance/sanctions/{Id:int}/subjects/{SubjectId:int}"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ComplianceManage)]
+@using System.Security.Claims
+@using KCAS.Admin.Data
+@inject ClientSanctionsCoverageService Coverage
+@inject AuthenticationStateProvider Authentication
+@inject NavigationManager Navigation
+
+<PageTitle>Record sanctions coverage</PageTitle>
+<div class="page-header"><h1>Record sanctions coverage</h1><a class="btn btn-outline-secondary" href="@($"/compliance/sanctions/{Id}")"><i class="bi bi-arrow-left" aria-hidden="true"></i> Batch</a></div>
+@if (error is not null) { <div class="alert alert-danger" role="alert">@error</div> }
+@if (row is not null && view is not null) {
+<div class="sanctions-coverage-details">
+<h2>@row.Subject.SubjectName</h2><p>@row.Subject.Client.DisplayName (@row.Subject.Client.KanaanId) · @view.Batch.SourceVersion · @row.Status</p>
+<a class="btn btn-outline-secondary mb-3" href="@($"/clients/{row.Subject.ClientId}/evidence")">View or record screening evidence</a>
+<EditForm Model="this" OnSubmit="SaveAsync" FormName="sanctions-coverage-record">
+<label class="form-label">Actual verified screening result</label><InputSelect class="form-select" @bind-Value="evidenceId"><option value="0">Select evidence</option>@foreach (var e in row.AvailableEvidence) { <option value="@e.Id">#@e.Id · @e.ScreeningOutcome · @e.ScreeningPerformedBy · @e.ScreeningReviewedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</option> }</InputSelect>
+<label class="form-label mt-3">Finding / coverage reason</label><InputTextArea class="form-control" rows="3" @bind-Value="reason" />
+<button class="btn btn-primary mt-3" disabled="@busy" type="submit"><i class="bi bi-link-45deg" aria-hidden="true"></i> Link actual screening</button></EditForm>
+<AuthorizeView Policy="@KcasPermissions.ComplianceApprove"><Authorized><details class="mt-4"><summary>Record an evidenced population exclusion</summary>
+<label class="form-label mt-3">Basis</label><select class="form-select" @bind="basis"><option value="RelationshipEnded">Relationship ended</option><option value="VerifiedDuplicate">Verified duplicate covered under canonical record</option><option value="NotApplicableParty">Party does not fall within the applicable screening scope</option></select>
+<label class="form-label mt-3">Actual supporting reference</label><input class="form-control" @bind="reference" /><label class="form-label mt-3">Specific reason</label><textarea class="form-control" @bind="exclusionReason"></textarea>
+<button class="btn btn-outline-secondary mt-3" disabled="@busy" @onclick="ExcludeAsync">Record exclusion</button></details></Authorized></AuthorizeView>
+</div>
+}
+@code {
+    [Parameter] public int Id { get; set; } [Parameter] public int SubjectId { get; set; }
+    private SanctionsBatchPage? view; private SanctionsSubjectRow? row; private ClaimsPrincipal principal = new(); private int evidenceId; private string reason = ""; private string basis = "RelationshipEnded"; private string reference = ""; private string exclusionReason = ""; private string? error; private bool busy;
+    protected override async Task OnParametersSetAsync() { principal = (await Authentication.GetAuthenticationStateAsync()).User; try { view = await Coverage.LoadAsync(Id, principal); row = view.Subjects.Single(x => x.Subject.Id == SubjectId); } catch (Exception ex) { error = ex.Message; } }
+    private async Task SaveAsync() { if (view is null) return; busy = true; try { await Coverage.RecordEvidenceAsync(SubjectId, evidenceId, view.Batch.Version, reason, principal); Navigation.NavigateTo($"/compliance/sanctions/{Id}"); } catch (Exception ex) { error = ex.Message; } finally { busy = false; } }
+    private async Task ExcludeAsync() { if (view is null) return; busy = true; try { await Coverage.ExcludeAsync(SubjectId, view.Batch.Version, basis, reference, exclusionReason, principal); Navigation.NavigateTo($"/compliance/sanctions/{Id}"); } catch (Exception ex) { error = ex.Message; } finally { busy = false; } }
+}

@@ -189,6 +189,8 @@ public sealed class ClientOnboardingService(IDbContextFactory<ApplicationDbConte
     public static async Task RequireAcceptedAsync(ApplicationDbContext db, int clientId)
     {
         var client = await db.Clients.AsNoTracking().SingleAsync(x => x.Id == clientId);
+        var sanctionsBlockers = await ClientSanctionsCoverageService.BlockersAsync(db, clientId);
+        if (sanctionsBlockers.Count > 0) throw new ValidationException(string.Join(" ", sanctionsBlockers));
         if (!client.RequiresClientAcceptance) return; // Explicit transition: no invented acceptance for existing relationships.
         var model = await BuildAsync(db, clientId, tracked: false);
         if (!model.IsAccepted) throw new ValidationException("Complete the current client checks and obtain KI acceptance before approved issue or implementation.");
@@ -235,6 +237,7 @@ public sealed class ClientOnboardingService(IDbContextFactory<ApplicationDbConte
             profile?.RequestedService, profile?.PurposeAndProposedFunds });
         model.CheckBlockers.AddRange(evidence.Requirements.Where(x => x.IsBlocked).Select(x => $"{x.Title}: required check/evidence is unresolved."));
         model.CheckBlockers.AddRange(evidence.OwnershipBlockers);
+        model.CheckBlockers.AddRange(await ClientSanctionsCoverageService.BlockersAsync(db, clientId));
         if (await db.ClientVerificationItems.AnyAsync(x => x.ClientId == clientId && x.IsBlocking && x.Status == ClientVerificationStatuses.Pending))
             model.CheckBlockers.Add("Resolve the blocking client-fact conflicts.");
         if (assessment is null || assessment.Status is not (ClientRiskAssessmentStatuses.Finalised or ClientRiskAssessmentStatuses.Approved or ClientRiskAssessmentStatuses.PendingKiApproval))
@@ -336,6 +339,10 @@ public sealed class ClientOnboardingService(IDbContextFactory<ApplicationDbConte
         $"Scope reference: {model.MaterialHash}.\n" +
         "Prepare the review from the first outstanding step through to a KI-ready summary. Read the actual client folder, correspondence, mandates, advice and existing KCAS records. Identify and record the requested service, responsible representative, purpose/funds, actual disclosure version/delivery evidence and applicable enhanced measures where supported. Missing preparation is part of this Codex task; do not require manual entry before beginning. Retain genuine gaps for confirmation; do not invent dates or claim delivery from an unsigned template.\n" +
         "Read the actual evidence; complete current client and applicable-party screening, CDD and supported risk-factor answers. Reuse valid records; do not scan folders or invent results.\n" +
+        "PEP/PIP and adverse-information research: perform live Google or equivalent web searches for each client and applicable natural person, including beneficial owners and persons acting on the client's behalf. For joint/entity records, identify and search the underlying natural persons as well as the entity; searching only a combined account name is insufficient. Use full names, supported name variants and relevant public context such as occupation, employer and country to distinguish namesakes. Do not put private identity numbers, account numbers or contact details into public search queries.\n" +
+        "Check public-office and relevant prominent-business roles against the applicable FIC Act Schedules 3A, 3B and 3C, including supported family/close-associate exposure. Research credible adverse information separately; PEP/PIP status is not itself an adverse finding or wrongdoing. Open and assess the underlying sources, prioritising official records and reliable reporting; do not rely on search snippets or an AI summary alone. A maintained PEP list or paid database is not a prerequisite for this handoff.\n" +
+        "For each subject, retain the actual search queries, engine, checked source URLs/titles, source dates where available, actual check date/time, identity comparison, findings and coverage limitations. Record separate PepPip and AdverseInformation results with Codex attribution: no relevant finding in the sources searched is not proof that no exposure exists. Unresolved namesakes, inaccessible sources or unavailable live search remain explicitly outstanding, not a fabricated clear result. Preserve valid earlier reviews as history and do not re-date them as fresh searches. Present material findings and applicable enhanced measures to the KI; do not make the KI decision.\n" +
+        "Sanctions/TFS is a separate check against the current applicable official FIC/UN list and recorded version, not a general web-search substitute.\n" +
         "Preserve an existing client's lifecycle, supported reviews and history; distinguish historical relationship evidence from a new client instruction.\n" +
         "Prepare a separate BRA-linked ML/TF/PF proposal where supported: same scenario before and after controls, likelihood and impact 1-3 with reasons, actual mitigating evidence and limitations. Use ClientBraRiskReportService; do not automatically lower risk or replace the formal client rating. A missing proposal is not a fabricated clearance.\n" +
         string.Join("\n", model.Evidence.ScreeningSubjects.Select(x => $"Screen: {x.Label}.")) + "\n" +

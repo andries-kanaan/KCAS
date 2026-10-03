@@ -39,6 +39,8 @@ public sealed class ComplianceTask
 
 public static class ComplianceTaskTypes
 {
+    public const string SanctionsCoverage = "SanctionsCoverage";
+    public const string Complaint = "Complaint";
     public const string CodexReview = "CodexReview";
     public const string PeriodicReview = "PeriodicReview";
     public const string TriggerReview = "TriggerReview";
@@ -55,7 +57,7 @@ public static class ComplianceTaskTypes
     public static readonly IReadOnlyList<string> All =
     [
         CodexReview, PeriodicReview, TriggerReview, Edd, ScreeningEscalation, UnusualActivityReview,
-        ControlTest, TreatmentAction, Finding, Training, Exception, Remediation
+        ControlTest, TreatmentAction, Finding, Training, Exception, Remediation, SanctionsCoverage, Complaint
     ];
 
     public static readonly IReadOnlyList<string> Material = [Edd, ScreeningEscalation, UnusualActivityReview];
@@ -70,6 +72,8 @@ public static class ComplianceTaskTypes
         UnusualActivityReview => "Unusual activity review",
         ControlTest => "Control test",
         TreatmentAction => "Treatment action",
+        SanctionsCoverage => "TFS list-update coverage",
+        Complaint => "Client complaint",
         _ => value
     };
 }

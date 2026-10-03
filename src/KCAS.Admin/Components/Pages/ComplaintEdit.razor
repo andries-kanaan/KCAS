@@ -1,0 +1,42 @@
+@page "/compliance/complaints/new"
+@page "/compliance/complaints/{Id:int}/update"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ComplianceManage)]
+@using System.Security.Claims
+@using KCAS.Admin.Data
+@inject ComplaintRegisterService Complaints
+@inject AuthenticationStateProvider Authentication
+@inject NavigationManager Navigation
+
+<PageTitle>Complaint intake</PageTitle>
+<div class="page-header"><h1>@(Id.HasValue ? "Update complaint intake" : "Record complaint")</h1><a class="btn btn-outline-secondary" href="@(Id.HasValue ? $"/compliance/complaints/{Id}" : "/compliance/complaints")"><i class="bi bi-arrow-left" aria-hidden="true"></i> Back</a></div>
+@if (error is not null) { <div class="alert alert-danger" role="alert">@error</div> }
+@if (options is not null) {
+<EditForm Model="edit" OnSubmit="SaveAsync" FormName="complaint-intake"><DataAnnotationsValidator />
+<div class="row g-3"><div class="col-md-6"><label class="form-label">Affected client</label><InputSelect class="form-select" @bind-Value="edit.ClientId"><option value="">Other / not yet matched</option>@foreach (var client in options.Clients) { <option value="@client.Id">@client.Label</option> }</InputSelect></div>
+<div class="col-md-6"><label class="form-label">Complainant</label><InputText class="form-control" @bind-Value="edit.ComplainantName" /></div>
+<div class="col-12"><label class="form-label">Contact details / preferred contact</label><InputText class="form-control" @bind-Value="edit.ContactDetails" /></div>
+<div class="col-md-6"><label class="form-label">Received (local time)</label><InputDate Type="InputDateType.DateTimeLocal" class="form-control" @bind-Value="receivedLocal" /></div>
+<div class="col-md-6"><label class="form-label">Channel</label><InputSelect class="form-select" @bind-Value="edit.Channel">@foreach (var channel in ComplaintRegisterService.Channels) { <option>@channel</option> }</InputSelect></div>
+<div class="col-12"><label class="form-label">Concern in the complainant's words</label><InputTextArea class="form-control" rows="4" @bind-Value="edit.Allegation" /></div>
+<div class="col-12"><label class="form-label">Requested result</label><InputTextArea class="form-control" rows="2" @bind-Value="edit.RequestedOutcome" /></div>
+<div class="col-md-6"><label class="form-label">Category</label><InputSelect class="form-select" @bind-Value="edit.Category">@foreach (var category in ComplaintRegisterService.Categories) { <option>@category</option> }</InputSelect></div>
+<div class="col-md-6"><label class="form-label">Secondary themes / TCF outcome</label><InputText class="form-control" @bind-Value="edit.SecondaryThemes" /></div>
+<div class="col-md-6"><label class="form-label">Uninvolved handler</label><InputSelect class="form-select" @bind-Value="edit.HandlerUserId"><option value="">Select account</option>@foreach (var user in options.Users) { <option value="@user.Id">@user.Label</option> }</InputSelect></div>
+<div class="col-md-6"><label class="form-label">Implicated person, if applicable</label><InputSelect class="form-select" @bind-Value="edit.ImplicatedUserId"><option value="">None identified</option>@foreach (var user in options.Users) { <option value="@user.Id">@user.Label</option> }</InputSelect></div>
+<div class="col-md-6"><label class="form-label">Next client update / follow-up date</label><InputDate class="form-control" @bind-Value="edit.NextUpdateDate" /></div>
+<div class="col-md-6"><label class="form-check mt-4"><InputCheckbox class="form-check-input" @bind-Value="edit.IsReportable" /><span class="form-check-label">Reportable complaint</span></label></div>
+<div class="col-12"><label class="form-label">Intake / change reason</label><InputTextArea class="form-control" @bind-Value="reason" /></div></div>
+<button class="btn btn-primary mt-3" type="submit" disabled="@busy"><i class="bi bi-save" aria-hidden="true"></i> Save complaint and notification</button></EditForm>
+}
+@code {
+    [Parameter] public int? Id { get; set; }
+    private ComplaintOptions? options; private KCAS.Admin.Data.ComplaintEdit edit = new(); private ClaimsPrincipal principal = new(); private DateTime receivedLocal = DateTime.Now; private string reason = ""; private string? error; private bool busy;
+    protected override async Task OnParametersSetAsync() {
+        principal = (await Authentication.GetAuthenticationStateAsync()).User;
+        try { options = await Complaints.OptionsAsync(principal); edit.HandlerUserId = principal.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
+            if (Id is int id) { var x = (await Complaints.LoadAsync(id, principal)).Case; edit = new() { Id = id, Version = x.Version, ClientId = x.ClientId, ComplainantName = x.ComplainantName, ContactDetails = x.ContactDetails, ReceivedAtUtc = x.ReceivedAtUtc ?? default, Channel = x.Channel, Allegation = x.Allegation, RequestedOutcome = x.RequestedOutcome, Category = x.Category, SecondaryThemes = x.SecondaryThemes, HandlerUserId = x.HandlerUserId, ImplicatedUserId = x.ImplicatedUserId, IsReportable = x.IsReportable, NextUpdateDate = x.NextUpdateDate }; receivedLocal = x.ReceivedAtUtc?.ToLocalTime() ?? default; }
+        } catch (Exception ex) { error = ex.Message; }
+    }
+    private async Task SaveAsync() { busy = true; try { edit.ReceivedAtUtc = DateTime.SpecifyKind(receivedLocal, DateTimeKind.Local).ToUniversalTime(); var id = await Complaints.SaveAsync(edit, reason, principal); Navigation.NavigateTo($"/compliance/complaints/{id}?saved=1"); } catch (Exception ex) { error = ex.Message; } finally { busy = false; } }
+}

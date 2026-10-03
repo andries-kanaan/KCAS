@@ -2475,7 +2475,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             .ToList();
     }
 
-    private static string MapRelationshipSubjectType(string? relationshipType)
+    public static string MapRelationshipSubjectType(string? relationshipType)
     {
         var normalized = NormalizeToken(relationshipType);
         if (normalized.Contains("TRUSTEE")) return ClientEvidenceScreeningSubjectTypes.Trustee;
@@ -2486,7 +2486,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         return ClientEvidenceScreeningSubjectTypes.Other;
     }
 
-    private static string MapRelatedPartySubjectType(IEnumerable<string> roles)
+    public static string MapRelatedPartySubjectType(IEnumerable<string> roles)
     {
         var roleSet = roles.ToHashSet(StringComparer.OrdinalIgnoreCase);
         if (roleSet.Contains(ClientRelatedPartyRoles.Trustee)) return ClientEvidenceScreeningSubjectTypes.Trustee;

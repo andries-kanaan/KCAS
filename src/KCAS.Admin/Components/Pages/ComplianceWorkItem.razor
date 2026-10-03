@@ -4,6 +4,7 @@
 @using KCAS.Admin.Data
 @inject ComplianceWorkService WorkService
 @inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
 
 <PageTitle>Compliance work item</PageTitle>
 
@@ -117,6 +118,12 @@ else
     private async Task LoadAsync()
     {
         model = await WorkService.LoadAsync(Id);
+        if (model?.Task.TaskType is ComplianceTaskTypes.SanctionsCoverage or ComplianceTaskTypes.Complaint)
+        {
+            Navigation.NavigateTo(model.Task.TaskType == ComplianceTaskTypes.SanctionsCoverage
+                ? $"/compliance/sanctions/{model.Task.LinkedEntityId}" : $"/compliance/complaints/{model.Task.LinkedEntityId}");
+            return;
+        }
         edit = model is null ? null : ComplianceWorkEditModel.FromEntity(model.Task);
         if (model is not null)
         {
