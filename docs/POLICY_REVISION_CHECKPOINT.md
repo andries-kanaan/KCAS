@@ -4,6 +4,14 @@ Last updated: 3 October 2026.
 
 ## Resume Here
 
+**Acceptance transfer implementation, 3 October 2026:** Review packages now carry
+acceptance preparation, original Codex findings and source KI decision snapshots.
+Preview protects native/later live work; apply remaps evidence and rechecks current
+prerequisites. Source decisions remain history for the actual live KI's confirmation.
+See `docs/CLIENT_ACCEPTANCE_REVIEW_TRANSFERS.md` and the client workflow implementation
+record for verification/deployment. Later mandate/submission/execution tracking is the
+next development stage. The working Word drafts remain BRA 1.5 / RMCP 1.9.
+
 **Client acceptance / Codex handoff, 3 October 2026:** The current working pair is
 **BRA 1.5 / RMCP 1.9 KCAS Codex handoff**. The RMCP and three supporting policies
 now specify default KCAS/Codex preparation, a separate-session Compliance task,

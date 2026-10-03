@@ -13,7 +13,7 @@ public sealed class ClientReviewTransferService(
     IHostEnvironment environment)
 {
     private const string PackageMagic = "KCAS-CLIENT-REVIEW-1";
-    private const int PackageVersion = 4;
+    private const int PackageVersion = 5;
     private const int Pbkdf2Iterations = 300_000;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -457,6 +457,7 @@ public sealed class ClientReviewTransferService(
             .OrderByDescending(item => item.Id).FirstOrDefaultAsync(cancellationToken);
         if (braReport is not null)
             package.BraRiskReport = ClientBraRiskReportPackage.FromReport(braReport);
+        package.Onboarding = await ClientOnboardingTransfer.ExportAsync(db, client, package, cancellationToken);
         var plaintext = JsonSerializer.SerializeToUtf8Bytes(package, JsonOptions);
         var contentSha256 = Convert.ToHexString(SHA256.HashData(plaintext)).ToLowerInvariant();
         var encrypted = Encrypt(plaintext, passphrase);
@@ -479,7 +480,7 @@ public sealed class ClientReviewTransferService(
         var conflicts = new List<string>();
         var warnings = new List<string>();
 
-        if (package.FormatVersion is not (2 or 3 or PackageVersion))
+        if (package.FormatVersion is not (2 or 3 or 4 or PackageVersion))
         {
             conflicts.Add(
                 $"Package format {package.FormatVersion} is not supported by this KCAS version.");
@@ -506,8 +507,11 @@ public sealed class ClientReviewTransferService(
         string? targetClientFolder = null;
         int? supersededAssessmentId = null;
         string? supersededPackageId = null;
+        string? expectedOnboardingFingerprint = null;
         if (client is not null)
         {
+            if (conflicts.Count == 0)
+                expectedOnboardingFingerprint = await ClientOnboardingTransfer.PreviewAsync(db, client.Id, package, conflicts, warnings, cancellationToken);
             if (package.Assessment is not null)
             {
                 var methodologyResolution = await ResolveMethodologyAsync(
@@ -767,6 +771,7 @@ public sealed class ClientReviewTransferService(
             TargetClientFolder = targetClientFolder,
             SupersededAssessmentId = supersededAssessmentId,
             SupersededPackageId = supersededPackageId,
+            ExpectedOnboardingFingerprint = expectedOnboardingFingerprint,
             AlreadyApplied = alreadyApplied,
             ExistingEvidenceCount = existingEvidenceCount,
             NewEvidenceCount = package.Evidence.Count - existingEvidenceCount,
@@ -797,6 +802,10 @@ public sealed class ClientReviewTransferService(
 
         var package = preview.Package;
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT Id FROM Clients WHERE Id = {preview.TargetClientId.Value} FOR UPDATE", cancellationToken);
+        if (package.Onboarding is not null && preview.ExpectedOnboardingFingerprint !=
+            await ClientOnboardingTransfer.LocalFingerprintAsync(db, preview.TargetClientId.Value, cancellationToken))
+            throw new InvalidOperationException("Live acceptance work changed during import. Preview the package again.");
         var client = await db.Clients
             .Include(item => item.EntityProfile)
             .Include(item => item.RelatedParties).ThenInclude(item => item.Roles)
@@ -1293,6 +1302,8 @@ public sealed class ClientReviewTransferService(
         await db.SaveChangesAsync(cancellationToken);
         if (package.Assessment is null)
         {
+            await ImportBraRiskAsync(package, client.Id, evidenceByKey, user, reason, cancellationToken);
+            var onboardingReceipt = await ClientOnboardingTransfer.ApplyAsync(db, client, package, evidenceByKey, user, reason, cancellationToken);
             var partialIncomingDirectory = Path.Combine(StorageRoot, "incoming");
             Directory.CreateDirectory(partialIncomingDirectory);
             var partialFileName = BuildPackageFileName(client.Id, client.KanaanId,
@@ -1308,7 +1319,7 @@ public sealed class ClientReviewTransferService(
                 Status = ClientReviewTransferStatuses.Applied,
                 FileName = partialFileName,
                 StoragePath = partialStoragePath,
-                SummaryJson = JsonSerializer.Serialize(PackageSummary(package), JsonOptions),
+                SummaryJson = JsonSerializer.Serialize(PackageSummary(package, onboardingReceipt: onboardingReceipt), JsonOptions),
                 AppliedAtUtc = DateTime.UtcNow,
                 AppliedBy = user
             };
@@ -1430,23 +1441,8 @@ public sealed class ClientReviewTransferService(
         }
         db.ClientRiskAssessments.Add(assessment);
         await db.SaveChangesAsync(cancellationToken);
-        if (package.BraRiskReport is { } sourceBra)
-        {
-            foreach (var control in sourceBra.Content.Scenarios.SelectMany(item => item.Evidence))
-                control.EvidenceItemId = evidenceByKey[control.EvidenceKey].Id;
-            var importedBra = new ClientBraRiskReport
-            {
-                ClientId = client.Id, BraReference = sourceBra.BraReference, MethodVersion = sourceBra.MethodVersion,
-                SourceContentHash = sourceBra.SourceContentHash, PerformedBy = sourceBra.PerformedBy,
-                RecordedBy = sourceBra.RecordedBy, RecordedAtUtc = sourceBra.RecordedAtUtc,
-                ContentJson = JsonSerializer.Serialize(sourceBra.Content), ImportPackageId = package.PackageId
-            };
-            db.ClientBraRiskReports.Add(importedBra);
-            await db.SaveChangesAsync(cancellationToken);
-            db.ComplianceAuditEvents.Add(new() { EntityType = nameof(ClientBraRiskReport), EntityId = importedBra.Id,
-                Action = "SourceBraClientRiskImported", UserName = user, Reason = reason,
-                NewValueJson = JsonSerializer.Serialize(new { importedBra.Id, importedBra.ImportPackageId, importedBra.PerformedBy }) });
-        }
+        await ImportBraRiskAsync(package, client.Id, evidenceByKey, user, reason, cancellationToken);
+        var completedOnboardingReceipt = await ClientOnboardingTransfer.ApplyAsync(db, client, package, evidenceByKey, user, reason, cancellationToken);
         if (supersededAssessment is not null)
         {
             db.ComplianceAuditEvents.Add(new ComplianceAuditEvent
@@ -1490,7 +1486,7 @@ public sealed class ClientReviewTransferService(
             FileName = fileName,
             StoragePath = storagePath,
             SummaryJson = JsonSerializer.Serialize(
-                PackageSummary(package, assessment.Id, supersededAssessment?.Id), JsonOptions),
+                PackageSummary(package, assessment.Id, supersededAssessment?.Id, completedOnboardingReceipt), JsonOptions),
             AppliedAtUtc = DateTime.UtcNow,
             AppliedBy = user
         };
@@ -1511,6 +1507,22 @@ public sealed class ClientReviewTransferService(
         return new ClientReviewImportResult(
             package.PackageId, client.Id, client.DisplayName, assessment.Id,
             preview.NewEvidenceCount, fileName, storagePath);
+    }
+
+    private async Task ImportBraRiskAsync(ClientReviewPackage package, int clientId,
+        IReadOnlyDictionary<string, ClientEvidenceItem> evidenceByKey, string user, string reason, CancellationToken cancellationToken)
+    {
+        if (package.BraRiskReport is not { } sourceBra) return;
+        foreach (var control in sourceBra.Content.Scenarios.SelectMany(item => item.Evidence))
+            control.EvidenceItemId = evidenceByKey[control.EvidenceKey].Id;
+        var imported = new ClientBraRiskReport { ClientId = clientId, BraReference = sourceBra.BraReference, MethodVersion = sourceBra.MethodVersion,
+            SourceContentHash = sourceBra.SourceContentHash, PerformedBy = sourceBra.PerformedBy, RecordedBy = sourceBra.RecordedBy,
+            RecordedAtUtc = sourceBra.RecordedAtUtc, ContentJson = JsonSerializer.Serialize(sourceBra.Content), ImportPackageId = package.PackageId };
+        db.ClientBraRiskReports.Add(imported);
+        await db.SaveChangesAsync(cancellationToken);
+        db.ComplianceAuditEvents.Add(new() { EntityType = nameof(ClientBraRiskReport), EntityId = imported.Id,
+            Action = "SourceBraClientRiskImported", UserName = user, Reason = reason,
+            NewValueJson = JsonSerializer.Serialize(new { imported.Id, imported.ImportPackageId, imported.PerformedBy }) });
     }
 
     private static ClientReviewPackage BuildPackage(
@@ -2500,6 +2512,11 @@ public sealed class ClientReviewTransferService(
 
     private static void ValidatePackageStructure(ClientReviewPackage package, ICollection<string> conflicts)
     {
+        if (package.Onboarding is { } onboarding)
+        {
+            try { ClientOnboardingTransfer.Validate(onboarding, package); }
+            catch (ValidationException ex) { conflicts.Add(ex.Message); }
+        }
         if (package.Assessment is not null && package.Assessment.Status is not
             (ClientRiskAssessmentStatuses.Draft or ClientRiskAssessmentStatuses.Finalised or
                 ClientRiskAssessmentStatuses.Approved))
@@ -3052,7 +3069,8 @@ public sealed class ClientReviewTransferService(
     private static ClientReviewTransferPackageSummary PackageSummary(
         ClientReviewPackage package,
         int? importedAssessmentId = null,
-        int? supersededAssessmentId = null) => new()
+        int? supersededAssessmentId = null,
+        ClientOnboardingImportReceipt? onboardingReceipt = null) => new()
     {
         PackageId = package.PackageId,
         CreatedAtUtc = package.CreatedAtUtc,
@@ -3073,7 +3091,11 @@ public sealed class ClientReviewTransferService(
         EffectiveDate = package.Assessment?.EffectiveDate,
         ImportedAssessmentId = importedAssessmentId,
         SupersededAssessmentId = supersededAssessmentId,
-        AssessmentFingerprint = package.Assessment is null ? null : AssessmentFingerprint(package.Assessment)
+        AssessmentFingerprint = package.Assessment is null ? null : AssessmentFingerprint(package.Assessment),
+        OnboardingReceipt = onboardingReceipt,
+        AcceptanceReviewCount = package.Onboarding?.Reviews.Count ?? 0,
+        AcceptanceDecisionCount = package.Onboarding?.Decisions.Count ?? 0,
+        HasAcceptancePreparation = package.Onboarding?.Preparation is not null
     };
 
     internal static string EvidenceKey(ClientEvidenceItem item) =>
@@ -3266,6 +3288,7 @@ public sealed class ClientReviewPackage
     public List<ClientReviewInvestmentReconciliationPackage> InvestmentReconciliations { get; set; } = [];
     public ClientReviewAssessmentPackage? Assessment { get; set; }
     public ClientBraRiskReportPackage? BraRiskReport { get; set; }
+    public ClientOnboardingTransferPackage? Onboarding { get; set; }
 }
 
 public sealed class ClientReviewClientPackage
@@ -3531,6 +3554,7 @@ public sealed class ClientReviewTransferPreview
     public bool AlreadyApplied { get; init; }
     public int ExistingEvidenceCount { get; init; }
     public int NewEvidenceCount { get; init; }
+    public string? ExpectedOnboardingFingerprint { get; init; }
     public List<string> Conflicts { get; init; } = [];
     public List<string> Warnings { get; init; } = [];
     public bool CanApply => !AlreadyApplied && Conflicts.Count == 0;
@@ -3625,6 +3649,10 @@ internal sealed record AssessmentReconciliationDecision(
 
 internal sealed class ClientReviewTransferPackageSummary
 {
+    public ClientOnboardingImportReceipt? OnboardingReceipt { get; set; }
+    public bool HasAcceptancePreparation { get; set; }
+    public int AcceptanceReviewCount { get; set; }
+    public int AcceptanceDecisionCount { get; set; }
     public string PackageId { get; set; } = "";
     public DateTime CreatedAtUtc { get; set; }
     public string ExportedBy { get; set; } = "";

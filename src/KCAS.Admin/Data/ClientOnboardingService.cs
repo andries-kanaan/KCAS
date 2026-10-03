@@ -47,6 +47,7 @@ public sealed class ClientOnboardingService(IDbContextFactory<ApplicationDbConte
             profile.DisclosureDeliveredAtUtc = edit.DisclosureDeliveredAtUtc;
             profile.UpdatedAtUtc = DateTime.UtcNow;
             profile.UpdatedBy = actor.Email ?? actor.UserName ?? actor.Id;
+            profile.ImportSourceReference = null;
             profile.Version = Guid.NewGuid().ToString("N");
             model.Client.RequiresClientAcceptance = true;
             Audit(db, clientId, "PreparationRecorded", actor, Required(reason, "Reason"), new { profile.RequestedService, profile.Version });
@@ -206,7 +207,7 @@ public sealed class ClientOnboardingService(IDbContextFactory<ApplicationDbConte
         await transaction.CommitAsync();
     }
 
-    private static async Task<ClientOnboardingModel> BuildAsync(ApplicationDbContext db, int clientId, ClientRiskAssessment? assessmentOverride = null, bool tracked = true)
+    internal static async Task<ClientOnboardingModel> BuildAsync(ApplicationDbContext db, int clientId, ClientRiskAssessment? assessmentOverride = null, bool tracked = true)
     {
         var clients = db.Clients.Include(x => x.PersonalProfile).Include(x => x.Addresses).Include(x => x.ContactPoints)
             .Include(x => x.RelatedParties).ThenInclude(x => x.Roles).Include(x => x.EntityProfile)
@@ -251,14 +252,14 @@ public sealed class ClientOnboardingService(IDbContextFactory<ApplicationDbConte
             if (model.Request is { } request && request.MaterialHash != model.MaterialHash)
                 model.CheckBlockers.Add("The client/party or service scope changed. Request a fresh Codex review.");
             if (model.Request is { Status: "AwaitingCodex" } pending && pending.MaterialHash == model.MaterialHash &&
-                pending.CreatedAtUtc > assessment.UpdatedAtUtc && model.Decisions.Any(x => x.Decision == "Accepted"))
+                pending.ImportSourceReference is null && pending.CreatedAtUtc > assessment.UpdatedAtUtc && model.Decisions.Any(x => x.Decision == "Accepted" && x.ImportSourceReference == null))
                 model.CheckBlockers.Add("Refresh the risk assessment for the new review scope.");
         }
         foreach (var item in evidence.EvidenceItems.Where(x => x.IsCurrentSelection && x.EscalationRequired))
             model.CheckBlockers.Add($"{item.Title}: unresolved screening escalation.");
         var storedEvidence = await db.ClientEvidenceItems.AsNoTracking().Where(x => x.ClientId == clientId).OrderBy(x => x.Id).ToListAsync();
         var changedScope = model.Request is { } currentRequest && await db.ClientCodexReviewRequests.AsNoTracking()
-            .AnyAsync(x => x.ClientId == clientId && x.Id < currentRequest.Id && x.MaterialHash != currentRequest.MaterialHash);
+            .AnyAsync(x => x.ClientId == clientId && x.Id < currentRequest.Id && x.ImportSourceReference == null && x.MaterialHash != currentRequest.MaterialHash);
         if (changedScope && assessment?.UpdatedAtUtc < model.Request!.CreatedAtUtc)
             model.CheckBlockers.Add("Reconfirm the assessment against the changed client/party and service scope.");
         foreach (var subject in evidence.ScreeningSubjects.Where(x => x.ClientRelatedPartyId.HasValue || x.SubjectType != ClientEvidenceScreeningSubjectTypes.Other))
@@ -326,10 +327,11 @@ public sealed class ClientOnboardingService(IDbContextFactory<ApplicationDbConte
         if (model.BraRiskReport is { } braReport)
             model.ContentHash = Hash(new { model.ChecksContentHash, braReport.Id, braReport.ContentJson, braReport.BraReference,
                 braReport.MethodVersion, braReport.SourceContentHash, braReport.ImportPackageId, braReport.PerformedBy, braReport.RecordedAtUtc });
+        model.ImportedReview = await ClientOnboardingTransfer.LoadReceiptAsync(db, clientId);
         return model;
     }
 
-    private static string Brief(ClientOnboardingModel model) => $"Client: {model.Client.DisplayName}; KCAS client ID: {model.Client.Id}; Kanaan ID: {model.Client.KanaanId}.\n" +
+    internal static string Brief(ClientOnboardingModel model) => $"Client: {model.Client.DisplayName}; KCAS client ID: {model.Client.Id}; Kanaan ID: {model.Client.KanaanId}.\n" +
         $"Evidence folder: {model.Client.ClientFolder ?? "Not recorded"}.\nRequested service: {model.Profile?.RequestedService ?? "Identify from the client folder and existing KCAS records"}.\n" +
         $"Scope reference: {model.MaterialHash}.\n" +
         "Prepare the review from the first outstanding step through to a KI-ready summary. Read the actual client folder, correspondence, mandates, advice and existing KCAS records. Identify and record the requested service, responsible representative, purpose/funds, actual disclosure version/delivery evidence and applicable enhanced measures where supported. Missing preparation is part of this Codex task; do not require manual entry before beginning. Retain genuine gaps for confirmation; do not invent dates or claim delivery from an unsigned template.\n" +

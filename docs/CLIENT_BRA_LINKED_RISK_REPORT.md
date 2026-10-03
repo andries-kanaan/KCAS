@@ -67,13 +67,13 @@ the number of completed checks. The manual alternative records its actual user.
 
 - Additive migration `AddClientBraRiskReports` creates one table. No existing
   clients, funds, transactions, risk scores or methodology rows are rewritten.
-- Client/family/partial review exports carry the latest report in package v4.
-  The importer still accepts v2/v3 packages without this optional report.
+- Client/family/partial review exports carry the latest report in package v5,
+  together with any acceptance preparation/history. The importer accepts v2/v3/v4.
 - Control references use existing evidence keys, not source database IDs.
   Import remaps IDs and preserves performer, original date and source reference.
 - An imported proposal is explicitly a source review needing live-context
   reconfirmation, not a claim that a new live check or KI decision occurred.
-- A receiver running older code must be upgraded before importing v4 packages.
+- A receiver running older code must be upgraded before importing v5 packages.
 - Signed policies remain untouched. Adopt the client linkage formally through
   the normal BRA/RMCP/methodology approval process before calling it the approved
   replacement client method.

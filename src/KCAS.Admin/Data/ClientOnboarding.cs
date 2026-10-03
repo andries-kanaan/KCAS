@@ -18,6 +18,7 @@ public sealed class ClientOnboardingProfile
     public string RelationshipAuthorityReference { get; set; } = "";
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
     [MaxLength(191)] public string UpdatedBy { get; set; } = "";
+    public string? ImportSourceReference { get; set; }
 }
 
 public sealed class ClientCodexReviewRequest
@@ -35,6 +36,7 @@ public sealed class ClientCodexReviewRequest
     public DateTime? CompletedAtUtc { get; set; }
     [MaxLength(64)] public string? CompletedContentHash { get; set; }
     public string? CompletionSummary { get; set; }
+    public string? ImportSourceReference { get; set; }
 }
 
 public sealed class ClientAcceptanceDecision
@@ -78,6 +80,7 @@ public sealed class ClientOnboardingModel
     public string ContentHash { get; set; } = "";
     public string ChecksContentHash { get; set; } = "";
     public ClientBraRiskReport? BraRiskReport { get; set; }
+    public ClientOnboardingImportReceipt? ImportedReview { get; set; }
     public string MaterialHash { get; set; } = "";
     public bool CanPrepare { get; set; }
     public bool CanDecide { get; set; }

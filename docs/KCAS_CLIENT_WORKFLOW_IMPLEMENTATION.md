@@ -139,8 +139,9 @@ not approved replacement policies or evidence of live operation.
   `RequiresClientAcceptance` to false; new native clients require acceptance. An
   existing relationship is brought into this workflow only by a deliberate review.
 - Existing review packages preserve the acceptance-required flag and cannot clear
-  a pending live gate. Onboarding preparation/decision-history transfer is **not**
-  implemented yet: a compliance review import is not an imported KI acceptance.
+  a pending live gate. Package v5 carries preparation, Codex findings and immutable
+  source decision history. Live prerequisites are rechecked after mapping; the actual
+  live KI confirms the current scope. See `CLIENT_ACCEPTANCE_REVIEW_TRANSFERS.md`.
 - Complete client mandate/instruction authentication, submission, acknowledgement
   and execution state tracking remains the next separate implementation stage.
   KCAS does not control external email or administrator-platform transactions.
@@ -196,7 +197,7 @@ This table records the pre-implementation inspection, not the current completed 
 - [x] Implement this stage's service-level gates and current-state validation; preserve independent advice approval.
 - [x] Implement guided view and reuse existing evidence/risk/advice forms and tasks.
 - [x] Preserve acceptance-required flags in existing review imports; do not invent transferred acceptance.
-- [ ] Implement onboarding preparation and decision-history transfer with validated source/live provenance.
+- [x] Implement onboarding preparation and decision-history transfer with validated source/live provenance; verification recorded below.
 - [x] Run focused regression tests and broader affected-feature coverage (see verification record below).
 - [x] Demonstrate this stage's workflow, role restrictions and failed-path cases on synthetic test records without sending real instructions or inventing real approvals.
 - [ ] Record deployment verification and brief affected staff; only then describe the tested controls as operational.
@@ -283,8 +284,8 @@ Read-only database inventory was run before this implementation and the additive
   changing a report changes the KI decision snapshot; it does not impersonate
   the authorised KI's decision. Impact reduction needs its own consequence-
   limiting explanation, separate from likelihood-reducing controls.
-- Review transfer package version 4 includes the report and remaps its evidence
-  keys to live IDs. Versions 2 and 3 remain readable. Imported reports preserve
+- Review transfer package version 5 includes the report and acceptance history and
+  remaps evidence keys to live IDs. Versions 2, 3 and 4 remain readable. Imported reports preserve
   source provenance and explicitly require live context reconfirmation, not an
   invented live clearance. Deploy the newer code on both systems first.
 - Migration `20261003121608_AddClientBraRiskReports` adds one report table and
@@ -304,3 +305,40 @@ Read-only database inventory was run before this implementation and the additive
   Final read-only inventory: the same three expected schemas; local/test each
   98 tables, no Review or unexpected Monitor entries. No live deployment,
   signed-policy amendment, real-client KI acceptance or GitHub mutation occurred.
+
+## Acceptance Review Transfers (3 October 2026)
+
+- Existing client, family and partial packages automatically include recorded
+  acceptance preparation, original Codex handoffs/findings and actual KI history.
+  See `CLIENT_ACCEPTANCE_REVIEW_TRANSFERS.md`. Package format 5 remains compatible
+  with incoming formats 2, 3 and 4; absent acceptance data does not erase live work.
+- Preview verifies source snapshots/evidence references and protects native live
+  preparation and edits made after a previous import. Apply rechecks the live
+  acceptance fingerprint under the client lock, maps evidence references and
+  retains original decision snapshots rather than creating an imported approval.
+- Reusable source findings are validated against the actual mapped live
+  prerequisites. Partial/unresolved work creates a current live Compliance task;
+  source notifications are retained as history, not claimed as sent on live.
+  The actual authorised live KI confirms the current scope separately.
+- Migration `20261003133438_AddClientAcceptanceTransferProvenance` adds two nullable
+  columns to existing acceptance tables. It was applied locally; incremental SQL,
+  the model snapshot and fresh-install schema are aligned. No private seed records
+  or manufactured approvals are included.
+- Verification: **47 passed, zero failed** across acceptance, acceptance transfers,
+  BRA-linked reports and existing review transfers. New tests cover completed and
+  partial imports, mapped evidence, actual live KI confirmation, source snapshot
+  integrity, original provenance on re-export, repeat imports/source revisions,
+  and preservation of native/later live edits. The test database was preserved.
+- Desktop (1440px) and mobile (390px) checks cover transferred findings, source
+  decision history/frozen snapshots and interactive package preview counts.
+  No horizontal overflow or page errors on the tested pages. Synthetic fixtures
+  and screenshots remain private in `.tmp/bra-browser`; no real client was accepted.
+- Next development stage: mandate/instruction, submission, acknowledgement and
+  execution tracking. Live deployment, applicable policy approvals and the staff
+  walkthrough remain operating steps, not fabricated implementation evidence.
+- Standard `Restart-KCAS.ps1` completed with zero build warnings/errors and HTTP
+  200 on backend/proxy login. The isolated QA host was stopped and temporary
+  browser credentials removed. Trevarthen's existing review remains Ready for KI
+  decision: no preparation/check gaps, complete reconciliation and no Codex-made
+  KI decision. Final inventory retains the same three expected schemas, zero
+  Review and no unexpected Monitor entries; no database was deleted.

@@ -341,6 +341,7 @@
                     <dt>Evidence</dt><dd>@preview.NewEvidenceCount new; @preview.ExistingEvidenceCount already present</dd>
                     <dt>Entity ownership</dt><dd>@preview.Package.RelatedParties.Count related party record(s)</dd>
                     <dt>Investment verification</dt><dd>@preview.Package.InvestmentReconciliations.Count reviewed account decision(s)</dd>
+                    <dt>Client acceptance</dt><dd>@(preview.Package.Onboarding is { } acceptance ? $"{(acceptance.Preparation is null ? "No preparation" : "Preparation included")}; {acceptance.Reviews.Count} source handoff(s); {acceptance.Decisions.Count} source decision(s)" : "Not included in this package")</dd>
                     <dt>Package</dt><dd><code>@preview.Package.PackageId</code></dd>
                 </dl>
                 @foreach (var warning in preview.Warnings)
@@ -416,6 +417,7 @@
                                 @(memberPreview.Package.Assessment?.FinalRating ?? "Partial review") assessment;
                                 @memberPreview.NewEvidenceCount new evidence item(s);
                                 @memberPreview.Package.InvestmentReconciliations.Count investment decision(s);
+                                @(memberPreview.Package.Onboarding is { } familyAcceptance ? $"{familyAcceptance.Reviews.Count} acceptance handoff(s), {familyAcceptance.Decisions.Count} source KI decision(s); " : "")
                                 folder: @Display(memberPreview.TargetClientFolder)
                             </div>
                             @foreach (var warning in memberPreview.Warnings)
