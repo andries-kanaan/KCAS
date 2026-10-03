@@ -749,6 +749,65 @@ public sealed class ClientEvidenceReadinessServiceTests(KcasWebApplicationFactor
         Assert.Contains((await service.LoadClientReadinessAsync(clientId)).Requirements, requirement => requirement.EvidenceType == "SanctionsTfs" && requirement.IsComplete);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Document_check_captures_file_fingerprint_and_preserves_actual_performer(bool isCodex)
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var root = CreateTempRoot();
+        try
+        {
+            var path = Path.Combine(root, "review.txt");
+            await File.WriteAllTextAsync(path, "Synthetic document review evidence.");
+            var clientId = await CreateClientAsync(db, "Document Check " + Guid.NewGuid(), $"DOC-{Guid.NewGuid():N}"[..30], root);
+            var requirementId = await EnsureRequirementIdAsync(service, db, "SourceOfFunds");
+            var request = new ClientEvidenceManualCheckRequest { EvidencePath = "review.txt", Notes = "Supported synthetic findings." };
+            var id = isCodex
+                ? await service.RecordCodexDocumentCheckAsync(clientId, requirementId, request, "authoriser@example.test", "Authorised document check.")
+                : await service.RecordManualCheckAsync(clientId, requirementId, request, "authoriser@example.test", "Actual manual check.");
+            var item = await db.ClientEvidenceItems.AsNoTracking().SingleAsync(x => x.Id == id);
+            Assert.Equal(Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(path))), item.FileSha256);
+            Assert.Equal(new FileInfo(path).Length, item.FileSizeBytes);
+            Assert.Equal(isCodex ? "Codex" : "authoriser@example.test", item.Reviewer);
+            Assert.Equal("authoriser@example.test", item.UpdatedBy);
+            Assert.True(await db.ComplianceAuditEvents.AnyAsync(x => x.EntityId == id && x.EntityType == nameof(ClientEvidenceItem)
+                && x.Action == (isCodex ? "RecordCodexDocumentCheck" : "RecordManualCheck") && x.UserName == "authoriser@example.test"));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Fact]
+    public async Task Screening_review_with_retained_evidence_file_captures_fingerprint()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var root = CreateTempRoot();
+        try
+        {
+            var path = Path.Combine(root, "screening.txt");
+            await File.WriteAllTextAsync(path, "Synthetic screening record.");
+            var clientId = await CreateClientAsync(db, "Screen File " + Guid.NewGuid(), $"SFILE-{Guid.NewGuid():N}"[..30], root);
+            var requirementId = await EnsureRequirementIdAsync(service, db, "SanctionsTfs");
+            var id = await service.RecordRequirementReviewAsync(clientId, requirementId, new ClientEvidenceScreeningReviewRequest {
+                SubjectType = ClientEvidenceScreeningSubjectTypes.Client, SubjectName = "Synthetic subject",
+                Outcome = ClientEvidenceScreeningOutcomes.NoMatch, RiskSignal = ClientEvidenceRiskSignals.Low,
+                PerformedBy = ClientEvidenceScreeningPerformers.Codex, Sources = "Synthetic test list",
+                Notes = "Actual synthetic check findings.", EvidencePath = "screening.txt"
+            }, "authoriser@example.test", "Record supported screening.");
+            var item = await db.ClientEvidenceItems.AsNoTracking().SingleAsync(x => x.Id == id);
+            Assert.Equal(Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(path))), item.FileSha256);
+            Assert.Equal("Codex", item.ScreeningPerformedBy);
+            Assert.Equal("authoriser@example.test", item.Reviewer);
+            Assert.Equal(ClientEvidenceSelectionStatuses.Current, item.SelectionStatus);
+            Assert.Equal("Codex", item.SelectedBy);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     [Fact]
     public async Task Manual_scan_file_resolution_links_without_verifying()
     {

@@ -1,11 +1,13 @@
 @page "/clients/{ClientId:int}/onboarding"
 @rendermode InteractiveServer
+@implements IAsyncDisposable
 @attribute [Authorize(Policy = KcasPermissions.RiskAssessmentsView)]
 @using System.Security.Claims
 @using KCAS.Admin.Data
 @using KCAS.Admin.Security
 @inject ClientOnboardingService Onboarding
 @inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IJSRuntime JS
 
 <PageTitle>Client acceptance - KCAS</PageTitle>
 @if (error is not null) { <div class="alert alert-danger" role="alert">@error</div> }
@@ -18,6 +20,7 @@
             <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}")">Client</a>
             <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/evidence")">Evidence and screening</a>
             <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/risk")">Compliance risk</a>
+            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/risk/bra")">ML / TF / PF report</a>
             @if (model.CanPrepare && !model.IsAccepted) { <a class="btn btn-primary" href="@($"/clients/{ClientId}/onboarding/preparation")">Update preparation</a> }
             @if (model.CanPrepare && !model.IsAccepted) { <button class="btn btn-outline-primary" disabled="@busy" @onclick="RequestAsync">Request Codex review</button> }
         </div>
@@ -32,7 +35,7 @@
             <dt class="col-sm-3">Requested service</dt><dd class="col-sm-9">@(model.Profile?.RequestedService ?? "Not recorded")</dd>
             <dt class="col-sm-3">Responsible representative</dt><dd class="col-sm-9">@(model.Profile?.ResponsibleRepresentative ?? "Not recorded")</dd>
             <dt class="col-sm-3">Purpose and proposed funds</dt><dd class="col-sm-9">@(model.Profile?.PurposeAndProposedFunds ?? "Not recorded")</dd>
-            <dt class="col-sm-3">Disclosures</dt><dd class="col-sm-9">@model.Profile?.DisclosureVersion · @(model.Profile?.DisclosureDeliveredAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "Not delivered") · @model.Profile?.DisclosureDeliveryReference</dd>
+            <dt class="col-sm-3">Disclosures</dt><dd class="col-sm-9">@model.Profile?.DisclosureVersion · @(model.Profile?.DisclosureDeliveredAtUtc?.ToString("yyyy-MM-dd") ?? "Not delivered") · @model.Profile?.DisclosureDeliveryReference</dd>
             <dt class="col-sm-3">Enhanced measures</dt><dd class="col-sm-9">@(model.Profile?.EnhancedMeasures ?? "Not recorded")</dd>
             <dt class="col-sm-3">Evidence folder</dt><dd class="col-sm-9 text-break">@(model.Client.ClientFolder ?? "Not recorded")</dd>
         </dl>
@@ -64,6 +67,11 @@
     </section>
     <section class="work-area">
         <h2>Compliance risk and recommendation</h2>
+        @if (model.BraRiskReport is { } braReport)
+        {
+            <p>BRA-linked ML / TF / PF proposal: @braReport.PerformedBy · @braReport.RecordedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ·
+                <a href="@($"/clients/{ClientId}/risk/bra")">View calculations and mitigating evidence</a></p>
+        }
         @if (model.Assessment is { } assessment)
         {
             <p>Assessment @assessment.Id: <strong>@assessment.FinalRating</strong> · @assessment.Status · Next review: @assessment.NextReviewDate?.ToString("yyyy-MM-dd")</p>
@@ -75,13 +83,23 @@
     @if (model.Request is { } request)
     {
         <section class="work-area">
-            <h2>Codex handoff</h2><p>@request.Status · Requested: @request.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</p>
-            <textarea class="form-control" rows="10" readonly aria-label="Codex task brief">@request.Brief</textarea>
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                <h2 class="mb-0">Codex handoff</h2>
+                <button class="btn btn-outline-secondary" type="button" title="Copy Codex handoff to clipboard" disabled="@copying" @onclick="CopyBriefAsync">Copy brief</button>
+            </div>
+            <p>@request.Status · Requested: @request.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</p>
+            <textarea class="form-control" rows="10" readonly aria-label="Codex task brief" @ref="briefElement">@request.Brief</textarea>
+            <div role="status" aria-live="polite" class="@(copyFailed ? "text-danger mt-2" : "text-success mt-2")">@copyStatus</div>
             @if (model.CanPrepare && request.Status is "AwaitingCodex" or "ResultsRecorded")
             {
-                <button class="btn btn-outline-primary mt-3" disabled="@(busy || model.CheckBlockers.Count > 0)" @onclick="ValidateAsync">Validate recorded results</button>
+                <button class="btn btn-outline-primary mt-3" disabled="@(busy || !model.IsReady)" @onclick="ValidateAsync">Validate recorded results</button>
             }
-            @if (request.CompletedAtUtc is not null) { <p class="mt-2">Validated: @request.CompletedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") · @request.CompletionSummary</p> }
+            @if (request.CompletedAtUtc is not null)
+            {
+                <p class="mt-2">Validated: @request.CompletedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</p>
+                <h3>Recorded review findings</h3>
+                <p class="text-break" style="white-space: pre-wrap">@request.CompletionSummary</p>
+            }
         </section>
     }
     @if (model.CanPrepare && !model.IsAccepted)
@@ -119,17 +137,39 @@
     private string? error, message;
     private string reason = "", decisionReason = "", decision = "Accepted";
     private bool busy;
+    private ElementReference briefElement;
+    private IJSObjectReference? clipboardModule;
+    private string? copyStatus;
+    private bool copying, copyFailed;
     protected override async Task OnParametersSetAsync()
     {
         user = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User;
+        copyStatus = null;
         try { model = await Onboarding.LoadAsync(ClientId, user); } catch (Exception ex) { model = null; error = ex.Message; }
     }
     private async Task RunAsync(Func<Task> action, string success)
     {
-        busy = true; error = null; message = null;
+        busy = true; error = null; message = null; copyStatus = null;
         try { await action(); model = await Onboarding.LoadAsync(ClientId, user); message = success; }
         catch (Exception ex) { error = ex.Message; }
         finally { busy = false; }
+    }
+    private async Task CopyBriefAsync()
+    {
+        copying = true; copyStatus = null; copyFailed = false;
+        try
+        {
+            clipboardModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./Components/Pages/ClientOnboarding.razor.js");
+            copyFailed = !await clipboardModule.InvokeAsync<bool>("copyBrief", briefElement);
+            copyStatus = copyFailed ? "Clipboard unavailable. The brief is selected; use your browser's Copy command." : "Copied to clipboard.";
+        }
+        catch (JSException) { copyFailed = true; copyStatus = "Could not copy. Select the brief and copy it manually."; }
+        finally { copying = false; }
+    }
+    public async ValueTask DisposeAsync()
+    {
+        if (clipboardModule is null) return;
+        try { await clipboardModule.DisposeAsync(); } catch (JSDisconnectedException) { }
     }
     private Task RequestAsync() => RunAsync(() => Onboarding.RequestCodexAsync(ClientId,
         string.IsNullOrWhiteSpace(reason) ? "Prepare client compliance and acceptance from the client folder and existing KCAS records." : reason, user),

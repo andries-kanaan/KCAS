@@ -13,7 +13,7 @@ public sealed class ClientReviewTransferService(
     IHostEnvironment environment)
 {
     private const string PackageMagic = "KCAS-CLIENT-REVIEW-1";
-    private const int PackageVersion = 3;
+    private const int PackageVersion = 4;
     private const int Pbkdf2Iterations = 300_000;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -453,6 +453,10 @@ public sealed class ClientReviewTransferService(
             await db.SaveChangesAsync(cancellationToken);
         }
         var package = BuildPackage(client, assessment, user, reason, exportClientFolder);
+        var braReport = await db.ClientBraRiskReports.AsNoTracking().Where(item => item.ClientId == clientId)
+            .OrderByDescending(item => item.Id).FirstOrDefaultAsync(cancellationToken);
+        if (braReport is not null)
+            package.BraRiskReport = ClientBraRiskReportPackage.FromReport(braReport);
         var plaintext = JsonSerializer.SerializeToUtf8Bytes(package, JsonOptions);
         var contentSha256 = Convert.ToHexString(SHA256.HashData(plaintext)).ToLowerInvariant();
         var encrypted = Encrypt(plaintext, passphrase);
@@ -475,7 +479,7 @@ public sealed class ClientReviewTransferService(
         var conflicts = new List<string>();
         var warnings = new List<string>();
 
-        if (package.FormatVersion is not (2 or PackageVersion))
+        if (package.FormatVersion is not (2 or 3 or PackageVersion))
         {
             conflicts.Add(
                 $"Package format {package.FormatVersion} is not supported by this KCAS version.");
@@ -1426,6 +1430,23 @@ public sealed class ClientReviewTransferService(
         }
         db.ClientRiskAssessments.Add(assessment);
         await db.SaveChangesAsync(cancellationToken);
+        if (package.BraRiskReport is { } sourceBra)
+        {
+            foreach (var control in sourceBra.Content.Scenarios.SelectMany(item => item.Evidence))
+                control.EvidenceItemId = evidenceByKey[control.EvidenceKey].Id;
+            var importedBra = new ClientBraRiskReport
+            {
+                ClientId = client.Id, BraReference = sourceBra.BraReference, MethodVersion = sourceBra.MethodVersion,
+                SourceContentHash = sourceBra.SourceContentHash, PerformedBy = sourceBra.PerformedBy,
+                RecordedBy = sourceBra.RecordedBy, RecordedAtUtc = sourceBra.RecordedAtUtc,
+                ContentJson = JsonSerializer.Serialize(sourceBra.Content), ImportPackageId = package.PackageId
+            };
+            db.ClientBraRiskReports.Add(importedBra);
+            await db.SaveChangesAsync(cancellationToken);
+            db.ComplianceAuditEvents.Add(new() { EntityType = nameof(ClientBraRiskReport), EntityId = importedBra.Id,
+                Action = "SourceBraClientRiskImported", UserName = user, Reason = reason,
+                NewValueJson = JsonSerializer.Serialize(new { importedBra.Id, importedBra.ImportPackageId, importedBra.PerformedBy }) });
+        }
         if (supersededAssessment is not null)
         {
             db.ComplianceAuditEvents.Add(new ComplianceAuditEvent
@@ -2505,6 +2526,28 @@ public sealed class ClientReviewTransferService(
             conflicts.Add("Evidence keys are missing or duplicated in the package.");
         }
         var evidenceKeySet = evidenceKeys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (package.BraRiskReport is { } braReport)
+        {
+            try
+            {
+                if (braReport.MethodVersion != ClientBraRiskMethod.Version || string.IsNullOrWhiteSpace(braReport.BraReference) ||
+                    string.IsNullOrWhiteSpace(braReport.PerformedBy) || string.IsNullOrWhiteSpace(braReport.RecordedBy) ||
+                    braReport.RecordedAtUtc == default || braReport.RecordedAtUtc > DateTime.UtcNow.AddMinutes(1) ||
+                    braReport.SourceContentHash?.Length != 64)
+                    throw new ValidationException("The BRA-linked report method/source/provenance is invalid.");
+                ClientBraRiskMethod.Validate(braReport.Content);
+                if (braReport.Content.Scenarios.SelectMany(item => item.Evidence).Any(item => !evidenceKeySet.Contains(item.EvidenceKey)))
+                    throw new ValidationException("BRA-linked report control evidence is missing from the package.");
+                foreach (var control in braReport.Content.Scenarios.SelectMany(item => item.Evidence))
+                {
+                    var proof = package.Evidence.Single(item => item.EvidenceKey == control.EvidenceKey);
+                    if (proof.EvidenceType != control.EvidenceType || proof.Title != control.Title ||
+                        !string.Equals(proof.FileSha256, control.FileSha256, StringComparison.OrdinalIgnoreCase))
+                        throw new ValidationException("BRA-linked report control provenance differs from its packaged evidence.");
+                }
+            }
+            catch (ValidationException ex) { conflicts.Add(ex.Message); }
+        }
 
         if (!IsPartialReview(package) &&
             package.Client.ClientCategory is ClientCategories.Trust or ClientCategories.LegalPerson &&
@@ -3033,7 +3076,7 @@ public sealed class ClientReviewTransferService(
         AssessmentFingerprint = package.Assessment is null ? null : AssessmentFingerprint(package.Assessment)
     };
 
-    private static string EvidenceKey(ClientEvidenceItem item) =>
+    internal static string EvidenceKey(ClientEvidenceItem item) =>
         EvidenceKey(item.FileSha256, item.EvidenceType, item.FileName, item.Title,
             item.ScreeningSubjectType, item.ScreeningSubjectName, item.ScreeningReviewDate);
 
@@ -3222,6 +3265,7 @@ public sealed class ClientReviewPackage
     public List<ClientReviewVerificationPackage> VerificationItems { get; set; } = [];
     public List<ClientReviewInvestmentReconciliationPackage> InvestmentReconciliations { get; set; } = [];
     public ClientReviewAssessmentPackage? Assessment { get; set; }
+    public ClientBraRiskReportPackage? BraRiskReport { get; set; }
 }
 
 public sealed class ClientReviewClientPackage

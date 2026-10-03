@@ -80,6 +80,7 @@ builder.Services.AddScoped(provider =>
 builder.Services.AddScoped<ClientCodeGenerator>();
 builder.Services.AddScoped<ClientOperationsService>();
 builder.Services.AddScoped<ClientOnboardingService>();
+builder.Services.AddScoped<ClientBraRiskReportService>();
 builder.Services.AddScoped<ClientVisibilityService>();
 builder.Services.AddScoped<InvestmentSummaryService>();
 builder.Services.AddScoped<InvestmentReconciliationService>();

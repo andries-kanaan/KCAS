@@ -9,6 +9,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 {
     public DbSet<EmployeeProfile> EmployeeProfiles => Set<EmployeeProfile>();
     public DbSet<ClientOnboardingProfile> ClientOnboardingProfiles => Set<ClientOnboardingProfile>();
+    public DbSet<ClientBraRiskReport> ClientBraRiskReports => Set<ClientBraRiskReport>();
     public DbSet<ClientCodexReviewRequest> ClientCodexReviewRequests => Set<ClientCodexReviewRequest>();
     public DbSet<ClientAcceptanceDecision> ClientAcceptanceDecisions => Set<ClientAcceptanceDecision>();
     public DbSet<EmployeeTransferRecord> EmployeeTransferRecords => Set<EmployeeTransferRecord>();
@@ -102,6 +103,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     {
         base.OnModelCreating(builder);
         EmployeeComplianceModel.Configure(builder);
+        builder.Entity<ClientBraRiskReport>(entity =>
+        {
+            entity.HasIndex(x => new { x.ClientId, x.RecordedAtUtc });
+            entity.HasOne(x => x.Client).WithMany().HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Restrict);
+        });
         builder.Entity<ClientOnboardingProfile>(entity =>
         {
             entity.HasKey(x => x.ClientId);

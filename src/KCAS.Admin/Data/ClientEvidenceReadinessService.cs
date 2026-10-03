@@ -1346,6 +1346,10 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             ExpiryDate = request.NextReviewDate ?? reviewDate.AddYears(1),
             Reviewer = userName,
             Status = ClientEvidenceStatuses.Verified,
+            SelectionStatus = ClientEvidenceSelectionStatuses.Current,
+            SelectionReason = "Current screening selected when the supported review was recorded.",
+            SelectedAtUtc = DateTime.UtcNow,
+            SelectedBy = performedBy == ClientEvidenceScreeningPerformers.Codex ? performedBy : userName,
             ScreeningReviewDate = reviewDate,
             ScreeningReviewedAtUtc = request.ReviewedAtUtc ?? DateTime.UtcNow,
             ScreeningPerformedBy = performedBy,
@@ -1360,6 +1364,7 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             UpdatedAtUtc = DateTime.UtcNow,
             UpdatedBy = userName
         };
+        await CaptureReviewedFileAsync(item);
         db.ClientEvidenceItems.Add(item);
         await db.SaveChangesAsync();
         await AddAuditAsync("ClientEvidenceItem", item.Id, "RecordReview", new
@@ -1391,9 +1396,27 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         ClientEvidenceManualCheckRequest request,
         string? userName,
         string? reason)
+        => await RecordDocumentCheckAsync(clientId, requirementId, request, userName, reason, isCodex: false);
+
+    public async Task<int> RecordCodexDocumentCheckAsync(
+        int clientId,
+        int requirementId,
+        ClientEvidenceManualCheckRequest request,
+        string? userName,
+        string? reason)
+        => await RecordDocumentCheckAsync(clientId, requirementId, request, userName, reason, isCodex: true);
+
+    private async Task<int> RecordDocumentCheckAsync(
+        int clientId,
+        int requirementId,
+        ClientEvidenceManualCheckRequest request,
+        string? userName,
+        string? reason,
+        bool isCodex)
     {
-        var auditReason = Normalize(reason) ?? "Record manual evidence check.";
+        var auditReason = Normalize(reason) ?? (isCodex ? "Record Codex document check." : "Record manual evidence check.");
         var user = Normalize(userName) ?? throw new ValidationException("A signed-in reviewer is required.");
+        var performer = isCodex ? ClientEvidenceScreeningPerformers.Codex : user;
         var client = await db.Clients.AsNoTracking().SingleOrDefaultAsync(item => item.Id == clientId)
             ?? throw new InvalidOperationException("Client not found.");
         var requirement = await db.ClientEvidenceRequirements.AsNoTracking().SingleOrDefaultAsync(item => item.Id == requirementId)
@@ -1401,6 +1424,10 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         var evidencePath = Normalize(request.EvidencePath)
             ?? throw new ValidationException("Evidence path or reference is required.");
         var sourcePath = ResolveManualEvidencePath(client.ClientFolder, evidencePath);
+        if (isCodex && !File.Exists(sourcePath))
+        {
+            throw new ValidationException("A Codex document check requires the actual evidence file to be available.");
+        }
         var reviewDate = request.ReviewDate ?? DateOnly.FromDateTime(DateTime.Today);
         var nextReviewDate = request.NextReviewDate ?? reviewDate.AddYears(1);
         if (nextReviewDate <= reviewDate)
@@ -1413,33 +1440,34 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             ClientId = client.Id,
             ClientEvidenceRequirementId = requirement.Id,
             EvidenceType = requirement.EvidenceType,
-            Title = Normalize(request.Title) ?? $"{requirement.Title}: manual check",
+            Title = Normalize(request.Title) ?? $"{requirement.Title}: {(isCodex ? "Codex" : "manual")} check",
             SourcePath = sourcePath,
             RelativePath = ManualEvidenceRelativePath(client.ClientFolder, evidencePath),
             FileName = EvidenceFileName(evidencePath),
             ReceivedDate = reviewDate,
             VerifiedDate = reviewDate,
             ExpiryDate = nextReviewDate,
-            Reviewer = user,
+            Reviewer = performer,
             Status = ClientEvidenceStatuses.Verified,
             OwnershipStatus = ClientEvidenceOwnershipStatuses.Confirmed,
             OwnershipConfidence = 100,
-            OwnershipReason = "Manually checked by the signed-in reviewer.",
+            OwnershipReason = isCodex ? "Document contents checked by Codex under the recorded user's authorisation." : "Manually checked by the signed-in reviewer.",
             OwnershipReviewedAtUtc = DateTime.UtcNow,
-            OwnershipReviewedBy = user,
+            OwnershipReviewedBy = performer,
             SelectionStatus = ClientEvidenceSelectionStatuses.Current,
             SelectionConfidence = 100,
-            SelectionReason = "Current evidence selected during a manual compliance check.",
+            SelectionReason = isCodex ? "Current evidence selected during a Codex document review." : "Current evidence selected during a manual compliance check.",
             SelectedAtUtc = DateTime.UtcNow,
-            SelectedBy = user,
+            SelectedBy = performer,
             VerificationPolicy = "VerifiedByReviewer",
             Notes = Normalize(request.Notes),
             UpdatedAtUtc = DateTime.UtcNow,
             UpdatedBy = user
         };
+        await CaptureReviewedFileAsync(item);
         db.ClientEvidenceItems.Add(item);
         await db.SaveChangesAsync();
-        await AddAuditAsync(nameof(ClientEvidenceItem), item.Id, "RecordManualCheck", new
+        await AddAuditAsync(nameof(ClientEvidenceItem), item.Id, isCodex ? "RecordCodexDocumentCheck" : "RecordManualCheck", new
         {
             item.ClientId,
             item.ClientEvidenceRequirementId,
@@ -1449,10 +1477,22 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
             item.VerifiedDate,
             item.ExpiryDate,
             item.Reviewer,
+            item.FileSha256,
+            item.FileSizeBytes,
             item.Notes
         }, user, auditReason);
         await db.SaveChangesAsync();
         return item.Id;
+    }
+
+    private static async Task CaptureReviewedFileAsync(ClientEvidenceItem item)
+    {
+        if (item.SourcePath is null || !File.Exists(item.SourcePath)) return;
+        var file = new FileInfo(item.SourcePath);
+        await using var stream = file.OpenRead();
+        item.FileSha256 = Convert.ToHexString(await SHA256.HashDataAsync(stream));
+        item.FileSizeBytes = file.Length;
+        item.FileLastWriteTimeUtc = file.LastWriteTimeUtc;
     }
 
     public async Task CreateExceptionAsync(int clientId, int requirementId, string exceptionReason, DateOnly? reviewDate, string? userName, string reason)

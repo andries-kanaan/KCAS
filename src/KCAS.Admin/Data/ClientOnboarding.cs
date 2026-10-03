@@ -76,6 +76,8 @@ public sealed class ClientOnboardingModel
     public List<string> CheckBlockers { get; set; } = [];
     public List<string> IntakeBlockers { get; set; } = [];
     public string ContentHash { get; set; } = "";
+    public string ChecksContentHash { get; set; } = "";
+    public ClientBraRiskReport? BraRiskReport { get; set; }
     public string MaterialHash { get; set; } = "";
     public bool CanPrepare { get; set; }
     public bool CanDecide { get; set; }
