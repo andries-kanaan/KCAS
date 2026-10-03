@@ -36,7 +36,7 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
         var isNewClient = model.Id is null;
         if (model.Id is null)
         {
-            client = new Client();
+            client = new Client { RequiresClientAcceptance = true };
             db.Clients.Add(client);
         }
         else
@@ -422,6 +422,7 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
 
     public async Task<int> SaveInvestmentAccountAsync(ClientInvestmentAccountEditModel model, string? userName)
     {
+        await ClientOnboardingService.RequireAcceptedAsync(db, model.ClientId);
         var administrator = Normalize(model.Administrator);
         var accountNumber = Normalize(model.AccountNumber);
         var productName = Normalize(model.ProductName);
@@ -515,6 +516,7 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
 
     public async Task<int> SaveInvestmentTransactionAsync(ClientInvestmentTransactionEditModel model, string? userName)
     {
+        await ClientOnboardingService.RequireAcceptedAsync(db, model.ClientId);
         var account = await db.ClientInvestmentAccounts.AsNoTracking().SingleOrDefaultAsync(account =>
                 account.ClientId == model.ClientId && account.Id == model.ClientInvestmentAccountId)
             ?? throw new InvalidOperationException("Investment account not found.");
@@ -572,6 +574,7 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
 
     public async Task FinalizeInvestmentTransactionAsync(int clientId, int accountId, int transactionId, string? userName)
     {
+        await ClientOnboardingService.RequireAcceptedAsync(db, clientId);
         var transaction = await LoadInvestmentTransactionForMutationAsync(clientId, accountId, transactionId);
         if (transaction.IsDeleted)
         {

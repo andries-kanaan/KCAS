@@ -69,7 +69,7 @@ public sealed class ClientRiskAssessmentService(
             ClientCategory = client.ClientCategory,
             IsReadyForRiskAssessment = readiness.IsReadyForRiskAssessment &&
                                        investmentReadiness.IsComplete &&
-                                       IsAssessableLifecycle(client.LifecycleStatus) &&
+                                       await CanAssessClientAsync(client) &&
                                        blockingVerificationCount == 0,
             BlockingEvidenceCount = readiness.BlockedCount,
             BlockingVerificationCount = blockingVerificationCount,
@@ -437,11 +437,10 @@ public sealed class ClientRiskAssessmentService(
             throw new InvalidOperationException(
                 $"The assessment cannot be finalised while {blockerCount} investment reconciliation item(s) remain unverified.");
         }
-        var lifecycleStatus = await db.Clients
+        var assessmentClient = await db.Clients
             .Where(client => client.Id == assessment.ClientId)
-            .Select(client => client.LifecycleStatus)
             .SingleAsync();
-        if (!IsAssessableLifecycle(lifecycleStatus))
+        if (!await CanAssessClientAsync(assessmentClient))
         {
             throw new InvalidOperationException("The assessment cannot be finalised until the client has an assessable lifecycle classification.");
         }
@@ -915,7 +914,7 @@ public sealed class ClientRiskAssessmentService(
             item.IsBlocking);
         var canGenerateProposal = readiness.IsReadyForRiskAssessment &&
                                   investmentReadiness.IsComplete &&
-                                  IsAssessableLifecycle(client.LifecycleStatus) &&
+                                  await CanAssessClientAsync(client) &&
                                   blockingVerificationCount == 0;
         if (!canGenerateProposal)
         {
@@ -1078,6 +1077,11 @@ public sealed class ClientRiskAssessmentService(
                 ? ordered[ordered.Count / 2]
                 : ordered[0];
     }
+
+    private async Task<bool> CanAssessClientAsync(Client client) => IsAssessableLifecycle(client.LifecycleStatus) ||
+        client.RequiresClientAcceptance && client.LifecycleStatus == ClientLifecycleStatuses.Unreviewed &&
+        !await db.ClientInvestmentAccounts.AnyAsync(x => x.ClientId == client.Id) &&
+        !await db.ClientFundValuations.AnyAsync(x => x.ClientId == client.Id);
 
     private static bool IsAssessableLifecycle(string lifecycleStatus)
         => lifecycleStatus is not (ClientLifecycleStatuses.Unreviewed or ClientLifecycleStatuses.Duplicate);

@@ -3,6 +3,8 @@
 Status: implemented and verified locally on 2 October 2026. Live deployment and
 actual employee checks/management decisions remain pending.
 The sourced baseline is not screening clearance, an appointment or an approval.
+Execution handoff added on 2 October 2026: employee evidence review may continue in
+a separate authorised Codex session on live when management supplies the folders.
 
 ## Controlling Documents
 
@@ -281,3 +283,141 @@ conflict preview, retained approvals/reviewer identity, idempotence and live-cha
 protection. Five desktop/mobile transfer screenshots and the real local six-profile
 encrypted export/download/preview checks passed. No actual employee package was
 applied to the local originals or live server during browser QA.
+
+## Live Codex Evidence Review and Session Handoff
+
+Agreed on 2 October 2026: management will supply access to the actual employee
+folders on live. Codex should read and assess their contents, link supporting
+evidence and record supportable findings in KCAS, rather than merely list files or
+leave all substantive work to manual form entry. Finish the evidence work that can
+be supported before reporting the remaining genuine gaps. This agreement does not
+authorise fabricated results, impersonated approvals or bypassing KCAS controls.
+
+### Resume State and Prerequisites
+
+- The local baseline contains six current profiles, four account links and 29
+  document links. All six full reviews were Not started at this handoff. No current
+  integrity/TFS clearance, access confirmation or management decision was produced
+  by developing the module. Inspect actual live state; do not assume it matches.
+- Confirm the employee module and both additive migrations are deployed. Deployment
+  does not copy employee rows. Preview/apply the private pending employee bundle
+  through the transfer workflow if it has not already been imported. Do not replace
+  subsequent live work or apply the bundle again blindly.
+- Read the live repository's `AGENTS.md`, this plan, the private employee role-risk
+  schedule and its status record, RMCP sections 19.1-19.4 and the named controlling
+  policies. Draft recommendations are not approved appointments or decisions.
+- Obtain the precise employee-folder paths and authorised scope from management.
+  Keep paths, identifiers and personal findings in restricted records, not this
+  repository plan. Start with the requested employee, then the remaining current
+  population; exclude former employees from new screening while retaining history.
+- Inspect the live evidence-root configuration, actual account links, permissions
+  and reviewer identities. Do not treat local account roles as verified live access.
+- A personnel folder outside the configured evidence root may be readable by Codex
+  but not linkable through KCAS. Use approved restricted evidence storage and retain
+  provenance; obtain authorisation for copies where needed. Do not broaden the root
+  to an entire drive, expose personnel folders or bypass file-authorisation checks.
+
+### Evidence to Read and Record
+
+The following is the agreed practical review method, not a universal demand for
+every certificate or optional background check. Select the extent using actual
+duties, role exposure, approved policy and any relevant concerns.
+
+| Area | Supporting material and review | Boundary |
+|---|---|---|
+| Identity | Read verified personnel/identity records; reconcile legal name, identifiers, aliases and linked accounts. | Do not guess identity or create a second employee for an alias. |
+| Duties and authority | Read appointments, governance records and management-confirmed responsibilities; identify permitted actions and limits. | A system role, biography or passed exam does not establish legal appointment. |
+| Competence | Assess relevant qualifications, work history, accreditations and recorded management/work-performance evidence against assigned duties. Reuse valid historical qualification evidence. | Document why the evidence supports the actual functions; do not demand unrelated qualifications or infer current competence from length of service alone. |
+| AML/RMCP training | Inspect actual completed papers, register, dates and recorded results. Credit the six located July 2026 papers for what they establish. | Preserve blank scores and historical dates. A blank questionnaire is not a completed assessment; 2026 training is not evidence of 2025 attendance. |
+| Regulated competence | For actually appointed regulated roles, examine applicable qualifications/exams, scope, training and current-cycle CPD evidence. Research existing Compliance records before asking for more. | Old certificates/DOFA are not proof of current-cycle completion. Support-only roles do not automatically inherit adviser/KI requirements. |
+| Integrity | Examine current relevant employee disclosures, available disciplinary/employment/regulatory conduct records and management assessments. Perform and retain proportionate corroborating checks for heightened exposure or concerns. | A dated email may evidence a disclosure, subject to policy formalities. Neither a declaration, family relationship, silence, training nor a clear sanctions result alone establishes integrity. Do not claim a criminal-record check from an internet search. |
+| TFS | Perform actual searches using verified identity/aliases against applicable official information. Retain source/list version, search scope, date/time, result and possible-match resolution. | All current employees are covered. Failed/unavailable sources or unresolved identities/matches remain pending, not NoMatch. |
+| Access | Inspect actual KCAS account approval, roles and permissions; compare them with authorised duties. Review responsible-owner evidence of external access and action. | Local/imported roles are not live verification. Job title does not prove bank/platform/payment rights; ask for a focused confirmation where external access cannot be verified. |
+| Decision and interval | Present supported findings, restrictions and remaining gaps to an uninvolved authorised reviewer; use the actual approved interval. | Codex may prepare the record, not manufacture the employee's disclosure, the owner's confirmation or management approval. No self/preparer approval or backdated decision. |
+
+For integrity screening, distinguish the review of actual conduct/regulatory evidence
+from an assertion that no criminal record exists. Police clearance, credit searches
+and other additional checks are selected only where justified by the applicable
+requirements and role risk. Record the method, extent and limitations; do not impose
+every optional example as a blanket requirement or treat all public-source silence
+as clearance. Retained Directive 8 paragraphs 2.3-2.7 and PCC55 paragraphs 2.2-2.10
+provide the underlying risk-based screening framework.
+
+### Execute in KCAS, Not Just a Written Report
+
+1. Inspect existing profile, review history and linked evidence. Reuse valid records
+   without duplicating employees, rewriting frozen history or erasing adverse facts.
+2. Read the actual documents, including relevant pages/annotations and visual content
+   where extraction is incomplete. Classify identity, qualifications, training,
+   disclosure and appointment evidence by what each document actually establishes.
+3. Start or continue the appropriate review and link the supporting files. Retain
+   document date/version, relevant page or passage, provenance and stored file hash.
+   Do not move, edit or delete original personnel records without authorisation.
+4. Record each supported check with actual outcome, performer **Codex**, actual
+   review/search date and time, precise sources, identifiers/scope, finding and
+   limitations. The authenticated human saving/audit actor remains separate.
+   Historical evidence keeps its original date; the present review is dated now.
+5. Carry out current screening rather than infer it from the presence of an old
+   search. Preserve the actual evidence. Resolve possible matches using identifiers;
+   record failure or follow-up honestly if the source or identity is insufficient.
+6. Verify what actual access can be observed. Collect only the missing external-owner
+   or employee confirmations, with specific questions grounded in the records already
+   read. Do not mark an external action executed merely because it was requested.
+7. Use KCAS's authenticated workflow or existing application services under the
+   authorised actor, preserving permission checks, validation, transactions and audit.
+   If an authorised service runner is needed, first inspect the service contracts and
+   keep the runner outside the tracked live repository. Do not force database status
+   flags, forge claims/approvals or bypass a blocker to make the review appear complete.
+8. Submit the supported record for the actual uninvolved management decision. If a
+   check or required confirmation is genuinely missing, keep the relevant status
+   pending and give the precise evidence/question needed, not a generic refusal to
+   review the folders or a demand to repeat existing valid evidence.
+9. Verify the saved employee view, source-file access, actor/time attribution, pending
+   tasks and next action. Check for duplicate checks/tasks and retained earlier
+   findings. Do not describe a draft or source-only approval as current live clearance.
+
+If authorised recording is genuinely unavailable, complete the read-only evidence
+research and retain a restricted findings index. Report the exact failed operation
+and remaining recording work; do not claim the KCAS records were saved. An inaccessible
+browser alone is not proof that all existing authorised application-service routes
+are unavailable. Do not create a new privileged endpoint as a workaround without a
+separately authorised implementation task.
+
+### Progress and Completion Report
+
+Maintain a restricted `EMPLOYEE_EVIDENCE_EXECUTION_PROGRESS.md` beside the private
+employee schedule, not in Git. For each employee record: actual folder(s), evidence
+reviewed and linked, check outcomes and sources/times, access findings, outstanding
+confirmations, decision state and next action. Keep sensitive findings restricted.
+Update after each employee so a later session can resume without repeating work.
+
+The final report should distinguish **evidence complete / checks complete / access
+verified / awaiting management decision / approved / follow-up required**. Identify
+the actual reviewer needed and genuine gaps. Do not call a completed evidence review
+a completed full employee review while approval or required verification is pending.
+Follow live `AGENTS.md` for read-only database inventory and any database-affecting
+operations; never create temporary schemas or delete data as routine evidence work.
+
+### Moving the Plan to the Other Session
+
+Another Codex session does not automatically inherit this conversation. Supply this
+plan, the private schedule/status record and the folder locations, then authorise
+execution. If this plan is deployed from Git, read its tracked copy but keep live
+working notes outside the repository. If copying it manually, place it outside the
+deployment repository, for example under
+`Compliance/FSCA inspections/2026/22Sep2026FeedbackRemediation/03 Evidence follow-up/Employee compliance`.
+This avoids an untracked/modified repository file blocking the deployment script.
+Never include personnel evidence, credentials or decrypted packages in a commit.
+
+Suggested live-session instruction:
+
+> Read the KCAS employee compliance workflow plan, especially Live Codex Evidence
+> Review and Session Handoff, and the private employee schedule/status. The authorised
+> employee folders are [provide paths]. Check the deployed/live state first, then
+> read the actual files, link evidence and record all supportable employee checks in
+> KCAS with Codex attribution. Preserve originals and audit history. Research existing
+> records before asking for missing information, retain restricted progress, and report
+> exactly what remains for owner confirmation or uninvolved management approval.
+
+Writing this handoff did not access live personnel folders, execute screenings,
+change employee records or grant permissions. Live execution remains pending.

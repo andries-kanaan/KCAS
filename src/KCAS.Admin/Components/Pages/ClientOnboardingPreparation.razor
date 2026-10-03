@@ -1,0 +1,68 @@
+@page "/clients/{ClientId:int}/onboarding/preparation"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.RiskAssessmentsView)]
+@using System.Security.Claims
+@using KCAS.Admin.Data
+@using KCAS.Admin.Security
+@inject ClientOnboardingService Onboarding
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>Update client preparation - KCAS</PageTitle>
+<div class="page-header client-onboarding-header"><h1>Update client preparation</h1><a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/onboarding")">Back to acceptance</a></div>
+@if (error is not null) { <div class="alert alert-danger" role="alert">@error</div> }
+@if (canPrepare)
+{
+    <EditForm Model="edit" OnSubmit="SaveAsync">
+        <section class="work-area form-panel">
+            <label>Requested service<InputText class="form-control" @bind-Value="edit.RequestedService" /></label>
+            <label>Responsible representative<InputText class="form-control" @bind-Value="edit.ResponsibleRepresentative" /></label>
+            <label>Purpose and proposed funds<InputTextArea class="form-control" rows="4" @bind-Value="edit.PurposeAndProposedFunds" /></label>
+            <label>Disclosure version<InputText class="form-control" @bind-Value="edit.DisclosureVersion" /></label>
+            <label>Actual disclosure delivery (local time)<input type="datetime-local" class="form-control" @bind="deliveredLocal" /></label>
+            <label>Disclosure delivery reference<InputText class="form-control" @bind-Value="edit.DisclosureDeliveryReference" /></label>
+            <label>Enhanced measures / monitoring where applicable<InputTextArea class="form-control" rows="3" @bind-Value="edit.EnhancedMeasures" /></label>
+            <label>Change reason<InputTextArea class="form-control" @bind-Value="reason" /></label>
+            <div class="form-actions"><button class="btn btn-primary" disabled="@busy" type="submit">Save preparation</button></div>
+        </section>
+    </EditForm>
+}
+@code {
+    [Parameter] public int ClientId { get; set; }
+    private ClientOnboardingEdit edit = new();
+    private ClaimsPrincipal user = new();
+    private DateTime? deliveredLocal;
+    private string reason = "";
+    private string? error;
+    private bool canPrepare, busy;
+    protected override async Task OnParametersSetAsync()
+    {
+        user = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User;
+        try
+        {
+            var model = await Onboarding.LoadAsync(ClientId, user);
+            canPrepare = model.CanPrepare && !model.IsAccepted;
+            if (!canPrepare) { error = "Current preparation permission and an open acceptance review are required."; return; }
+            if (model.Profile is { } profile)
+            {
+                edit = new() { Version = profile.Version, RequestedService = profile.RequestedService, ResponsibleRepresentative = profile.ResponsibleRepresentative,
+                    PurposeAndProposedFunds = profile.PurposeAndProposedFunds, DisclosureVersion = profile.DisclosureVersion,
+                    DisclosureDeliveryReference = profile.DisclosureDeliveryReference, EnhancedMeasures = profile.EnhancedMeasures };
+                deliveredLocal = profile.DisclosureDeliveredAtUtc?.ToLocalTime();
+            }
+        }
+        catch (Exception ex) { error = ex.Message; }
+    }
+    private async Task SaveAsync()
+    {
+        busy = true; error = null;
+        try
+        {
+            edit.DisclosureDeliveredAtUtc = deliveredLocal?.ToUniversalTime();
+            await Onboarding.SavePreparationAsync(ClientId, edit, reason, user);
+            Navigation.NavigateTo($"/clients/{ClientId}/onboarding");
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+}

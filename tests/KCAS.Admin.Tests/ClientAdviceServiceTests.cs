@@ -322,8 +322,9 @@ public sealed class ClientAdviceServiceTests(KcasWebApplicationFactory factory)
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var service = scope.ServiceProvider.GetRequiredService<ClientAdviceService>();
-        var clientId = await CreateClientAsync(db, "Family Advice A", "A901");
-        var relatedId = await CreateClientAsync(db, "Family Advice B", "A901");
+        var familyId = $"ADV-{Guid.NewGuid():N}"[..24];
+        var clientId = await CreateClientAsync(db, "Family Advice A", familyId);
+        var relatedId = await CreateClientAsync(db, "Family Advice B", familyId);
         var caseId = await service.CreateDraftAsync(clientId, ClientAdviceTypes.AnnualReview, "preparer@example.test");
 
         Assert.Equal(1, await service.AddKanaanFamilyParticipantsAsync(caseId, "preparer@example.test"));

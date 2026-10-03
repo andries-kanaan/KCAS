@@ -831,6 +831,7 @@ public sealed class ClientReviewTransferService(
             client.ClientFolder
         });
         client.ClientCategory = package.Client.ClientCategory;
+        client.RequiresClientAcceptance |= package.Client.RequiresClientAcceptance;
         client.ClientCategorySource = package.Client.ClientCategorySource;
         client.ClientCategoryReason = package.Client.ClientCategoryReason;
         client.ClientCategoryUpdatedAtUtc = package.Client.ClientCategoryUpdatedAtUtc;
@@ -1588,6 +1589,7 @@ public sealed class ClientReviewTransferService(
                 DisplayName = client.DisplayName,
                 ClientFolder = clientFolderOverride ?? client.ClientFolder,
                 ClientCategory = client.ClientCategory,
+                RequiresClientAcceptance = client.RequiresClientAcceptance,
                 ClientCategorySource = client.ClientCategorySource,
                 ClientCategoryReason = client.ClientCategoryReason,
                 ClientCategoryUpdatedAtUtc = client.ClientCategoryUpdatedAtUtc,
@@ -3224,6 +3226,7 @@ public sealed class ClientReviewPackage
 
 public sealed class ClientReviewClientPackage
 {
+    public bool RequiresClientAcceptance { get; set; }
     public int? LegacyClientId { get; set; }
     public string? KanaanId { get; set; }
     public string DisplayName { get; set; } = "";

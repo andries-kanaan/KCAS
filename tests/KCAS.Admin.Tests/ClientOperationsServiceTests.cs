@@ -324,12 +324,16 @@ public sealed class ClientOperationsServiceTests(KcasWebApplicationFactory facto
         var service = scope.ServiceProvider.GetRequiredService<ClientOperationsService>();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-        var clientId = await service.SaveClientAsync(new ClientEditModel
+        // A pre-existing native relationship, not a newly captured pending prospect.
+        var client = new Client
         {
-            KanaanId = "OPS-INV-1",
+            KanaanId = $"OPS-INV-{Guid.NewGuid():N}"[..30],
             SurnameOrEntityName = "Investments",
             DisplayName = "Investments Client"
-        });
+        };
+        db.Clients.Add(client);
+        await db.SaveChangesAsync();
+        var clientId = client.Id;
 
         var accountId = await service.SaveInvestmentAccountAsync(new ClientInvestmentAccountEditModel
         {
@@ -410,11 +414,12 @@ public sealed class ClientOperationsServiceTests(KcasWebApplicationFactory facto
             }
         };
         db.ClientInvestmentAccounts.AddRange(matchedAccount, fallbackAccount);
+        var fundId = (await db.ClientFundValuations.MaxAsync(x => (int?)x.LegacyFundId) ?? 0) + 1;
         db.ClientFundValuations.AddRange(
             new ClientFundValuation
             {
                 ClientId = clientId,
-                LegacyFundId = 900001,
+                LegacyFundId = fundId,
                 InvestmentUniqueNumber = "MATCH-1",
                 Administrator = "Admin",
                 FundName = "Alpha Fund",
@@ -425,7 +430,7 @@ public sealed class ClientOperationsServiceTests(KcasWebApplicationFactory facto
             new ClientFundValuation
             {
                 ClientId = clientId,
-                LegacyFundId = 900002,
+                LegacyFundId = fundId + 1,
                 InvestmentUniqueNumber = "UNMATCHED-1",
                 Administrator = "Other",
                 FundName = "Unmatched Fund",
@@ -503,8 +508,8 @@ public sealed class ClientOperationsServiceTests(KcasWebApplicationFactory facto
             RecommendationIds = [recommendationId]
         }, "tester");
 
-        Assert.Equal(2, await db.ClientKycPolicies.CountAsync(policy => policy.PolicyNumber == "COPY-1"));
-        Assert.Equal(2, await db.ClientKycRecommendations.CountAsync(recommendation => recommendation.RecommendationType == "Review"));
+        Assert.Equal(2, await db.ClientKycPolicies.CountAsync(policy => policy.PolicyNumber == "COPY-1" && (policy.ClientId == sourceClientId || policy.ClientId == targetClientId)));
+        Assert.Equal(2, await db.ClientKycRecommendations.CountAsync(recommendation => recommendation.RecommendationType == "Review" && (recommendation.ClientId == sourceClientId || recommendation.ClientId == targetClientId)));
         Assert.True(await db.ClientKycPolicies.AnyAsync(policy => policy.ClientId == sourceClientId && policy.Id == policyId));
         Assert.True(await db.ClientKycPolicies.AnyAsync(policy => policy.ClientId == targetClientId && policy.PolicyNumber == "COPY-1"));
 
@@ -529,13 +534,16 @@ public sealed class ClientOperationsServiceTests(KcasWebApplicationFactory facto
         var service = scope.ServiceProvider.GetRequiredService<ClientOperationsService>();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
+        var administratorId = (await db.InvestmentAdministratorReferences.MaxAsync(x => (int?)x.LegacyLispId) ?? 0) + 1;
+        var productId = (await db.InvestmentProductTypeReferences.MaxAsync(x => (int?)x.LegacyCompanyProductId) ?? 0) + 1;
+        var fundId = (await db.InvestmentFundReferences.MaxAsync(x => (int?)x.LegacyFundNameId) ?? 0) + 1;
         db.InvestmentAdministratorReferences.AddRange(
-            new InvestmentAdministratorReference { LegacyLispId = 9001, Name = "Zeta Platform", IsCurrent = true },
-            new InvestmentAdministratorReference { LegacyLispId = 9002, Name = "Old Platform", IsCurrent = false });
-        db.InvestmentProductTypeReferences.Add(new InvestmentProductTypeReference { LegacyCompanyProductId = 9003, Name = "Living Annuity" });
+            new InvestmentAdministratorReference { LegacyLispId = administratorId, Name = "Zeta Platform", IsCurrent = true },
+            new InvestmentAdministratorReference { LegacyLispId = administratorId + 1, Name = "Old Platform", IsCurrent = false });
+        db.InvestmentProductTypeReferences.Add(new InvestmentProductTypeReference { LegacyCompanyProductId = productId, Name = "Living Annuity" });
         db.InvestmentFundReferences.AddRange(
-            new InvestmentFundReference { LegacyFundNameId = 9004, Name = "Balanced Fund", IsCurrent = true },
-            new InvestmentFundReference { LegacyFundNameId = 9005, Name = "Closed Fund", IsCurrent = false });
+            new InvestmentFundReference { LegacyFundNameId = fundId, Name = "Balanced Fund", IsCurrent = true },
+            new InvestmentFundReference { LegacyFundNameId = fundId + 1, Name = "Closed Fund", IsCurrent = false });
         await db.SaveChangesAsync();
 
         var options = await service.LoadInvestmentReferenceOptionsAsync();
@@ -554,16 +562,20 @@ public sealed class ClientOperationsServiceTests(KcasWebApplicationFactory facto
         var service = scope.ServiceProvider.GetRequiredService<ClientOperationsService>();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-        var mainClass = new KycMainClassReference { LegacyMainClassId = 9101, Name = "Equities" };
-        mainClass.SubClasses.Add(new KycSubClassReference { LegacySubClassId = 9102, LegacyMainClassId = 9101, Name = "Unit Trust" });
+        var mainId = (await db.KycMainClassReferences.MaxAsync(x => (int?)x.LegacyMainClassId) ?? 0) + 1;
+        var subId = (await db.KycSubClassReferences.MaxAsync(x => (int?)x.LegacySubClassId) ?? 0) + 1;
+        var administratorId = (await db.InvestmentAdministratorReferences.MaxAsync(x => (int?)x.LegacyLispId) ?? 0) + 1;
+        var fundId = (await db.InvestmentFundReferences.MaxAsync(x => (int?)x.LegacyFundNameId) ?? 0) + 1;
+        var mainClass = new KycMainClassReference { LegacyMainClassId = mainId, Name = "Equities" };
+        mainClass.SubClasses.Add(new KycSubClassReference { LegacySubClassId = subId, LegacyMainClassId = mainId, Name = "Unit Trust" });
         db.KycMainClassReferences.Add(mainClass);
-        db.InvestmentAdministratorReferences.Add(new InvestmentAdministratorReference { LegacyLispId = 9103, Name = "KYC Admin", IsCurrent = true });
-        db.InvestmentFundReferences.Add(new InvestmentFundReference { LegacyFundNameId = 9104, Name = "KYC Fund", IsCurrent = true });
+        db.InvestmentAdministratorReferences.Add(new InvestmentAdministratorReference { LegacyLispId = administratorId, Name = "KYC Admin", IsCurrent = true });
+        db.InvestmentFundReferences.Add(new InvestmentFundReference { LegacyFundNameId = fundId, Name = "KYC Fund", IsCurrent = true });
         await db.SaveChangesAsync();
 
         var options = await service.LoadKycReferenceOptionsAsync();
 
-        Assert.Contains(options.MainClasses, option => option.Name == "Equities" && option.LegacyMainClassId == 9101);
+        Assert.Contains(options.MainClasses, option => option.Name == "Equities" && option.LegacyMainClassId == mainId);
         Assert.Contains(options.SubClasses, option => option.Name == "Unit Trust" && option.MainClassName == "Equities");
         Assert.Contains("KYC Admin", options.Administrators);
         Assert.Contains("KYC Fund", options.Funds);

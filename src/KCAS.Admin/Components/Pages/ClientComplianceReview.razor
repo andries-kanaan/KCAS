@@ -23,6 +23,9 @@ else
             <p class="text-muted mb-0">Kanaan ID: @Display(model.KanaanId) · @model.ClientCategory</p>
         </div>
         <div class="header-actions">
+            <AuthorizeView Policy="@KcasPermissions.RiskAssessmentsView">
+                <Authorized><a class="btn btn-outline-primary" href="@($"/clients/{ClientId}/onboarding")">Client acceptance</a></Authorized>
+            </AuthorizeView>
             @if (!model.IsComplete)
             {
                 <a class="btn btn-primary" href="@model.NextAction.Url">@model.NextAction.Label</a>

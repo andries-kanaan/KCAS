@@ -1,8 +1,23 @@
 # Kanaan 2026 Policy Review Checkpoint
 
-Last updated: 2 October 2026.
+Last updated: 3 October 2026.
 
 ## Resume Here
+
+**Client acceptance / Codex handoff, 3 October 2026:** The current working pair is
+**BRA 1.5 / RMCP 1.9 KCAS Codex handoff**. The RMCP and three supporting policies
+now specify default KCAS/Codex preparation, a separate-session Compliance task,
+validation of substantive findings and one actual KI decision. Local implementation
+is at Client -> Client acceptance (`/clients/{id}/onboarding`); designated Compliance
+users see Awaiting Codex review tasks on Home. No folder scans or automatic Codex
+launches are added. Current checks and immutable decision snapshots protect acceptance;
+existing reviews are not reset and no real client acceptance was manufactured.
+Migration `20261003063950_AddClientOnboarding` is additive. Working drafts were
+rendered/checked; signed originals remain unchanged. Live deployment/policy approval,
+staff walkthrough and later mandate/submission/execution tracking remain outstanding.
+Follow `docs/KCAS_CLIENT_WORKFLOW_IMPLEMENTATION.md` and the eleventh pass in the
+private combined-minutes progress record. Older dated entries below remain history,
+not the current RMCP pointer.
 
 **Employee transfer follow-up, 2 October 2026:** Confidential Administrator-only
 employee packages are now implemented at `/compliance/employees/transfers`, linked

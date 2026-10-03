@@ -210,6 +210,7 @@ public sealed class ClientAdviceService(ApplicationDbContext db)
     public async Task ApproveAsync(int caseId, string? reviewer, string reason)
     {
         var item = await QueryCase().SingleAsync(value => value.Id == caseId);
+        await ClientOnboardingService.RequireAcceptedAsync(db, item.ClientId);
         if (item.Status != ClientAdviceStatuses.ReadyForReview) throw new InvalidOperationException("Only a case ready for review can be approved.");
         var user = User(reviewer);
         if (string.Equals(item.PreparedBy, user, StringComparison.OrdinalIgnoreCase))
@@ -325,6 +326,7 @@ public sealed class ClientAdviceService(ApplicationDbContext db)
     public async Task MarkIssuedAsync(int caseId, string? userName)
     {
         var item = await db.ClientAdviceCases.SingleAsync(value => value.Id == caseId);
+        await ClientOnboardingService.RequireAcceptedAsync(db, item.ClientId);
         if (item.Status != ClientAdviceStatuses.ApprovedForIssue) throw new InvalidOperationException("Approve the case before issuing it.");
         item.Status = ClientAdviceStatuses.Issued;
         item.IssuedAtUtc = DateTime.UtcNow;
@@ -554,6 +556,8 @@ public sealed class ClientAdviceService(ApplicationDbContext db)
     public async Task<byte[]> ExportPdfAsync(int caseId)
     {
         var item = await QueryCase().AsNoTracking().SingleAsync(value => value.Id == caseId);
+        if (item.Status == ClientAdviceStatuses.ApprovedForIssue)
+            await ClientOnboardingService.RequireAcceptedAsync(db, item.ClientId);
         if (item.Status is not (ClientAdviceStatuses.ApprovedForIssue or ClientAdviceStatuses.Issued or ClientAdviceStatuses.Complete or ClientAdviceStatuses.Superseded))
             throw new InvalidOperationException("Approve the advice case before generating the final record.");
         return BuildPdf(item, false, null);

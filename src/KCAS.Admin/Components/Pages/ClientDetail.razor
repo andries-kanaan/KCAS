@@ -30,6 +30,9 @@ else
                 <Authorized><a class="btn btn-primary" href="@($"/clients/{Id}/advice")">Advice</a></Authorized>
             </AuthorizeView>
             <a class="btn btn-primary" href="@($"/clients/{Id}/compliance-review")">@ComplianceReviewActionLabel</a>
+            <AuthorizeView Policy="@KcasPermissions.RiskAssessmentsView">
+                <Authorized><a class="btn btn-outline-primary" href="@($"/clients/{Id}/onboarding")">Client acceptance</a></Authorized>
+            </AuthorizeView>
             @if (client.ClientCategory is ClientCategories.Trust or ClientCategories.LegalPerson)
             {
                 <a class="btn btn-outline-secondary" href="@($"/clients/{Id}/ownership")">Ownership register</a>
