@@ -62,6 +62,12 @@ actually been implemented and verified.
    workflows/services, retaining performer **Codex**, actual source/search date and
    time, evidence links, sources/list versions, scope, findings and limitations.
    Preserve the separate authenticated saving/audit actor and original evidence.
+   The request can start before preparation fields are completed, including for an
+   existing client. Codex researches the service, representative, purpose/funds and
+   actual disclosure evidence from the folder and existing records, then records
+   supported preparation. Manual preparation entry is an available alternative.
+   The brief covers preparation gaps through validation and a KI-ready summary;
+   the actual authorised KI records the final acceptance decision.
 5. Stop progression through the affected business gate while the required result is
    missing or unresolved. Information collection and permitted internal preparation
    may continue. Acknowledging the task, saying "Codex done", uploading a file or
@@ -101,6 +107,13 @@ not approved replacement policies or evidence of live operation.
   displays preparation, findings, sources/performers/times, risk reasons, blockers,
   the Codex brief and decision history. Editing preparation is deliberate, on
   `/clients/{id}/onboarding/preparation`.
+- **Request Codex review** is available in the header and on the preparation page
+  before fields are filled in. For an existing client it deliberately starts the
+  acceptance workflow in the same request; a separate Start acceptance review and
+  manual Update preparation sequence is not required. The handoff includes intake
+  and check gaps, and research continues through to the KI-ready summary. After an
+  accepted review, a deliberate new review trigger is still required. Requesting
+  further work for the same unchanged pending scope reuses its task.
 - Saving a new client creates/reuses its scoped Codex request and visibly reports
   whether notification creation succeeded. Approved ComplianceAdministrator and
   ComplianceApprover recipients see **Awaiting Codex review** on Home. This is an
@@ -225,5 +238,9 @@ Read-only database inventory was run before this implementation and the additive
 - This pass's private backups, build manifest and structural/render verification are under `_kanaan/.work/inspection-transcripts/codex-handoff-source-backups`, `codex-handoff-build.json` and `codex-handoff-qa`. Do not commit private client material or synthetic browser credentials.
 - Application changes and an additive local/test migration were made on 3 October. No live deployment, real-client KI decision, policy approval or GitHub mutation was performed.
 - Final affected-feature run: 73 passed across onboarding, compliance risk, client operations, advice and review transfers. Repeat runs preserve the test database; fixed older fixture IDs were replaced with unique test identities, not database deletion. Transfer cases verify both an incoming acceptance-required flag and preservation of an existing live flag, without manufacturing decision history.
+- Same-day existing-client follow-up: eight onboarding tests passed after making
+  the request available before manual preparation and expanding its full-review
+  brief. An existing client with no preparation can request the work immediately;
+  an earlier pending brief refreshes without another task or a manufactured decision.
 - Desktop (1440px) and mobile (390px) browser checks use synthetic test users/clients only: summary, deliberate preparation, non-KI restriction, actual appointed KI decision and no page overflow. No real client record was accepted. Private screenshots/verification are under `_kanaan/.work/inspection-transcripts/client-onboarding-ui-qa`.
 - Standard `Restart-KCAS.ps1` completed with zero build warnings/errors and HTTP 200 on Kestrel/proxy login. Final inventory: the same three expected schemas, local/test 97 tables, no Review or unexpected Monitor item; no database deletion. The isolated QA host and temporary browser credential file were removed.

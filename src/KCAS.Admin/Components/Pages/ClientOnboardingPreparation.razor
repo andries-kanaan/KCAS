@@ -9,7 +9,10 @@
 @inject NavigationManager Navigation
 
 <PageTitle>Update client preparation - KCAS</PageTitle>
-<div class="page-header client-onboarding-header"><h1>Update client preparation</h1><a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/onboarding")">Back to acceptance</a></div>
+<div class="page-header client-onboarding-header"><h1>Update client preparation</h1><div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/onboarding")">Back to acceptance</a>
+    @if (canPrepare) { <button class="btn btn-outline-primary" disabled="@busy" @onclick="RequestAsync">Request Codex review</button> }
+</div></div>
 @if (error is not null) { <div class="alert alert-danger" role="alert">@error</div> }
 @if (canPrepare)
 {
@@ -60,6 +63,18 @@
         {
             edit.DisclosureDeliveredAtUtc = deliveredLocal?.ToUniversalTime();
             await Onboarding.SavePreparationAsync(ClientId, edit, reason, user);
+            Navigation.NavigateTo($"/clients/{ClientId}/onboarding");
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+    private async Task RequestAsync()
+    {
+        busy = true; error = null;
+        try
+        {
+            await Onboarding.RequestCodexAsync(ClientId,
+                string.IsNullOrWhiteSpace(reason) ? "Prepare client compliance and acceptance from the client folder and existing KCAS records." : reason, user);
             Navigation.NavigateTo($"/clients/{ClientId}/onboarding");
         }
         catch (Exception ex) { error = ex.Message; }

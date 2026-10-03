@@ -19,6 +19,12 @@ Follow `docs/KCAS_CLIENT_WORKFLOW_IMPLEMENTATION.md` and the eleventh pass in th
 private combined-minutes progress record. Older dated entries below remain history,
 not the current RMCP pointer.
 
+**Existing-client entry clarification, 3 October 2026:** Request Codex review can
+be the first action, before manual preparation. Its brief covers supported folder
+research, preparation, current checks, validation and the KI summary. The request
+starts an existing client's deliberate acceptance review and refreshes an unchanged
+pending brief without creating another task. The actual KI decision stays with the KI.
+
 **Employee transfer follow-up, 2 October 2026:** Confidential Administrator-only
 employee packages are now implemented at `/compliance/employees/transfers`, linked
 from the register and individual employee pages. One employee or a selected bundle
