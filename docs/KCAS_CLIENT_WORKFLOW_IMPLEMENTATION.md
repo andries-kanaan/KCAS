@@ -244,3 +244,63 @@ Read-only database inventory was run before this implementation and the additive
   an earlier pending brief refreshes without another task or a manufactured decision.
 - Desktop (1440px) and mobile (390px) browser checks use synthetic test users/clients only: summary, deliberate preparation, non-KI restriction, actual appointed KI decision and no page overflow. No real client record was accepted. Private screenshots/verification are under `_kanaan/.work/inspection-transcripts/client-onboarding-ui-qa`.
 - Standard `Restart-KCAS.ps1` completed with zero build warnings/errors and HTTP 200 on Kestrel/proxy login. Final inventory: the same three expected schemas, local/test 97 tables, no Review or unexpected Monitor item; no database deletion. The isolated QA host and temporary browser credential file were removed.
+
+## Document-Based Handoff Follow-Up (3 October 2026)
+
+- Retain the actual review performer separately from the authorising/audit user.
+  Codex document checks require an available actual file and retain its hash,
+  size and modification time; screening records retain their supporting file
+  fingerprint and are explicitly selected as current.
+- Result validation must check preparation as well as evidence/risk blockers.
+  Preserve substantive completion findings when a user repeats validation;
+  do not replace them with a generic completion message.
+- Historic signed acknowledgement dates can support an existing relationship.
+  Record the actual version, date-only precision and signatories; do not infer
+  an exact delivery time, unrecorded signatories or delivery of a later version.
+  The current schema's delivery timestamp needs a future explicit date-precision
+  field rather than representing every historic date as an exact event time.
+- Remaining design checks: subject matching currently depends on the client
+  display label rather than a canonical person identity. Non-party `Other`
+  subjects are excluded from the acceptance gate; distinguish actual relevant
+  joint holders/beneficiaries from incidental contacts before changing that rule.
+  Material-scope detection also treats initial preparation research as a scope
+  change; do not mistake that for a new client instruction.
+- The separate BRA-linked ML/TF/PF report is now implemented after the user's
+  explicit authorisation. It uses the working BRA's whole-number likelihood
+  times impact matrix, with four input reasons, implemented control evidence,
+  actual performer/time and limitations. It remains a proposed client linkage,
+  not an activated replacement for the formal client methodology or a KI decision.
+
+## Separate BRA-Linked Report (3 October 2026)
+
+- See `CLIENT_BRA_LINKED_RISK_REPORT.md` for the rule, source basis, service/UI
+  workflow and source/live transfer treatment. Existing formal client ratings
+  are unchanged; no automatic reduction follows from a completion label.
+- Read-only report: `/clients/{id}/risk/bra`; deliberate update:
+  `/clients/{id}/risk/bra/update`. Links are on the compliance-risk and client
+  acceptance pages. Each update adds a new immutable history record.
+- Changes to the current client checks make the prior report stale. Adding or
+  changing a report changes the KI decision snapshot; it does not impersonate
+  the authorised KI's decision. Impact reduction needs its own consequence-
+  limiting explanation, separate from likelihood-reducing controls.
+- Review transfer package version 4 includes the report and remaps its evidence
+  keys to live IDs. Versions 2 and 3 remain readable. Imported reports preserve
+  source provenance and explicitly require live context reconfirmation, not an
+  invented live clearance. Deploy the newer code on both systems first.
+- Migration `20261003121608_AddClientBraRiskReports` adds one report table and
+  its client/index relationships. Existing client/risk tables are not rebuilt;
+  signed BRA/RMCP files and methodology approval records are not changed.
+- Verification: the affected onboarding/risk/review-transfer run passed 48 tests,
+  including 16 report cases covering matrix bands, reasons, roles, stale context,
+  immutable history and source/live partial-transfer evidence remapping. Tests
+  preserve the existing dedicated test database; no schema was deleted.
+- Final broader run, including document-readiness regressions: **84 passed, zero
+  failed**. Report and deliberate-update pages were checked at 1440px and 390px
+  using a synthetic test client/user: all three rows present, no page overflow
+  and no browser errors. Private QA is under `.tmp/bra-browser`; the isolated
+  host was stopped and its temporary credential file removed.
+- The additive migration was applied locally. Standard `Restart-KCAS.ps1`
+  completed with zero warnings/errors and HTTP 200 on backend and proxy login.
+  Final read-only inventory: the same three expected schemas; local/test each
+  98 tables, no Review or unexpected Monitor entries. No live deployment,
+  signed-policy amendment, real-client KI acceptance or GitHub mutation occurred.

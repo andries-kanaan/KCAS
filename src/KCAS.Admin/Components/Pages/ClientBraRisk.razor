@@ -1,0 +1,98 @@
+@page "/clients/{ClientId:int}/risk/bra"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.RiskAssessmentsView)]
+@using KCAS.Admin.Data
+@inject ClientBraRiskReportService Reports
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IJSRuntime JS
+
+<PageTitle>ML / TF / PF risk report - KCAS</PageTitle>
+@if (error is not null) { <div class="alert alert-danger" role="alert">@error</div> }
+@if (model is not null)
+{
+    <div class="bra-risk-report">
+    <div class="page-header">
+        <div><p class="eyebrow">Kanaan ID @model.ClientReview.Client.KanaanId</p><h1>@model.ClientReview.Client.DisplayName</h1><p>ML / TF / PF risk report</p></div>
+        <div class="header-actions no-print">
+            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/risk")">Compliance risk</a>
+            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/onboarding")">Client acceptance</a>
+            @if (model.CanPrepare) { <a class="btn btn-primary" href="@($"/clients/{ClientId}/risk/bra/update")">Update proposal</a> }
+            @if (model.Report is not null) { <button class="btn btn-outline-secondary" @onclick="PrintAsync">Print report</button> }
+        </div>
+    </div>
+    <p class="alert alert-info">Proposed BRA-linked client judgements. Formal client rating: <strong>@(model.ClientReview.Assessment?.FinalRating ?? "Not finalised")</strong>, unchanged. This report is not methodology activation or a KI acceptance decision.</p>
+    @if (model.Report is not { } report)
+    {
+        <p>No supported ML / TF / PF proposal has been recorded for this client.</p>
+    }
+    else
+    {
+        var content = report.ReadContent();
+        <section class="work-area">
+            <h2>Review basis</h2>
+            <p><strong>@report.PerformedBy</strong> · @report.RecordedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm") · Recorded by: @report.RecordedBy</p>
+            <p><strong>BRA reference:</strong> @report.BraReference</p>
+            <p><strong>Scope:</strong> @content.Scope</p>
+            <p><strong>Review context:</strong> @(report.ImportPackageId is not null ? "Transferred source proposal; live review must reconfirm the context." : model.IsCurrent ? "Matches the current recorded client checks." : "Client checks have changed since this proposal. Review before relying on the residual judgements.")</p>
+            <p>Score = likelihood × impact. Inputs: 1–3. Bands: Low 1–2; Moderate 3–4; High 6–9.</p>
+            <div class="table-responsive">
+                <table class="table bra-comparison"><thead><tr><th>Risk</th><th>Before controls</th><th>After controls</th><th>Control effect</th></tr></thead><tbody>
+                @foreach (var row in content.Scenarios)
+                {
+                    <tr><th>@row.RiskType<br /><span class="fw-normal">@ClientBraRiskMethod.Display(row.RiskType)</span></th>
+                        <td><strong>@row.InherentLikelihood × @row.InherentImpact = @row.InherentScore</strong><br />@ClientBraRiskMethod.Rating(row.InherentScore)
+                            <div class="risk-track" role="img" aria-label="@($"Inherent {row.InherentScore} of 9")"><span class="@Band(row.InherentScore)" style="@Width(row.InherentScore)"></span></div></td>
+                        <td><strong>@row.ResidualLikelihood × @row.ResidualImpact = @row.ResidualScore</strong><br />@ClientBraRiskMethod.Rating(row.ResidualScore)
+                            <div class="risk-track" role="img" aria-label="@($"Residual {row.ResidualScore} of 9")"><span class="@Band(row.ResidualScore)" style="@Width(row.ResidualScore)"></span></div></td>
+                        <td>@(row.ResidualScore < row.InherentScore ? $"Reduced by {row.InherentScore - row.ResidualScore} points" : row.ResidualScore > row.InherentScore ? "Higher exposure remains" : "No numerical reduction")<br />@row.ControlsAndEffect</td></tr>
+                }
+                </tbody></table>
+            </div>
+        </section>
+        @foreach (var row in content.Scenarios)
+        {
+            <section class="work-area bra-scenario">
+                <h2>@row.RiskType: @ClientBraRiskMethod.Display(row.RiskType)</h2><p><strong>Same scenario before and after:</strong> @row.Scenario</p>
+                <dl class="bra-reasons">
+                    <dt>Before: likelihood @row.InherentLikelihood</dt><dd>@row.InherentLikelihoodReason</dd>
+                    <dt>Before: impact @row.InherentImpact</dt><dd>@row.InherentImpactReason</dd>
+                    <dt>After: likelihood @row.ResidualLikelihood</dt><dd>@row.ResidualLikelihoodReason</dd>
+                    <dt>After: impact @row.ResidualImpact</dt><dd>@row.ResidualImpactReason</dd>
+                </dl>
+                @if (!string.IsNullOrWhiteSpace(row.ImpactReductionJustification)) { <p><strong>Consequence-limiting basis:</strong> @row.ImpactReductionJustification</p> }
+                <h3>Mitigating evidence</h3>
+                @foreach (var item in row.Evidence)
+                {
+                    <div class="bra-evidence">
+                        <a href="@($"/client-evidence/items/{item.EvidenceItemId}/file")" target="_blank" rel="noopener">@item.Title</a>
+                        <p class="mb-1">@item.EvidenceType · @item.PerformedBy · @(item.CheckedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "Date held in the source record")</p>
+                        <p class="mb-0">@item.Findings</p>
+                    </div>
+                }
+            </section>
+        }
+        <section class="work-area"><h2>Limitations and follow-up</h2><p>@content.Limitations</p><p class="small text-break">Method: @report.MethodVersion · Record @report.Id · Client-check reference: @report.SourceContentHash</p></section>
+    }
+    @if (model.History.Count > 1)
+    {
+        <section class="work-area no-print"><h2>Report history</h2>
+            @foreach (var old in model.History) { <p><a href="@($"/clients/{ClientId}/risk/bra?reportId={old.Id}")">Record @old.Id</a> · @old.PerformedBy · @old.RecordedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</p> }
+        </section>
+    }
+    </div>
+}
+
+@code {
+    [Parameter] public int ClientId { get; set; }
+    [SupplyParameterFromQuery] public int? ReportId { get; set; }
+    private ClientBraRiskModel? model;
+    private string? error;
+    protected override async Task OnParametersSetAsync()
+    {
+        try { model = await Reports.LoadAsync(ClientId, (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User, ReportId); error = null; }
+        catch (Exception ex) { model = null; error = ex.Message; }
+    }
+    private Task PrintAsync() => JS.InvokeVoidAsync("window.print").AsTask();
+    private static string Band(int? score) => score >= 6 ? "high" : score >= 3 ? "moderate" : "low";
+    private static string Width(int? score) => $"width: {(score ?? 0) * 100 / 9}%";
+}

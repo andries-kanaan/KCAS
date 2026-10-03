@@ -1,0 +1,96 @@
+@page "/clients/{ClientId:int}/risk/bra/update"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.RiskAssessmentsPrepare)]
+@using KCAS.Admin.Data
+@using System.Security.Claims
+@using System.Text.Json
+@inject ClientBraRiskReportService Reports
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>Update ML / TF / PF proposal - KCAS</PageTitle>
+@if (!string.IsNullOrWhiteSpace(error)) { <div class="alert alert-danger" role="alert">@error</div> }
+@if (model is not null)
+{
+    <div class="bra-risk-update">
+    <div class="page-header"><div><h1>Update ML / TF / PF proposal</h1><p>@model.ClientReview.Client.DisplayName · Kanaan ID @model.ClientReview.Client.KanaanId</p></div><a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/risk/bra")">Back to report</a></div>
+    <section class="work-area">
+        <label class="form-label" for="braReference">Exact BRA document version and sections</label><textarea id="braReference" class="form-control" rows="2" @bind="edit.BraReference"></textarea>
+        <label class="form-label mt-2" for="braScope">Review scope</label><textarea id="braScope" class="form-control" rows="2" @bind="edit.Content.Scope"></textarea>
+        <p class="mt-2">Proposed client linkage: likelihood × impact, each 1–3. Low 1–2; Moderate 3–4; High 6–9. The formal client rating and methodology remain unchanged.</p>
+    </section>
+    @foreach (var row in edit.Content.Scenarios)
+    {
+        <section class="work-area">
+            <h2>@row.RiskType: @ClientBraRiskMethod.Display(row.RiskType)</h2>
+            <label class="form-label" for="@($"scenario-{row.RiskType}")">Same risk scenario before and after controls</label><textarea id="@($"scenario-{row.RiskType}")" class="form-control" rows="2" @bind="row.Scenario"></textarea>
+            <div class="row g-3 mt-1">
+                <div class="col-md-6"><h3>Before controls</h3>
+                    <label class="form-label" for="@($"il-{row.RiskType}")">Likelihood</label><input id="@($"il-{row.RiskType}")" type="number" min="1" max="3" step="1" class="form-control" @bind="row.InherentLikelihood" />
+                    <label class="form-label mt-2" for="@($"ilr-{row.RiskType}")">Likelihood reason</label><textarea id="@($"ilr-{row.RiskType}")" class="form-control" rows="3" @bind="row.InherentLikelihoodReason"></textarea>
+                    <label class="form-label mt-2" for="@($"ii-{row.RiskType}")">Impact</label><input id="@($"ii-{row.RiskType}")" type="number" min="1" max="3" step="1" class="form-control" @bind="row.InherentImpact" />
+                    <label class="form-label mt-2" for="@($"iir-{row.RiskType}")">Impact reason</label><textarea id="@($"iir-{row.RiskType}")" class="form-control" rows="3" @bind="row.InherentImpactReason"></textarea>
+                </div>
+                <div class="col-md-6"><h3>After controls</h3>
+                    <label class="form-label" for="@($"rl-{row.RiskType}")">Likelihood</label><input id="@($"rl-{row.RiskType}")" type="number" min="1" max="3" step="1" class="form-control" @bind="row.ResidualLikelihood" />
+                    <label class="form-label mt-2" for="@($"rlr-{row.RiskType}")">Likelihood reason</label><textarea id="@($"rlr-{row.RiskType}")" class="form-control" rows="3" @bind="row.ResidualLikelihoodReason"></textarea>
+                    <label class="form-label mt-2" for="@($"ri-{row.RiskType}")">Impact</label><input id="@($"ri-{row.RiskType}")" type="number" min="1" max="3" step="1" class="form-control" @bind="row.ResidualImpact" />
+                    <label class="form-label mt-2" for="@($"rir-{row.RiskType}")">Impact reason</label><textarea id="@($"rir-{row.RiskType}")" class="form-control" rows="3" @bind="row.ResidualImpactReason"></textarea>
+                </div>
+            </div>
+            <p class="mt-2">@row.InherentLikelihood × @row.InherentImpact = @(row.InherentScore?.ToString() ?? "Not assessed") → @row.ResidualLikelihood × @row.ResidualImpact = @(row.ResidualScore?.ToString() ?? "Not assessed")</p>
+            <label class="form-label" for="@($"controls-{row.RiskType}")">Implemented controls and their effect</label><textarea id="@($"controls-{row.RiskType}")" class="form-control" rows="3" @bind="row.ControlsAndEffect"></textarea>
+            @if (row.ResidualImpact < row.InherentImpact)
+            {
+                <label class="form-label mt-2" for="@($"impact-{row.RiskType}")">Separate consequence-limiting justification</label><textarea id="@($"impact-{row.RiskType}")" class="form-control" rows="3" @bind="row.ImpactReductionJustification"></textarea>
+            }
+            <h3 class="mt-3">Current control evidence</h3>
+            @foreach (var item in model.ClientReview.Evidence.EvidenceItems.Where(item => item.IsCurrentSelection && item.Status == ClientEvidenceStatuses.Verified))
+            {
+                <div class="form-check"><input id="@($"e-{row.RiskType}-{item.Id}")" class="form-check-input" type="checkbox" checked="@row.Evidence.Any(x => x.EvidenceItemId == item.Id)" @onchange="eventArgs => SelectEvidence(row, item.Id, eventArgs.Value is true)" />
+                    <label class="form-check-label text-break" for="@($"e-{row.RiskType}-{item.Id}")">@item.EvidenceType: @item.Title</label></div>
+            }
+        </section>
+    }
+    <section class="work-area">
+        <label class="form-label" for="braLimits">Limitations and follow-up</label><textarea id="braLimits" class="form-control" rows="3" @bind="edit.Content.Limitations"></textarea>
+        <p class="mt-2">Performed by: @user.Identity?.Name (manual review)</p>
+        <label class="form-label" for="braReason">Audit reason</label><textarea id="braReason" class="form-control" rows="2" @bind="reason"></textarea>
+        <button class="btn btn-primary mt-3" disabled="@busy" @onclick="SaveAsync">Record proposed judgements</button>
+    </section>
+    </div>
+}
+
+@code {
+    [Parameter] public int ClientId { get; set; }
+    private ClientBraRiskModel? model;
+    private ClientBraRiskEdit edit = new();
+    private ClaimsPrincipal user = new();
+    private string reason = "", error = "";
+    private bool busy;
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            user = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User;
+            model = await Reports.LoadAsync(ClientId, user);
+            if (!model.CanPrepare) throw new UnauthorizedAccessException("Risk preparation permission is required.");
+            edit = new() { PreviousReportId = model.History.FirstOrDefault()?.Id, SourceContentHash = model.ClientReview.ChecksContentHash,
+                BraReference = model.Report?.BraReference ?? "", Content = model.Report?.ReadContent() ?? new ClientBraRiskEdit().Content };
+            error = "";
+        }
+        catch (Exception ex) { model = null; error = ex.Message; }
+    }
+    private static void SelectEvidence(ClientBraRiskScenario row, int id, bool selected)
+    {
+        row.Evidence.RemoveAll(x => x.EvidenceItemId == id);
+        if (selected) row.Evidence.Add(new() { EvidenceItemId = id });
+    }
+    private async Task SaveAsync()
+    {
+        busy = true; error = "";
+        try { await Reports.RecordAsync(ClientId, edit, reason, user); Navigation.NavigateTo($"/clients/{ClientId}/risk/bra"); }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+}

@@ -58,9 +58,10 @@ public sealed class ClientOnboardingServiceTests(KcasWebApplicationFactory facto
         Assert.Empty(page.IntakeBlockers);
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.DecideAsync(id, page.ContentHash, "Accepted", "Not a KI", actor));
         await Assert.ThrowsAsync<ValidationException>(() => service.DecideAsync(id, page.ContentHash, "Accepted", "Premature", ki));
-        await service.ValidateRecordedResultsAsync(id, actor);
+        await service.ValidateRecordedResultsAsync(id, actor, "Supported synthetic review findings; actual KI decision remains pending.");
         var ready = await service.LoadAsync(id, ki);
         Assert.Equal("Ready for KI decision", ready.Status);
+        Assert.Equal("Supported synthetic review findings; actual KI decision remains pending.", ready.Request!.CompletionSummary);
         var evidence = await db.ClientEvidenceItems.FirstAsync(x => x.ClientId == id && x.EvidenceType == "PepPip");
         evidence.Notes += " Updated source interpretation.";
         await db.SaveChangesAsync();
@@ -69,6 +70,7 @@ public sealed class ClientOnboardingServiceTests(KcasWebApplicationFactory facto
         await Assert.ThrowsAsync<ValidationException>(() => service.DecideAsync(id, changed.ContentHash, "Accepted", "Results need revalidation", ki));
         await service.ValidateRecordedResultsAsync(id, actor);
         ready = await service.LoadAsync(id, ki);
+        Assert.Equal("Supported synthetic review findings; actual KI decision remains pending.", ready.Request!.CompletionSummary);
         await service.DecideAsync(id, ready.ContentHash, "Accepted", "Reviewed supported checks and proposed service", ki);
         Assert.True((await service.LoadAsync(id, ki)).IsAccepted);
         await ClientOnboardingService.RequireAcceptedAsync(db, id);
@@ -81,6 +83,23 @@ public sealed class ClientOnboardingServiceTests(KcasWebApplicationFactory facto
         await db.SaveChangesAsync();
         Assert.False((await service.LoadAsync(id, ki)).IsAccepted);
         await Assert.ThrowsAsync<ValidationException>(() => ClientOnboardingService.RequireAcceptedAsync(db, id));
+    }
+
+    [Fact]
+    public async Task Validated_check_results_do_not_close_handoff_while_disclosure_preparation_is_missing()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = scope.ServiceProvider.GetRequiredService<ClientOnboardingService>();
+        var actor = await ActorAsync(scope, KcasRoles.Administrator, KcasRoles.ComplianceAdministrator);
+        var id = await ReadyAsync(scope, actor);
+        var profile = await db.ClientOnboardingProfiles.SingleAsync(x => x.ClientId == id);
+        profile.DisclosureDeliveredAtUtc = null;
+        await db.SaveChangesAsync();
+        await service.RequestCodexAsync(id, "Research outstanding disclosures", actor);
+        var error = await Assert.ThrowsAsync<ValidationException>(() => service.ValidateRecordedResultsAsync(id, actor));
+        Assert.Contains("disclosures", error.Message);
+        Assert.Equal("AwaitingCodex", (await service.LoadAsync(id, actor)).Request!.Status);
     }
 
     [Fact]
@@ -273,7 +292,7 @@ public sealed class ClientOnboardingServiceTests(KcasWebApplicationFactory facto
         finally { if (File.Exists(path)) File.Delete(path); }
     }
 
-    private static async Task<ClaimsPrincipal> ActorAsync(IServiceScope scope, params string[] roles)
+    internal static async Task<ClaimsPrincipal> ActorAsync(IServiceScope scope, params string[] roles)
     {
         var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         var email = "onboarding-test-" + Guid.NewGuid().ToString("N") + "@example.test";
@@ -283,7 +302,7 @@ public sealed class ClientOnboardingServiceTests(KcasWebApplicationFactory facto
         return new(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, user.Id), new Claim(ClaimTypes.Name, email)], "Test"));
     }
 
-    private static async Task<int> ReadyAsync(IServiceScope scope, ClaimsPrincipal actor)
+    internal static async Task<int> ReadyAsync(IServiceScope scope, ClaimsPrincipal actor)
     {
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var evidence = scope.ServiceProvider.GetRequiredService<ClientEvidenceReadinessService>();

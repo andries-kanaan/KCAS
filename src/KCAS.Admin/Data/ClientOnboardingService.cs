@@ -101,18 +101,20 @@ public sealed class ClientOnboardingService(IDbContextFactory<ApplicationDbConte
             Audit(db, clientId, "CodexReviewRequested", actor, Required(reason, "Reason"), new { model.MaterialHash, Recipients = recipients });
         });
 
-    public async Task ValidateRecordedResultsAsync(int clientId, ClaimsPrincipal principal)
+    public async Task ValidateRecordedResultsAsync(int clientId, ClaimsPrincipal principal, string? completionSummary = null)
         => await WriteAsync(clientId, principal, async (db, actor, model) =>
         {
             await RequirePrepareAsync(db, actor.Id);
             var request = model.Request ?? throw new ValidationException("No Codex handoff is recorded.");
             if (request.Status is not ("AwaitingCodex" or "ResultsRecorded")) throw new ValidationException("Request a current review before validating results.");
             if (request.MaterialHash != model.MaterialHash) throw new ValidationException("The client or requested scope changed. Request a fresh Codex review.");
-            if (model.CheckBlockers.Count > 0) throw new ValidationException(string.Join(" ", model.CheckBlockers));
+            if (!model.IsReady) throw new ValidationException(string.Join(" ", model.IntakeBlockers.Concat(model.CheckBlockers)));
             request.Status = "ResultsRecorded";
             request.CompletedAtUtc = DateTime.UtcNow;
             request.CompletedContentHash = model.ContentHash;
-            request.CompletionSummary = "Current evidence and assessment prerequisites validated; KI decision remains separate.";
+            request.CompletionSummary = completionSummary is null
+                ? request.CompletionSummary ?? "Current evidence and assessment prerequisites validated; KI decision remains separate."
+                : Required(completionSummary, "Review findings");
             request.Task.Status = ComplianceStatuses.Closed;
             request.Task.ClosedAtUtc = DateTime.UtcNow;
             request.Task.ClosedBy = actor.Email ?? actor.UserName;
@@ -319,6 +321,11 @@ public sealed class ClientOnboardingService(IDbContextFactory<ApplicationDbConte
             Exceptions = await db.ClientEvidenceExceptions.AsNoTracking().Where(x => x.ClientId == clientId && x.IsActive).OrderBy(x => x.Id).Select(x => new { x.Id, x.Reason, x.ReviewDate, x.ApprovedAtUtc }).ToListAsync(),
             Files = storedEvidence.Select(x => new { x.Id, x.SourcePath, x.FileSha256, x.FileSizeBytes, x.ClientRelatedPartyId }),
             model.CheckBlockers, model.IntakeBlockers });
+        model.ChecksContentHash = model.ContentHash;
+        model.BraRiskReport = await db.ClientBraRiskReports.AsNoTracking().Where(x => x.ClientId == clientId).OrderByDescending(x => x.Id).FirstOrDefaultAsync();
+        if (model.BraRiskReport is { } braReport)
+            model.ContentHash = Hash(new { model.ChecksContentHash, braReport.Id, braReport.ContentJson, braReport.BraReference,
+                braReport.MethodVersion, braReport.SourceContentHash, braReport.ImportPackageId, braReport.PerformedBy, braReport.RecordedAtUtc });
         return model;
     }
 
@@ -328,6 +335,7 @@ public sealed class ClientOnboardingService(IDbContextFactory<ApplicationDbConte
         "Prepare the review from the first outstanding step through to a KI-ready summary. Read the actual client folder, correspondence, mandates, advice and existing KCAS records. Identify and record the requested service, responsible representative, purpose/funds, actual disclosure version/delivery evidence and applicable enhanced measures where supported. Missing preparation is part of this Codex task; do not require manual entry before beginning. Retain genuine gaps for confirmation; do not invent dates or claim delivery from an unsigned template.\n" +
         "Read the actual evidence; complete current client and applicable-party screening, CDD and supported risk-factor answers. Reuse valid records; do not scan folders or invent results.\n" +
         "Preserve an existing client's lifecycle, supported reviews and history; distinguish historical relationship evidence from a new client instruction.\n" +
+        "Prepare a separate BRA-linked ML/TF/PF proposal where supported: same scenario before and after controls, likelihood and impact 1-3 with reasons, actual mitigating evidence and limitations. Use ClientBraRiskReportService; do not automatically lower risk or replace the formal client rating. A missing proposal is not a fabricated clearance.\n" +
         string.Join("\n", model.Evidence.ScreeningSubjects.Select(x => $"Screen: {x.Label}.")) + "\n" +
         "Preparation gaps:\n" + string.Join("\n", model.IntakeBlockers) + "\nCheck gaps:\n" + string.Join("\n", model.CheckBlockers) + "\n" +
         "Save actual findings, evidence links, Codex performer, sources/list versions, actual date/time and limitations through authorised KCAS services. Refresh the scoped request if preparation reveals a material service/party change. Validate recorded results in the onboarding page and prepare the substantive KI summary. Report only remaining unsupported facts or decisions. The authorised KI records acceptance; do not impersonate that decision.";
@@ -338,7 +346,7 @@ public sealed class ClientOnboardingService(IDbContextFactory<ApplicationDbConte
             model.Profile.DisclosureDeliveredAtUtc, model.Profile.DisclosureDeliveryReference, model.Profile.EnhancedMeasures },
         model.MaterialHash, model.ContentHash,
         Assessment = model.Assessment is null ? null : new { model.Assessment.Id, model.Assessment.FinalRating, model.Assessment.RequiresEdd, model.Assessment.Narrative, Responses = model.Assessment.Responses.Select(x => new { x.RiskFactorDefinitionId, x.Explanation, x.ClientEvidenceItemId, x.ConfirmedBy, x.ConfirmedAtUtc }) },
-        model.Evidence.Requirements, model.Evidence.ScreeningSubjects, model.Evidence.EvidenceItems, model.CheckBlockers, model.IntakeBlockers }, Json);
+        model.BraRiskReport, model.Evidence.Requirements, model.Evidence.ScreeningSubjects, model.Evidence.EvidenceItems, model.CheckBlockers, model.IntakeBlockers }, Json);
     private static string Hash(object value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value, FingerprintJson))));
     // MySQL datetime(6) has no timezone and stores microseconds; both sides must hash identically.
     private sealed class DatabaseTimestampConverter : JsonConverter<DateTime>
