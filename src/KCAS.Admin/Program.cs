@@ -79,6 +79,7 @@ builder.Services.AddScoped(provider =>
     new ClientSearchService(provider.GetRequiredService<IDbContextFactory<ApplicationDbContext>>()));
 builder.Services.AddScoped<ClientCodeGenerator>();
 builder.Services.AddScoped<ClientOperationsService>();
+builder.Services.AddScoped<ClientOnboardingService>();
 builder.Services.AddScoped<ClientVisibilityService>();
 builder.Services.AddScoped<InvestmentSummaryService>();
 builder.Services.AddScoped<InvestmentReconciliationService>();

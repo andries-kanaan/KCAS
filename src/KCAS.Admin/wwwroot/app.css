@@ -1504,3 +1504,16 @@ h1:focus {
 .employee-transfer-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
 .employee-transfer-fields label { min-width: 0; }
 @media (max-width: 600px) { .employee-transfer-fields { grid-template-columns: minmax(0, 1fr); } }
+
+.client-onboarding-header { flex-wrap: wrap; gap: 1rem; }
+.client-onboarding-header > div, .client-onboarding-header h1 { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.client-onboarding-header > div:first-child { flex: 1 1 22rem; }
+.client-onboarding-details dd { overflow-wrap: anywhere; }
+@media (max-width: 575px) {
+    .client-onboarding-findings, .client-onboarding-findings tbody,
+    .client-onboarding-findings tr, .client-onboarding-findings td { display: block; width: 100%; }
+    .client-onboarding-findings thead { display: none; }
+    .client-onboarding-findings tr { border-bottom: 1px solid #dde3e0; padding: 0.75rem 0; }
+    .client-onboarding-findings td { border: 0; overflow-wrap: anywhere; }
+    .client-onboarding-findings td:first-child { font-weight: 600; }
+}

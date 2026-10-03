@@ -7,6 +7,7 @@
 @using KCAS.Admin.Security
 @using Microsoft.AspNetCore.Components.Authorization
 @inject ClientOperationsService ClientOperations
+@inject ClientOnboardingService Onboarding
 @inject NavigationManager Navigation
 @inject AuthenticationStateProvider AuthenticationStateProvider
 
@@ -208,6 +209,18 @@
             var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
             model.UpdatedBy = authState.User.Identity?.Name;
             var clientId = await ClientOperations.SaveClientAsync(model, isAdministrator);
+            if (Id is null)
+            {
+                model.Id = clientId;
+                try { await Onboarding.RequestCodexAsync(clientId, "Initial review for a saved prospect; record enquiry scope before completing checks.", authState.User); }
+                catch (Exception ex)
+                {
+                    statusMessage = $"Client saved. Codex notification could not be created: {ex.Message} Open client acceptance to retry.";
+                    return;
+                }
+                Navigation.NavigateTo($"/clients/{clientId}/onboarding");
+                return;
+            }
             Navigation.NavigateTo(Id is null
                 ? $"/clients/{clientId}?complianceReviewNotification=created"
                 : $"/clients/{clientId}");

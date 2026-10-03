@@ -8,6 +8,9 @@ namespace KCAS.Admin.Data;
 public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : IdentityDbContext<ApplicationUser, IdentityRole, string>(options)
 {
     public DbSet<EmployeeProfile> EmployeeProfiles => Set<EmployeeProfile>();
+    public DbSet<ClientOnboardingProfile> ClientOnboardingProfiles => Set<ClientOnboardingProfile>();
+    public DbSet<ClientCodexReviewRequest> ClientCodexReviewRequests => Set<ClientCodexReviewRequest>();
+    public DbSet<ClientAcceptanceDecision> ClientAcceptanceDecisions => Set<ClientAcceptanceDecision>();
     public DbSet<EmployeeTransferRecord> EmployeeTransferRecords => Set<EmployeeTransferRecord>();
     public DbSet<EmployeeAccountLink> EmployeeAccountLinks => Set<EmployeeAccountLink>();
     public DbSet<EmployeeComplianceReview> EmployeeComplianceReviews => Set<EmployeeComplianceReview>();
@@ -99,6 +102,23 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     {
         base.OnModelCreating(builder);
         EmployeeComplianceModel.Configure(builder);
+        builder.Entity<ClientOnboardingProfile>(entity =>
+        {
+            entity.HasKey(x => x.ClientId);
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne(x => x.Client).WithOne().HasForeignKey<ClientOnboardingProfile>(x => x.ClientId).OnDelete(DeleteBehavior.Restrict);
+        });
+        builder.Entity<ClientCodexReviewRequest>(entity =>
+        {
+            entity.HasIndex(x => new { x.ClientId, x.Status });
+            entity.HasOne(x => x.Client).WithMany().HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.Task).WithMany().HasForeignKey(x => x.ComplianceTaskId).OnDelete(DeleteBehavior.Restrict);
+        });
+        builder.Entity<ClientAcceptanceDecision>(entity =>
+        {
+            entity.HasIndex(x => new { x.ClientId, x.DecidedAtUtc });
+            entity.HasOne(x => x.Client).WithMany().HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Restrict);
+        });
 
         builder.Entity<ClientAdviceCase>(entity =>
         {

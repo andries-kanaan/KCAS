@@ -1,0 +1,137 @@
+@page "/clients/{ClientId:int}/onboarding"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.RiskAssessmentsView)]
+@using System.Security.Claims
+@using KCAS.Admin.Data
+@using KCAS.Admin.Security
+@inject ClientOnboardingService Onboarding
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Client acceptance - KCAS</PageTitle>
+@if (error is not null) { <div class="alert alert-danger" role="alert">@error</div> }
+@if (message is not null) { <div class="alert alert-success" role="status">@message</div> }
+@if (model is not null)
+{
+    <div class="page-header client-onboarding-header">
+        <div><p class="eyebrow">Kanaan ID @model.Client.KanaanId</p><h1>@model.Client.DisplayName</h1><p>Client acceptance: <strong>@model.Status</strong></p></div>
+        <div class="d-flex flex-wrap gap-2">
+            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}")">Client</a>
+            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/evidence")">Evidence and screening</a>
+            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/risk")">Compliance risk</a>
+            @if (model.CanPrepare && !model.IsAccepted) { <a class="btn btn-primary" href="@($"/clients/{ClientId}/onboarding/preparation")">Update preparation</a> }
+        </div>
+    </div>
+    @if (model.Request is { Status: "AwaitingCodex" } notice)
+    {
+        <div class="alert alert-info" role="status">Codex review task recorded: @notice.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm"). Available on the designated Compliance users' home page. No email sent.</div>
+    }
+    <section class="work-area">
+        <h2>Enquiry and disclosures</h2>
+        <dl class="row client-onboarding-details">
+            <dt class="col-sm-3">Requested service</dt><dd class="col-sm-9">@(model.Profile?.RequestedService ?? "Not recorded")</dd>
+            <dt class="col-sm-3">Responsible representative</dt><dd class="col-sm-9">@(model.Profile?.ResponsibleRepresentative ?? "Not recorded")</dd>
+            <dt class="col-sm-3">Purpose and proposed funds</dt><dd class="col-sm-9">@(model.Profile?.PurposeAndProposedFunds ?? "Not recorded")</dd>
+            <dt class="col-sm-3">Disclosures</dt><dd class="col-sm-9">@model.Profile?.DisclosureVersion · @(model.Profile?.DisclosureDeliveredAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "Not delivered") · @model.Profile?.DisclosureDeliveryReference</dd>
+            <dt class="col-sm-3">Enhanced measures</dt><dd class="col-sm-9">@(model.Profile?.EnhancedMeasures ?? "Not recorded")</dd>
+            <dt class="col-sm-3">Evidence folder</dt><dd class="col-sm-9 text-break">@(model.Client.ClientFolder ?? "Not recorded")</dd>
+        </dl>
+        @foreach (var blocker in model.IntakeBlockers) { <p class="text-danger">@blocker</p> }
+    </section>
+    <section class="work-area">
+        <h2>Screening and evidence findings</h2>
+        <div class="table-responsive">
+            <table class="table align-middle client-onboarding-findings"><thead><tr><th>Required check</th><th>Finding</th><th>Performed by / recorded</th><th>Evidence and details</th></tr></thead><tbody>
+            @foreach (var requirement in model.Evidence.Requirements.OrderBy(x => x.EvidenceType is "PepPip" or "SanctionsTfs" or "AdverseInformation" ? 0 : 1))
+            {
+                <tr><td>@requirement.Title</td><td>@(requirement.IsBlocked ? "Action required" : requirement.IsExceptioned ? "Supported exception" : requirement.IsComplete ? "Complete" : "Not recorded") @requirement.ExceptionReason</td>
+                    <td>@requirement.CompletedBy @(requirement.CompletedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm"))</td>
+                    <td>
+                        @foreach (var item in requirement.Items.Where(x => x.IsCurrentSelection))
+                        {
+                            <div class="mb-2 text-break">
+                                @if (item.CanOpen) { <a href="@item.FileUrl" target="_blank" rel="noopener">@item.Title</a> } else { <strong>@item.Title</strong> }
+                                <div>@item.ScreeningSubjectName @item.ScreeningOutcome</div><div>@item.Notes</div>
+                                @if (item.ScreeningReviewedAtUtc is not null) { <div class="small">@item.ScreeningPerformedBy · @item.ScreeningReviewedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") · @item.ScreeningSources</div> }
+                            </div>
+                        }
+                    </td>
+                </tr>
+            }
+            </tbody></table>
+        </div>
+        @foreach (var blocker in model.CheckBlockers.Distinct()) { <p class="text-danger">@blocker</p> }
+    </section>
+    <section class="work-area">
+        <h2>Compliance risk and recommendation</h2>
+        @if (model.Assessment is { } assessment)
+        {
+            <p>Assessment @assessment.Id: <strong>@assessment.FinalRating</strong> · @assessment.Status · Next review: @assessment.NextReviewDate?.ToString("yyyy-MM-dd")</p>
+            <p>@assessment.Narrative</p>
+            @foreach (var response in assessment.Responses) { <p><strong>@response.SelectedOption?.Label:</strong> @response.Explanation</p> }
+        }
+        <p>@(model.IsReady ? "Required preparation is supported. The authorised KI decides acceptance." : "Resolve the listed preparation and check gaps before acceptance.")</p>
+    </section>
+    @if (model.Request is { } request)
+    {
+        <section class="work-area">
+            <h2>Codex handoff</h2><p>@request.Status · Requested: @request.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</p>
+            <textarea class="form-control" rows="10" readonly aria-label="Codex task brief">@request.Brief</textarea>
+            @if (model.CanPrepare && request.Status is "AwaitingCodex" or "ResultsRecorded")
+            {
+                <button class="btn btn-outline-primary mt-3" disabled="@(busy || model.CheckBlockers.Count > 0)" @onclick="ValidateAsync">Validate recorded results</button>
+            }
+            @if (request.CompletedAtUtc is not null) { <p class="mt-2">Validated: @request.CompletedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") · @request.CompletionSummary</p> }
+        </section>
+    }
+    @if (model.CanPrepare && !model.IsAccepted)
+    {
+        <section class="work-area">
+            <h2>Request required Codex work</h2>
+            <label class="form-label" for="handoffReason">Scope / reason</label><textarea id="handoffReason" class="form-control" rows="3" @bind="reason"></textarea>
+            <button class="btn btn-outline-primary mt-3" disabled="@busy" @onclick="RequestAsync">Request Codex review</button>
+        </section>
+    }
+    @if (model.CanDecide && model.Client.RequiresClientAcceptance && !model.IsAccepted)
+    {
+        <section class="work-area">
+            <h2>Key Individual decision</h2>
+            <label class="form-label" for="acceptanceDecision">Decision</label>
+            <select id="acceptanceDecision" class="form-select" @bind="decision"><option value="Accepted">Accept</option><option value="ReturnForClarification">Return for clarification</option><option value="Declined">Decline</option></select>
+            <label class="form-label mt-2" for="decisionReason">Decision reasons and conditions</label><textarea id="decisionReason" class="form-control" rows="3" @bind="decisionReason"></textarea>
+            <button class="btn btn-primary mt-3" disabled="@(busy || decision == "Accepted" && (!model.IsReady || model.Request?.Status == "AwaitingCodex"))" @onclick="DecideAsync">Record KI decision</button>
+        </section>
+    }
+    @if (model.CanPrepare && (model.IsAccepted || !model.Client.RequiresClientAcceptance))
+    {
+        <section class="work-area"><h2>New acceptance review</h2><label for="freshReason" class="form-label">Trigger / reason</label><textarea id="freshReason" class="form-control" @bind="reason"></textarea><button class="btn btn-outline-secondary mt-3" disabled="@busy" @onclick="FreshAsync">Start acceptance review</button></section>
+    }
+    <section class="work-area"><h2>Decision history</h2>
+        @foreach (var record in model.Decisions) { <p><strong>@record.Decision</strong> · @record.DecidedBy · @record.DecidedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")<br />@record.Reason</p> }
+        @if (model.Decisions.Count == 0) { <p>No acceptance decision recorded.</p> }
+    </section>
+}
+
+@code {
+    [Parameter] public int ClientId { get; set; }
+    private ClientOnboardingModel? model;
+    private ClaimsPrincipal user = new();
+    private string? error, message;
+    private string reason = "", decisionReason = "", decision = "Accepted";
+    private bool busy;
+    protected override async Task OnParametersSetAsync()
+    {
+        user = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User;
+        try { model = await Onboarding.LoadAsync(ClientId, user); } catch (Exception ex) { model = null; error = ex.Message; }
+    }
+    private async Task RunAsync(Func<Task> action, string success)
+    {
+        busy = true; error = null; message = null;
+        try { await action(); model = await Onboarding.LoadAsync(ClientId, user); message = success; }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+    private Task RequestAsync() => RunAsync(() => Onboarding.RequestCodexAsync(ClientId, reason, user), "Codex review task recorded for the designated Compliance users. No email sent.");
+    private Task ValidateAsync() => RunAsync(() => Onboarding.ValidateRecordedResultsAsync(ClientId, user), "Current recorded check results validated. KI acceptance remains a separate decision.");
+    private Task DecideAsync() => RunAsync(() => Onboarding.DecideAsync(ClientId, model!.ContentHash, decision, decisionReason, user), "KI decision recorded.");
+    private Task FreshAsync() => RunAsync(() => Onboarding.StartFreshReviewAsync(ClientId, reason, user), "Acceptance review opened; previous records retained.");
+}

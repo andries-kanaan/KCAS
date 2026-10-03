@@ -8,8 +8,11 @@ namespace KCAS.Admin.Tests;
 [Collection(KcasTestCollection.Name)]
 public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory factory)
 {
-    [Fact]
-    public async Task Partial_review_import_preserves_draft_assessment_status()
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task Partial_review_import_preserves_draft_assessment_status_and_acceptance_gate(bool sourceRequiresAcceptance, bool liveRequiresAcceptance)
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -30,10 +33,11 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         }
         var client = new Client
         {
-            LegacyClientId = Random.Shared.Next(900000, 990000),
+            LegacyClientId = await NextLegacyClientIdAsync(db),
             KanaanId = $"DRAFT-{Guid.NewGuid():N}"[..24],
             DisplayName = "Draft transfer client",
             SurnameOrEntityName = "Draft transfer client",
+            RequiresClientAcceptance = sourceRequiresAcceptance,
             ClientCategory = ClientCategories.NaturalPerson,
             LifecycleStatus = ClientLifecycleStatuses.Historical,
             LifecycleReason = "Historical client review in progress.",
@@ -59,6 +63,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
             "reviewer@example.test", "Transfer draft work.", includePartial: true);
         var encrypted = await File.ReadAllBytesAsync(export.StoragePath);
         db.ClientRiskAssessments.Remove(draft);
+        client.RequiresClientAcceptance = liveRequiresAcceptance;
         client.LifecycleStatus = ClientLifecycleStatuses.Unreviewed;
         client.LifecycleReason = null;
         client.LifecycleReviewedAtUtc = null;
@@ -68,6 +73,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         var preview = await service.PreviewAsync(encrypted, passphrase);
         Assert.True(preview.CanApply, string.Join("; ", preview.Conflicts));
         Assert.Equal(ClientRiskAssessmentStatuses.Draft, preview.Package.Assessment?.Status);
+        Assert.Equal(sourceRequiresAcceptance, preview.Package.Client.RequiresClientAcceptance);
         var imported = await service.ApplyAsync(encrypted, passphrase,
             "reviewer@example.test", "Apply draft work.");
         Assert.NotNull(imported.AssessmentId);
@@ -75,6 +81,9 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
             .SingleAsync(item => item.ClientId == client.Id);
         Assert.Equal(ClientRiskAssessmentStatuses.Draft, liveAssessment.Status);
         Assert.Null(liveAssessment.FinalisedAtUtc);
+        Assert.Equal(sourceRequiresAcceptance || liveRequiresAcceptance,
+            (await db.Clients.AsNoTracking().SingleAsync(x => x.Id == client.Id)).RequiresClientAcceptance);
+        Assert.False(await db.ClientAcceptanceDecisions.AnyAsync(x => x.ClientId == client.Id));
     }
 
     [Fact]
@@ -85,7 +94,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         var service = scope.ServiceProvider.GetRequiredService<ClientReviewTransferService>();
         var familyService = scope.ServiceProvider.GetRequiredService<ClientReviewFamilyTransferService>();
         var investmentService = scope.ServiceProvider.GetRequiredService<InvestmentReconciliationService>();
-        var legacyId = Random.Shared.Next(700000, 900000);
+        var legacyId = await NextLegacyClientIdAsync(db);
         var familyId = $"PARTIAL-{Guid.NewGuid():N}"[..24];
         var sourceFolder = $@"C:\Download\_kanaan\ClientsKanaan\MISSING-{Guid.NewGuid():N}";
         var clients = new[]
@@ -250,7 +259,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
             .ToListAsync();
         var client = new Client
         {
-            LegacyClientId = 99123,
+            LegacyClientId = await NextLegacyClientIdAsync(db),
             KanaanId = "TRANSFER-99123",
             DisplayName = "Transfer Pilot",
             SurnameOrEntityName = "Transfer / Pilot: Unsafe?",
@@ -516,7 +525,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         var today = DateOnly.FromDateTime(DateTime.Today);
         var client = new Client
         {
-            LegacyClientId = 99124,
+            LegacyClientId = await NextLegacyClientIdAsync(db),
             KanaanId = "TRANSFER-FOLDER-99124",
             DisplayName = "Wilna Folder Transfer",
             SurnameOrEntityName = "Enslin",
@@ -619,7 +628,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         var today = DateOnly.FromDateTime(DateTime.Today);
         var client = new Client
         {
-            LegacyClientId = 99125,
+            LegacyClientId = await NextLegacyClientIdAsync(db),
             KanaanId = "TRANSFER-MISSING-ACCOUNT",
             DisplayName = "Missing Current Account Transfer",
             SurnameOrEntityName = "Missing Current Account Transfer",
@@ -671,7 +680,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         }
         client.FundValuations.Add(new ClientFundValuation
         {
-            LegacyFundId = -9912501,
+            LegacyFundId = Math.Min(await db.ClientFundValuations.MinAsync(x => (int?)x.LegacyFundId) ?? 0, 0) - 10,
             InvestmentUniqueNumber = "RRA5057319",
             Administrator = "AIMS, ABSA",
             FundName = "Compulsory SA",
@@ -756,11 +765,11 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         var compliance = scope.ServiceProvider.GetRequiredService<ComplianceService>();
         var investmentService = new InvestmentReconciliationService(db);
         var isContinuation = outcome == ClientInvestmentReconciliationOutcomes.DuplicateContinuation;
-        var sourceLegacyClientId = isContinuation ? 99128 : 99126;
-        var relatedLegacyClientId = isContinuation ? 99129 : 99127;
-        var sourceLegacyAccountId = isContinuation ? 9912801 : 9912601;
-        var relatedLegacyAccountId = isContinuation ? 9912901 : 9912701;
-        var transactionLegacyId = isContinuation ? 9912802 : 9912602;
+        var sourceLegacyClientId = await NextLegacyClientIdAsync(db);
+        var relatedLegacyClientId = sourceLegacyClientId + 1;
+        var sourceLegacyAccountId = (await db.ClientInvestmentAccounts.MaxAsync(x => x.LegacyInvestmentAccountId) ?? 0) + 10;
+        var relatedLegacyAccountId = sourceLegacyAccountId + 1;
+        var transactionLegacyId = (await db.ClientInvestmentTransactions.MaxAsync(x => x.LegacyInvestmentHistoryId) ?? 0) + 10;
         await readinessService.LoadDashboardAsync();
         var methodology = await db.RiskMethodologyVersions
             .Include(item => item.Factors).ThenInclude(item => item.Options)
@@ -990,8 +999,8 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
 
         var client = new Client
         {
-            LegacyClientId = 99200,
-            KanaanId = "SHARED-TRANSFER",
+            LegacyClientId = await NextLegacyClientIdAsync(db),
+            KanaanId = $"SHARED-{Guid.NewGuid():N}"[..30],
             DisplayName = "Shared Transfer Trust",
             SurnameOrEntityName = "Shared Transfer Trust",
             ClientCategory = ClientCategories.Trust,
@@ -1109,7 +1118,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         var account = new ClientInvestmentAccount
         {
             Client = client,
-            LegacyInvestmentAccountId = 8801,
+            LegacyInvestmentAccountId = (await db.ClientInvestmentAccounts.MaxAsync(x => x.LegacyInvestmentAccountId) ?? 0) + 10,
             LegacyClientId = client.LegacyClientId,
             AccountNumber = "TRUST-CLOSED-1",
             Administrator = "Test Administrator",
@@ -1118,7 +1127,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         account.Transactions.Add(new ClientInvestmentTransaction
         {
             InvestmentAccount = account,
-            LegacyInvestmentHistoryId = 9901,
+            LegacyInvestmentHistoryId = (await db.ClientInvestmentTransactions.MaxAsync(x => x.LegacyInvestmentHistoryId) ?? 0) + 10,
             LegacyInvestmentAccountId = account.LegacyInvestmentAccountId,
             TransactionDate = new DateOnly(2022, 1, 11),
             Description = "Full surrender",
@@ -1128,7 +1137,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         db.Clients.Add(client);
         db.Clients.Add(new Client
         {
-            LegacyClientId = 99201,
+            LegacyClientId = client.LegacyClientId + 1,
             KanaanId = client.KanaanId,
             DisplayName = "Linked household client",
             SurnameOrEntityName = "Linked household client",
@@ -1205,7 +1214,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         var conflictingValuation = new ClientFundValuation
         {
             ClientId = client.Id,
-            LegacyFundId = 77101,
+            LegacyFundId = (await db.ClientFundValuations.MaxAsync(x => (int?)x.LegacyFundId) ?? 0) + 10,
             LegacyClientId = client.LegacyClientId,
             KanaanId = client.KanaanId,
             FundName = "Still current fund",
@@ -1275,7 +1284,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
                 (item.ClientCategory == "All" || item.ClientCategory == ClientCategories.NaturalPerson))
             .ToListAsync();
         var familyId = $"FAMILY-{Guid.NewGuid():N}"[..30];
-        var legacySeed = Random.Shared.Next(2_000_000, 2_100_000);
+        var legacySeed = await NextLegacyClientIdAsync(db);
         var first = ReviewedNaturalPerson(
             legacySeed, familyId, "Family Transfer One", 'c', methodology, requirements);
         var second = ReviewedNaturalPerson(
@@ -1376,7 +1385,7 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         var afterSince = DateTime.UtcNow.AddDays(-1);
         var beforeSince = DateTime.UtcNow.AddDays(-20);
         var familyId = $"BATCH-{Guid.NewGuid():N}"[..30];
-        var legacySeed = Random.Shared.Next(2_100_001, 2_200_000);
+        var legacySeed = await NextLegacyClientIdAsync(db);
         var recentFamily = ReviewedNaturalPerson(
             legacySeed, familyId, "Batch Family Recent", 'e', methodology, requirements);
         recentFamily.RiskAssessments.Single().FinalisedAtUtc = afterSince;
@@ -1515,6 +1524,9 @@ public sealed class ClientReviewTransferServiceTests(KcasWebApplicationFactory f
         Assert.Null(change);
         Assert.Equal("PLA50018823", account.AccountNumber);
     }
+
+    private static async Task<int> NextLegacyClientIdAsync(ApplicationDbContext db)
+        => (await db.Clients.MaxAsync(x => x.LegacyClientId) ?? 0) + 10;
 
     private static Client ReviewedNaturalPerson(
         int legacyClientId,

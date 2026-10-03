@@ -39,6 +39,7 @@ public sealed class ComplianceTask
 
 public static class ComplianceTaskTypes
 {
+    public const string CodexReview = "CodexReview";
     public const string PeriodicReview = "PeriodicReview";
     public const string TriggerReview = "TriggerReview";
     public const string Edd = "EDD";
@@ -53,7 +54,7 @@ public static class ComplianceTaskTypes
 
     public static readonly IReadOnlyList<string> All =
     [
-        PeriodicReview, TriggerReview, Edd, ScreeningEscalation, UnusualActivityReview,
+        CodexReview, PeriodicReview, TriggerReview, Edd, ScreeningEscalation, UnusualActivityReview,
         ControlTest, TreatmentAction, Finding, Training, Exception, Remediation
     ];
 
@@ -61,6 +62,7 @@ public static class ComplianceTaskTypes
 
     public static string Display(string value) => value switch
     {
+        CodexReview => "Codex client review",
         PeriodicReview => "Periodic client review",
         TriggerReview => "Trigger-event client review",
         Edd => "Enhanced due diligence",
