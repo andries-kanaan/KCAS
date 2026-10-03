@@ -1,0 +1,28 @@
+@page "/compliance/complaints"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
+@using System.Security.Claims
+@using KCAS.Admin.Data
+@inject ComplaintRegisterService ComplaintRegister
+@inject AuthenticationStateProvider Authentication
+
+<PageTitle>Complaints register</PageTitle>
+<div class="page-header"><h1>Complaints register</h1>
+@if (view?.CanManage == true) { <a class="btn btn-primary" href="/compliance/complaints/new"><i class="bi bi-plus-lg" aria-hidden="true"></i> Record complaint</a> }
+</div>
+@if (error is not null) { <div class="alert alert-danger" role="alert">@error</div> }
+<div class="row g-3 mb-3"><div class="col-md-6"><label class="form-label">Client / Kanaan ID / concern</label><input class="form-control" @bind="search" @bind:after="LoadAsync" /></div><div class="col-md-4"><label class="form-label">Status</label><select class="form-select" @bind="status" @bind:after="LoadAsync"><option value="">All</option><option>Open</option><option>Investigating</option><option>Decided</option><option>Closed</option><option value="NeedsReview">Historical entry needs review</option></select></div><div class="col-md-2 d-flex align-items-end"><a class="btn btn-outline-secondary" href="@($"/compliance/complaints/export?search={Uri.EscapeDataString(search)}&status={Uri.EscapeDataString(status)}&from={from?.ToString("yyyy-MM-dd")}&to={to?.ToString("yyyy-MM-dd")}")"><i class="bi bi-download" aria-hidden="true"></i> CSV</a></div></div>
+<div class="row g-3 mb-3"><div class="col-md-4"><label class="form-label" for="complaint-from">Received from</label><InputDate id="complaint-from" class="form-control" @bind-Value="from" @bind-Value:after="LoadAsync" /></div><div class="col-md-4"><label class="form-label" for="complaint-to">Received through</label><InputDate id="complaint-to" class="form-control" @bind-Value="to" @bind-Value:after="LoadAsync" /></div></div>
+@if (view is not null) {
+<section class="work-area"><h2>Reportable complaints</h2><p>Received: @view.Totals.Received · Upheld / partly upheld: @view.Totals.Upheld · Rejected: @view.Totals.Rejected · Outstanding: @view.Totals.Outstanding · Escalated: @view.Totals.Escalated · Ombud referrals: @view.Totals.Ombud</p><p>Compensation paid: R @view.Totals.CompensationPaid.ToString("N2") (@view.Totals.CompensationCases cases) · Goodwill paid: R @view.Totals.GoodwillPaid.ToString("N2") (@view.Totals.GoodwillCases cases) · Unclassified historical entries: @view.Totals.Unclassified</p><p class="small text-muted">Totals use the selected cases and received-date range; payment figures are actual amounts paid on those cases, not amounts awarded.</p><details><summary>By complaint category</summary><table class="table"><thead><tr><th>Category</th><th>Received</th><th>Upheld / partly</th><th>Rejected</th><th>Outstanding</th></tr></thead><tbody>@foreach (var group in view.Rows.Where(x => x.Case.IsReportable && x.Case.Status != "NeedsReview").GroupBy(x => x.Case.Category)) { <tr><td>@group.Key</td><td>@group.Count()</td><td>@group.Count(x => x.Case.Decision is "Upheld" or "PartiallyUpheld")</td><td>@group.Count(x => x.Case.Decision == "Rejected")</td><td>@group.Count(x => x.Case.Status != "Closed")</td></tr> }</tbody></table></details></section>
+<div class="table-responsive"><table class="table align-middle"><thead><tr><th>Reference / received</th><th>Client / complainant</th><th>Category</th><th>Status / outcome</th><th>Handler</th><th>Next action</th></tr></thead><tbody>
+@foreach (var row in view.Rows) { <tr><td><a href="@($"/compliance/complaints/{row.Case.Id}")">C-@row.Case.Id.ToString("000000")</a><div class="small">@(row.Case.ReceivedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd") ?? "Date not recorded")</div></td><td>@(row.Case.Client?.DisplayName ?? row.Case.ComplainantName)<div class="small">@row.Case.Client?.KanaanId</div></td><td>@row.Case.Category</td><td>@row.Case.Status<div class="small">@row.Case.Decision</div></td><td>@row.Handler</td><td>@row.NextAction<div class="small">Next update: @(row.Case.NextUpdateDate?.ToString("yyyy-MM-dd") ?? "-")</div></td></tr> }
+</tbody></table></div>
+@if (view.Rows.Count == 0) { <p>No complaints match this view.</p> }
+@if (view.IsAdministrator) { <a class="btn btn-outline-secondary mt-3" href="/compliance/complaints/import"><i class="bi bi-upload" aria-hidden="true"></i> Preserve old register entries</a> }
+}
+@code {
+    private ComplaintRegisterPage? view; private ClaimsPrincipal principal = new(); private string search = ""; private string status = ""; private string? error; private DateOnly? from; private DateOnly? to;
+    protected override async Task OnInitializedAsync() { principal = (await Authentication.GetAuthenticationStateAsync()).User; await LoadAsync(); }
+    private async Task LoadAsync() { try { error = null; view = await ComplaintRegister.RegisterAsync(principal, search, status, from, to); } catch (Exception ex) { error = ex.Message; } }
+}

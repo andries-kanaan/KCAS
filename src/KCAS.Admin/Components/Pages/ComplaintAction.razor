@@ -1,0 +1,43 @@
+@page "/compliance/complaints/{Id:int}/record"
+@page "/compliance/complaints/{Id:int}/decision"
+@page "/compliance/complaints/{Id:int}/closure"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
+@using System.Security.Claims
+@using KCAS.Admin.Data
+@inject ComplaintRegisterService Complaints
+@inject AuthenticationStateProvider Authentication
+@inject NavigationManager Navigation
+
+<PageTitle>Record complaint action</PageTitle>
+<div class="page-header"><h1>@(action == "decision" ? "Record complaint decision" : action == "closure" ? "Complaint closure / reopening" : "Record complaint activity")</h1><a class="btn btn-outline-secondary" href="@($"/compliance/complaints/{Id}")"><i class="bi bi-arrow-left" aria-hidden="true"></i> Case</a></div>
+@if (error is not null) { <div class="alert alert-danger" role="alert">@error</div> }
+@if (view is not null) {
+<p>@view.Case.ComplainantName · @view.Case.Status · @view.NextAction</p>
+@if (action == "decision" && view.CanDecide) {
+<EditForm Model="decision" OnSubmit="DecideAsync" FormName="complaint-decision"><label class="form-label">Outcome</label><InputSelect class="form-select" @bind-Value="decision.Decision">@foreach (var value in ComplaintRegisterService.Decisions) { <option>@value</option> }</InputSelect>
+<label class="form-label mt-3">Reasons addressing the material concerns</label><InputTextArea class="form-control" rows="4" @bind-Value="decision.Reasons" /><label class="form-label mt-3">Remedy / follow-up, or reason none applies</label><InputTextArea class="form-control" rows="3" @bind-Value="decision.Remedy" />
+<div class="row g-3 mt-1"><div class="col-md-6"><label class="form-label">Compensation awarded (ZAR)</label><InputNumber class="form-control" @bind-Value="decision.CompensationAwarded" /></div><div class="col-md-6"><label class="form-label">Goodwill awarded (ZAR)</label><InputNumber class="form-control" @bind-Value="decision.GoodwillAwarded" /></div></div><label class="form-label mt-3">Decision evidence / reference</label><InputText class="form-control" @bind-Value="decision.EvidenceReference" /><button class="btn btn-primary mt-3" disabled="@busy" type="submit">Record actual decision</button></EditForm>
+} else if (action == "record" && view.CanManage) {
+<EditForm Model="activity" OnSubmit="RecordAsync" FormName="complaint-activity"><label class="form-label">Event</label><InputSelect class="form-select" @bind-Value="activity.Kind">@foreach (var value in ComplaintRegisterService.EventKinds) { <option>@value</option> }</InputSelect><label class="form-label mt-3">Actual date/time (local)</label><InputDate Type="InputDateType.DateTimeLocal" class="form-control" @bind-Value="occurredLocal" /><label class="form-label mt-3">Details / findings / recipient and further-recourse information where applicable</label><InputTextArea class="form-control" rows="4" @bind-Value="activity.Details" /><label class="form-label mt-3">Evidence / correspondence / case note reference</label><InputText class="form-control" @bind-Value="activity.EvidenceReference" />
+@if (activity.Kind is "CompensationPaid" or "GoodwillPaid") { <label class="form-label mt-3">Actual amount paid (ZAR)</label><InputNumber class="form-control" @bind-Value="activity.Amount" /> }
+@if (activity.Kind == "Evidence") { <label class="form-check mt-3"><InputCheckbox class="form-check-input" @bind-Value="activity.CodexPrepared" /><span class="form-check-label">Findings prepared by Codex</span></label> }
+@if (activity.Kind == "ClientOutcomeDelivery") { <label class="form-label mt-3">Further-recourse information actually communicated / reason not applicable</label><InputTextArea class="form-control" rows="2" @bind-Value="activity.RecourseDetails" /> }
+<label class="form-label mt-3">Next client update / follow-up</label><InputDate class="form-control" @bind-Value="activity.NextUpdateDate" /><button class="btn btn-primary mt-3" disabled="@busy" type="submit"><i class="bi bi-save" aria-hidden="true"></i> Record activity</button></EditForm>
+} else if (action == "closure" && view.CanManage) {
+<label class="form-label">Closure or reopening reason / evidence</label><textarea class="form-control" rows="4" @bind="reason"></textarea><div class="d-flex flex-wrap gap-2 mt-3">
+@if (view.Case.Status == "Decided") { <button class="btn btn-primary" disabled="@busy" @onclick="CloseAsync">Close with completed evidence</button> }
+@if (view.Case.Status is "Closed" or "Decided") { <button class="btn btn-outline-secondary" disabled="@busy" @onclick="ReopenAsync">Reopen; preserve earlier decision</button> }
+</div>
+} else { <div class="alert alert-warning">Current permission is required for this action.</div> }
+}
+@code {
+    [Parameter] public int Id { get; set; }
+    private ComplaintPage? view; private ComplaintEventEdit activity = new(); private ComplaintDecisionEdit decision = new(); private ClaimsPrincipal principal = new(); private DateTime occurredLocal = DateTime.Now; private string reason = ""; private string action = "record"; private string? error; private bool busy;
+    protected override async Task OnParametersSetAsync() { action = Navigation.ToBaseRelativePath(Navigation.Uri).Split('?')[0].Split('/').Last(); principal = (await Authentication.GetAuthenticationStateAsync()).User; try { view = await Complaints.LoadAsync(Id, principal); activity.NextUpdateDate = view.Case.NextUpdateDate; } catch (Exception ex) { error = ex.Message; } }
+    private async Task RunAsync(Func<Task> operation) { busy = true; try { await operation(); Navigation.NavigateTo($"/compliance/complaints/{Id}"); } catch (Exception ex) { error = ex.Message; } finally { busy = false; } }
+    private Task RecordAsync() => RunAsync(async () => { activity.OccurredAtUtc = DateTime.SpecifyKind(occurredLocal, DateTimeKind.Local).ToUniversalTime(); await Complaints.RecordEventAsync(Id, view!.Case.Version, activity, principal); });
+    private Task DecideAsync() => RunAsync(() => Complaints.DecideAsync(Id, view!.Case.Version, decision, principal));
+    private Task CloseAsync() => RunAsync(() => Complaints.CloseAsync(Id, view!.Case.Version, reason, principal));
+    private Task ReopenAsync() => RunAsync(() => Complaints.ReopenAsync(Id, view!.Case.Version, reason, principal));
+}

@@ -99,6 +99,8 @@ builder.Services.AddSingleton<DocumentPathDisplayService>();
 builder.Services.AddScoped<BusinessRiskAssessmentService>();
 builder.Services.AddScoped<RmcpService>();
 builder.Services.AddScoped<ComplianceWorkService>();
+builder.Services.AddScoped<ClientSanctionsCoverageService>();
+builder.Services.AddScoped<ComplaintRegisterService>();
 builder.Services.AddSingleton<EmployeeEvidenceFiles>();
 builder.Services.AddScoped<EmployeeComplianceService>();
 builder.Services.AddScoped<EmployeeTransferService>();
@@ -169,6 +171,12 @@ app.MapGet("/kcas-bootstrap.css", () =>
     Results.Text(File.ReadAllText(Path.Combine(webRoot, "lib", "bootstrap", "dist", "css", "bootstrap.min.css")), "text/css"));
 
 app.MapGet("/health/live", () => Results.Ok(new { status = "Healthy" }));
+app.MapGet("/compliance/complaints/export", async Task<IResult> (HttpContext context, ComplaintRegisterService complaints, string? search, string? status, DateOnly? from, DateOnly? to) =>
+{
+    try { return Results.File(await complaints.ExportCsvAsync(context.User, search, status, from, to), "text/csv", $"KCAS-complaints-{DateTime.Today:yyyy-MM-dd}.csv"); }
+    catch (UnauthorizedAccessException) { return Results.Forbid(); }
+    catch (System.ComponentModel.DataAnnotations.ValidationException ex) { return Results.BadRequest(ex.Message); }
+}).RequireAuthorization(KcasPermissions.ComplianceView);
 app.MapGet("/compliance/employees/transfers/{id}/download", async Task<IResult> (
     string id, HttpContext context, EmployeeTransferService transfers) =>
 {

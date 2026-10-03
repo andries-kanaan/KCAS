@@ -1565,6 +1565,8 @@ h1:focus {
 .client-onboarding-header > div, .client-onboarding-header h1 { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .client-onboarding-header > div:first-child { flex: 1 1 22rem; }
 .client-onboarding-details dd { overflow-wrap: anywhere; }
+.sanctions-coverage-details { min-width: 0; overflow-wrap: anywhere; }
+.compliance-control-follow-up .list-group-item > span { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 @media (max-width: 575px) {
     .client-onboarding-findings, .client-onboarding-findings tbody,
     .client-onboarding-findings tr, .client-onboarding-findings td { display: block; width: 100%; }

@@ -1,0 +1,38 @@
+@page "/compliance/complaints/{Id:int}"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
+@implements IAsyncDisposable
+@using System.Security.Claims
+@using KCAS.Admin.Data
+@inject ComplaintRegisterService Complaints
+@inject AuthenticationStateProvider Authentication
+@inject IJSRuntime JS
+
+<PageTitle>Complaint case</PageTitle>
+<div class="page-header"><h1>Complaint C-@Id.ToString("000000")</h1><a class="btn btn-outline-secondary" href="/compliance/complaints"><i class="bi bi-arrow-left" aria-hidden="true"></i> Register</a></div>
+@if (message is not null) { <div class="alert alert-info" role="status">@message</div> }
+@if (error is not null) { <div class="alert alert-danger" role="alert">@error</div> }
+@if (view is not null) {
+<section class="work-area"><h2>@view.Case.ComplainantName</h2><p>Client: @(view.Case.Client?.DisplayName ?? "Not matched") · Status: @view.Case.Status · Category: @view.Case.Category</p><p>Received: @(view.Case.ReceivedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "Not recorded") · Channel: @view.Case.Channel · Next update: @(view.Case.NextUpdateDate?.ToString("yyyy-MM-dd") ?? "-")</p>
+<p>Contact: @view.Case.ContactDetails</p><p><strong>Next:</strong> @view.NextAction</p><h3>Concern</h3><p style="white-space:pre-wrap">@view.Case.Allegation</p><p>Requested result: @view.Case.RequestedOutcome</p>
+@if (view.Case.Decision is not null) { <h3>Decision: @view.Case.Decision</h3><p>@view.Case.DecisionReasons</p><p>Remedy: @view.Case.Remedy</p><p>Recorded by: @view.Case.DecidedBy · @view.Case.DecidedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</p> }
+<div class="d-flex flex-wrap gap-2">
+@if (view.CanManage && view.Case.Status is not ("Closed" or "Decided")) { <a class="btn btn-outline-primary" href="@($"/compliance/complaints/{Id}/update")"><i class="bi bi-pencil" aria-hidden="true"></i> Update intake</a> }
+@if (view.CanManage && view.Case.Status != "Closed") { <a class="btn btn-primary" href="@($"/compliance/complaints/{Id}/record")"><i class="bi bi-plus-lg" aria-hidden="true"></i> Record case activity</a> }
+@if (view.CanDecide && view.Case.Status is not ("Closed" or "Decided" or "NeedsReview")) { <a class="btn btn-outline-primary" href="@($"/compliance/complaints/{Id}/decision")">Record decision</a> }
+@if (view.CanManage && view.Case.Status is "Closed" or "Decided") { <a class="btn btn-outline-secondary" href="@($"/compliance/complaints/{Id}/closure")">@(view.Case.Status == "Closed" ? "Reopen case" : "Close or reopen case")</a> }
+</div></section>
+<section class="work-area"><h2>Codex handoff</h2><textarea @ref="briefElement" class="form-control" rows="7" readonly>@view.CodexBrief</textarea><button class="btn btn-outline-secondary mt-2" @onclick="CopyAsync"><i class="bi bi-clipboard" aria-hidden="true"></i> Copy brief</button></section>
+@if (view.Case.LegacySourceJson is not null) { <details class="mb-3"><summary>Preserved source register entry</summary><pre style="white-space:pre-wrap">@view.Case.LegacySourceJson</pre></details> }
+<section class="work-area"><h2>Case history and evidence</h2>
+@foreach (var item in view.Events) { <div class="border-bottom py-3"><strong>@item.Kind</strong> · @item.OccurredAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")<p class="mb-1" style="white-space:pre-wrap">@item.Details</p><div class="small">Evidence: @item.EvidenceReference</div>@if (item.RecourseDetails is not null) { <p>Further recourse: @item.RecourseDetails</p> }<div class="small">Performed by: @(string.IsNullOrWhiteSpace(item.PerformedBy) ? item.RecordedBy : item.PerformedBy) · Recorded by: @item.RecordedBy · @item.RecordedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm") @(item.Amount.HasValue ? " · R " + item.Amount.Value.ToString("N2") : "")</div></div> }
+@if (view.Events.Count == 0) { <p>No case activity recorded.</p> }
+</section>
+}
+@code {
+    [Parameter] public int Id { get; set; } [SupplyParameterFromQuery] public int? Saved { get; set; }
+    private ComplaintPage? view; private string? error; private string? message; private ElementReference briefElement; private IJSObjectReference? clipboard;
+    protected override async Task OnParametersSetAsync() { try { view = await Complaints.LoadAsync(Id, (await Authentication.GetAuthenticationStateAsync()).User); if (Saved == 1) message = "Complaint saved; in-app compliance follow-up notification recorded. No email sent."; } catch (Exception ex) { error = ex.Message; } }
+    private async Task CopyAsync() { clipboard ??= await JS.InvokeAsync<IJSObjectReference>("import", "./Components/Pages/ClientOnboarding.razor.js"); message = await clipboard.InvokeAsync<bool>("copyBrief", briefElement) ? "Copied to clipboard." : "The brief is selected; use your browser's Copy command."; }
+    public async ValueTask DisposeAsync() { if (clipboard is not null) try { await clipboard.DisposeAsync(); } catch (JSDisconnectedException) { } }
+}

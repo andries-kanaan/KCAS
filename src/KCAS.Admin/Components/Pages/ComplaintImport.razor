@@ -1,0 +1,27 @@
+@page "/compliance/complaints/import"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = KcasRoles.Administrator)]
+@using System.Security.Claims
+@using KCAS.Admin.Data
+@inject ComplaintRegisterService Complaints
+@inject AuthenticationStateProvider Authentication
+
+<PageTitle>Preserve historical complaints</PageTitle>
+<div class="page-header"><h1>Preserve historical complaints</h1><a class="btn btn-outline-secondary" href="/compliance/complaints"><i class="bi bi-arrow-left" aria-hidden="true"></i> Register</a></div>
+@if (message is not null) { <div class="alert alert-info" role="status">@message</div> }
+@if (error is not null) { <div class="alert alert-danger" role="alert">@error</div> }
+<label class="form-label">Original five-column XLSX register</label><InputFile OnChange="ChooseAsync" accept=".xlsx" />
+<label class="form-label mt-3">Stable source register reference</label><input class="form-control" @bind="source" @bind:after="ClearPreview" />
+<button class="btn btn-outline-primary mt-3" disabled="@(busy || bytes is null)" @onclick="PreviewAsync">Preview source entries</button>
+@if (preview is not null) {
+<div class="table-responsive mt-3"><table class="table"><thead><tr><th>Sheet / row</th><th>Date as recorded</th><th>Client</th><th>Nature</th><th>Preservation</th></tr></thead><tbody>
+@foreach (var item in preview) { <tr><td>@item.Source.Sheet / @item.Source.Row</td><td>@item.Source.Values.GetValueOrDefault("Date")</td><td>@item.Source.Values.GetValueOrDefault("Client")</td><td>@item.Source.Values.GetValueOrDefault("Nature")</td><td>@(item.Changed ? "Changed: review existing case" : item.ExistingCaseId.HasValue ? "Already preserved" : "New: needs historical review")</td></tr> }
+</tbody></table></div><label class="form-label">Import reason</label><textarea class="form-control" @bind="reason"></textarea><button class="btn btn-primary mt-3" disabled="@(busy || preview.Any(x => x.Changed))" @onclick="ImportAsync"><i class="bi bi-upload" aria-hidden="true"></i> Preserve entries without inferred outcomes</button>
+}
+@code {
+    private byte[]? bytes; private string source = "Complaints Register.xlsx"; private string reason = "Preserve original register entries and source fields without inventing missing decisions or closure."; private string? message; private string? error; private bool busy; private IReadOnlyList<LegacyComplaintPreview>? preview;
+    private void ClearPreview() => preview = null;
+    private async Task ChooseAsync(InputFileChangeEventArgs args) { try { if (!args.File.Name.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Choose an XLSX register."); using var stream = new MemoryStream(); await args.File.OpenReadStream(8 * 1024 * 1024).CopyToAsync(stream); bytes = stream.ToArray(); preview = null; error = null; } catch (Exception ex) { error = ex.Message; bytes = null; preview = null; } }
+    private async Task PreviewAsync() { busy = true; try { preview = await Complaints.PreviewLegacyAsync(bytes!, source, (await Authentication.GetAuthenticationStateAsync()).User); error = null; } catch (Exception ex) { error = ex.Message; } finally { busy = false; } }
+    private async Task ImportAsync() { busy = true; try { var count = await Complaints.ImportLegacyAsync(bytes!, source, reason, (await Authentication.GetAuthenticationStateAsync()).User); message = $"{count} historical entries preserved; review tasks recorded. No historic acknowledgement, classification, decision, payment or closure was inferred."; preview = await Complaints.PreviewLegacyAsync(bytes!, source, (await Authentication.GetAuthenticationStateAsync()).User); } catch (Exception ex) { error = ex.Message; } finally { busy = false; } }
+}

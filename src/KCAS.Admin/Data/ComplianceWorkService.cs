@@ -113,6 +113,8 @@ public sealed class ComplianceWorkService(ApplicationDbContext db)
         RequireReason(reason);
         var user = RequireUser(userName);
         var type = Allowed(model.TaskType, ComplianceTaskTypes.All, "task type");
+        if (type is ComplianceTaskTypes.SanctionsCoverage or ComplianceTaskTypes.Complaint)
+            throw new ValidationException("Record this work through sanctions coverage or the complaints register.");
         ComplianceTask task;
         string action;
         string? oldJson = null;
@@ -125,6 +127,7 @@ public sealed class ComplianceWorkService(ApplicationDbContext db)
         else
         {
             task = await db.ComplianceTasks.SingleAsync(item => item.Id == model.Id.Value);
+            RequireGeneralTask(task);
             if (task.Status is ComplianceStatuses.Closed or ComplianceStatuses.Withdrawn or ComplianceWorkStatuses.PendingClosure)
             {
                 throw new InvalidOperationException("Closed, withdrawn or pending-closure work cannot be edited.");
@@ -316,6 +319,7 @@ public sealed class ComplianceWorkService(ApplicationDbContext db)
         RequireReason(reason);
         var user = RequireUser(userName);
         var task = await db.ComplianceTasks.SingleAsync(item => item.Id == id);
+        RequireGeneralTask(task);
         if (task.Status != ComplianceWorkStatuses.PendingClosure)
         {
             throw new InvalidOperationException("Only pending-closure work can be approved.");
@@ -355,11 +359,17 @@ public sealed class ComplianceWorkService(ApplicationDbContext db)
     private async Task<ComplianceTask> LoadMutableAsync(int id)
     {
         var task = await db.ComplianceTasks.SingleAsync(item => item.Id == id);
+        RequireGeneralTask(task);
         if (task.Status is ComplianceStatuses.Closed or ComplianceStatuses.Withdrawn)
         {
             throw new InvalidOperationException("Closed or withdrawn work cannot be changed.");
         }
         return task;
+    }
+    private static void RequireGeneralTask(ComplianceTask task)
+    {
+        if (task.TaskType is ComplianceTaskTypes.SanctionsCoverage or ComplianceTaskTypes.Complaint)
+            throw new ValidationException("Use the controlled sanctions coverage or complaint case; a generic task action cannot resolve its evidence requirements.");
     }
 
     private async Task<List<ComplianceApproval>> LoadClosureApprovalsAsync(int id)

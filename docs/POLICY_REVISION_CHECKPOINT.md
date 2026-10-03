@@ -4,6 +4,32 @@ Last updated: 3 October 2026.
 
 ## Resume Here
 
+**PEP/PIP approach clarified, 3 October 2026:** Use the existing Client -> Client
+acceptance -> Request Codex review handoff for live public-source PEP/PIP and
+adverse-information research. Do not build an annually compiled PEP register or
+require a paid provider for this workflow. Search the relevant natural persons,
+record actual queries/sources/time, identity comparisons and limitations, and retain
+separate PEP/PIP and adverse-information outcomes. Lack of live search is outstanding,
+not clearance. Official sanctions/TFS monitoring remains a separate workstream;
+general web searches do not replace official-list checks. The authorised KI decides
+on supported findings. See `docs/KCAS_CODEX_PUBLIC_SOURCE_SCREENING.md`.
+
+**Sanctions coverage and complaints, 3 October 2026:** Current document pair is
+**BRA 1.5 / RMCP 1.10 sanctions coverage**. Client/party TFS population batches are
+implemented at `Compliance -> Client sanctions coverage` (`/compliance/sanctions`),
+with exact official version/source, current evidence, identity-change protection,
+controlled exclusions and shared acceptance-gate checks. The complaints register
+is implemented at `Compliance -> Complaints register` (`/compliance/complaints`),
+with original spreadsheet preservation, actual events/decisions, paid amounts,
+recourse, controlled closure and period exports. RMCP section 11 and the Complaints
+Resolution / Monitoring policy drafts now describe these controls. Thirty-seven
+affected service tests and sixteen fully loaded desktop/mobile checks pass;
+additive migration/model checks pass. Restart/deployment details are recorded in
+`docs/KCAS_SANCTIONS_AND_COMPLAINTS_IMPLEMENTATION.md`.
+Actual official-list checks, complaint classification/decisions, approval and live
+deployment are not manufactured by implementation. The advice/instruction workflow
+is explicitly deferred by the user and must not be treated as this task's next action.
+
 **Acceptance transfer implementation, 3 October 2026:** Review packages now carry
 acceptance preparation, original Codex findings and source KI decision snapshots.
 Preview protects native/later live work; apply remaps evidence and rechecks current

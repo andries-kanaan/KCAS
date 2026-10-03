@@ -166,6 +166,14 @@ public sealed class ClientOnboardingServiceTests(KcasWebApplicationFactory facto
         Assert.Contains("Preparation gaps:", model.Request.Brief);
         Assert.Contains("actual initial disclosures", model.Request.Brief);
         Assert.Contains("The authorised KI records acceptance", model.Request.Brief);
+        Assert.Contains("perform live Google or equivalent web searches", model.Request.Brief);
+        Assert.Contains("identify and search the underlying natural persons", model.Request.Brief);
+        Assert.Contains("Schedules 3A, 3B and 3C", model.Request.Brief);
+        Assert.Contains("PEP/PIP status is not itself an adverse finding", model.Request.Brief);
+        Assert.Contains("Do not put private identity numbers", model.Request.Brief);
+        Assert.Contains("actual search queries, engine, checked source URLs/titles", model.Request.Brief);
+        Assert.Contains("unavailable live search remain explicitly outstanding", model.Request.Brief);
+        Assert.Contains("Sanctions/TFS is a separate check", model.Request.Brief);
         Assert.Contains(await service.NotificationsAsync(actor), x => x.ClientId == client.Id);
         var request = await db.ClientCodexReviewRequests.Include(x => x.Task).SingleAsync(x => x.ClientId == client.Id);
         var requestedAt = request.CreatedAtUtc;
@@ -176,6 +184,9 @@ public sealed class ClientOnboardingServiceTests(KcasWebApplicationFactory facto
         model = await service.LoadAsync(client.Id, actor);
         Assert.Equal(requestedAt, model.Request!.CreatedAtUtc);
         Assert.Contains("Missing preparation is part of this Codex task", model.Request.Brief);
+        Assert.Contains("perform live Google or equivalent web searches", model.Request.Brief);
+        Assert.Equal(model.Request.Brief, (await db.ClientCodexReviewRequests.AsNoTracking().Include(x => x.Task)
+            .SingleAsync(x => x.ClientId == client.Id)).Task.Description);
         Assert.Empty(await db.ClientAcceptanceDecisions.Where(x => x.ClientId == client.Id).ToListAsync());
         await Assert.ThrowsAsync<ValidationException>(() => service.ValidateRecordedResultsAsync(client.Id, actor));
     }
