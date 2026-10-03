@@ -124,8 +124,47 @@
     {
         <section class="work-area"><h2>New acceptance review</h2><label for="freshReason" class="form-label">Trigger / reason</label><textarea id="freshReason" class="form-control" @bind="reason"></textarea><button class="btn btn-outline-secondary mt-3" disabled="@busy" @onclick="FreshAsync">Start acceptance review</button></section>
     }
+    @if (model.ImportedReview is { } imported)
+    {
+        <section class="work-area">
+            <h2>Transferred acceptance record</h2>
+            <p class="text-break">Source: @imported.SourceEnvironment · Exported: @imported.SourceExportedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")<br />
+                Imported by: @imported.ImportedBy · @imported.ImportedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</p>
+            <p>Source decisions and original findings are retained below. Current live prerequisites and the live KI decision are shown above.</p>
+            @foreach (var review in imported.Source.Reviews.OrderByDescending(x => x.CreatedAtUtc))
+            {
+                <details class="mb-3">
+                    <summary>Source Codex handoff: @review.Status · @review.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</summary>
+                    <p class="text-break">Source recipients: @string.Join(", ", review.Recipients)<br />Source validation: @(review.CompletedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "Not completed")</p>
+                    <p class="text-break" style="white-space: pre-wrap">@review.CompletionSummary</p>
+                    <details><summary>Original source brief</summary><p class="text-break" style="white-space: pre-wrap">@review.Brief</p></details>
+                </details>
+            }
+            @if (imported.EvidenceIds.Count > 0)
+            {
+                <h3>Mapped supporting evidence</h3>
+                @foreach (var evidenceId in imported.EvidenceIds.Values.Distinct())
+                {
+                    var proof = model.Evidence.EvidenceItems.SingleOrDefault(x => x.Id == evidenceId);
+                    @if (proof is not null)
+                    {
+                        <p class="mb-1 text-break">
+                            @if (proof.CanOpen) { <a href="@proof.FileUrl" target="_blank" rel="noopener">@proof.Title</a> }
+                            else { <strong>@proof.Title</strong> }
+                            · @proof.Reviewer
+                        </p>
+                    }
+                }
+            }
+        </section>
+    }
     <section class="work-area"><h2>Decision history</h2>
-        @foreach (var record in model.Decisions) { <p><strong>@record.Decision</strong> · @record.DecidedBy · @record.DecidedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")<br />@record.Reason</p> }
+        @foreach (var record in model.Decisions)
+        {
+            <p class="text-break"><strong>@record.Decision</strong> · @record.DecidedBy · @record.DecidedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")<br />@record.Reason<br />
+                @(record.ImportSourceReference is null ? "Recorded in this KCAS system" : "Transferred source decision — retained as history")</p>
+            <details class="mb-3"><summary>Frozen decision snapshot</summary><pre class="text-break" style="white-space: pre-wrap">@record.SnapshotJson</pre></details>
+        }
         @if (model.Decisions.Count == 0) { <p>No acceptance decision recorded.</p> }
     </section>
 }
