@@ -19,6 +19,7 @@
             <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/evidence")">Evidence and screening</a>
             <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/risk")">Compliance risk</a>
             @if (model.CanPrepare && !model.IsAccepted) { <a class="btn btn-primary" href="@($"/clients/{ClientId}/onboarding/preparation")">Update preparation</a> }
+            @if (model.CanPrepare && !model.IsAccepted) { <button class="btn btn-outline-primary" disabled="@busy" @onclick="RequestAsync">Request Codex review</button> }
         </div>
     </div>
     @if (model.Request is { Status: "AwaitingCodex" } notice)
@@ -130,7 +131,9 @@
         catch (Exception ex) { error = ex.Message; }
         finally { busy = false; }
     }
-    private Task RequestAsync() => RunAsync(() => Onboarding.RequestCodexAsync(ClientId, reason, user), "Codex review task recorded for the designated Compliance users. No email sent.");
+    private Task RequestAsync() => RunAsync(() => Onboarding.RequestCodexAsync(ClientId,
+        string.IsNullOrWhiteSpace(reason) ? "Prepare client compliance and acceptance from the client folder and existing KCAS records." : reason, user),
+        "Codex review task recorded for the designated Compliance users. No email sent.");
     private Task ValidateAsync() => RunAsync(() => Onboarding.ValidateRecordedResultsAsync(ClientId, user), "Current recorded check results validated. KI acceptance remains a separate decision.");
     private Task DecideAsync() => RunAsync(() => Onboarding.DecideAsync(ClientId, model!.ContentHash, decision, decisionReason, user), "KI decision recorded.");
     private Task FreshAsync() => RunAsync(() => Onboarding.StartFreshReviewAsync(ClientId, reason, user), "Acceptance review opened; previous records retained.");

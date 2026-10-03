@@ -127,6 +127,41 @@ public sealed class ClientOnboardingServiceTests(KcasWebApplicationFactory facto
     }
 
     [Fact]
+    public async Task Existing_client_can_request_full_Codex_preparation_without_manual_intake()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = scope.ServiceProvider.GetRequiredService<ClientOnboardingService>();
+        var actor = await ActorAsync(scope, KcasRoles.Administrator, KcasRoles.ComplianceAdministrator);
+        var client = new Client { DisplayName = "Existing full review " + Guid.NewGuid(), SurnameOrEntityName = "Synthetic existing client",
+            ClientFolder = "Synthetic authorised evidence location", LifecycleStatus = ClientLifecycleStatuses.Historical };
+        db.Clients.Add(client); await db.SaveChangesAsync();
+        await service.RequestCodexAsync(client.Id, "Prepare review from the folder", actor);
+        var model = await service.LoadAsync(client.Id, actor);
+        Assert.Null(model.Profile);
+        Assert.Equal(ClientLifecycleStatuses.Historical, model.Client.LifecycleStatus);
+        Assert.True(model.Client.RequiresClientAcceptance);
+        Assert.Equal("Awaiting Codex review", model.Status);
+        Assert.Contains("Synthetic authorised evidence location", model.Request!.Brief);
+        Assert.Contains("Missing preparation is part of this Codex task", model.Request.Brief);
+        Assert.Contains("Preparation gaps:", model.Request.Brief);
+        Assert.Contains("actual initial disclosures", model.Request.Brief);
+        Assert.Contains("The authorised KI records acceptance", model.Request.Brief);
+        Assert.Contains(await service.NotificationsAsync(actor), x => x.ClientId == client.Id);
+        var request = await db.ClientCodexReviewRequests.Include(x => x.Task).SingleAsync(x => x.ClientId == client.Id);
+        var requestedAt = request.CreatedAtUtc;
+        request.Brief = request.Task.Description = "Earlier limited check brief";
+        await db.SaveChangesAsync();
+        await service.RequestCodexAsync(client.Id, "Same pending review", actor);
+        Assert.Single(await db.ClientCodexReviewRequests.Where(x => x.ClientId == client.Id).ToListAsync());
+        model = await service.LoadAsync(client.Id, actor);
+        Assert.Equal(requestedAt, model.Request!.CreatedAtUtc);
+        Assert.Contains("Missing preparation is part of this Codex task", model.Request.Brief);
+        Assert.Empty(await db.ClientAcceptanceDecisions.Where(x => x.ClientId == client.Id).ToListAsync());
+        await Assert.ThrowsAsync<ValidationException>(() => service.ValidateRecordedResultsAsync(client.Id, actor));
+    }
+
+    [Fact]
     public async Task Prospect_without_investments_can_generate_and_finalise_risk_and_enhanced_acceptance_uses_one_KI_decision()
     {
         using var scope = factory.Services.CreateScope();

@@ -58,7 +58,17 @@ public sealed class ClientOnboardingService(IDbContextFactory<ApplicationDbConte
             await RequirePrepareAsync(db, actor.Id);
             model.Client.RequiresClientAcceptance = true;
             if (model.IsAccepted) throw new ValidationException("The current accepted review does not need a duplicate Codex check.");
-            if (model.Request is { Status: "AwaitingCodex" } && model.Request.MaterialHash == model.MaterialHash) return;
+            if (model.Request is { Status: "AwaitingCodex" } existing && existing.MaterialHash == model.MaterialHash)
+            {
+                var currentBrief = Brief(model);
+                if (existing.Brief != currentBrief)
+                {
+                    existing.Brief = currentBrief;
+                    existing.Task.Description = currentBrief;
+                    Audit(db, clientId, "CodexBriefRefreshed", actor, "Refresh the outstanding preparation and check gaps for the same review scope.", new { model.MaterialHash });
+                }
+                return;
+            }
             if (model.Request is { Status: "AwaitingCodex" } previous)
             {
                 previous.Status = "Superseded";
@@ -312,12 +322,15 @@ public sealed class ClientOnboardingService(IDbContextFactory<ApplicationDbConte
         return model;
     }
 
-    private static string Brief(ClientOnboardingModel model) => $"Client: {model.Client.DisplayName}; Kanaan ID: {model.Client.KanaanId}.\n" +
-        $"Evidence folder: {model.Client.ClientFolder ?? "Not recorded"}.\nRequested service: {model.Profile?.RequestedService ?? "Record scope first"}.\n" +
+    private static string Brief(ClientOnboardingModel model) => $"Client: {model.Client.DisplayName}; KCAS client ID: {model.Client.Id}; Kanaan ID: {model.Client.KanaanId}.\n" +
+        $"Evidence folder: {model.Client.ClientFolder ?? "Not recorded"}.\nRequested service: {model.Profile?.RequestedService ?? "Identify from the client folder and existing KCAS records"}.\n" +
         $"Scope reference: {model.MaterialHash}.\n" +
+        "Prepare the review from the first outstanding step through to a KI-ready summary. Read the actual client folder, correspondence, mandates, advice and existing KCAS records. Identify and record the requested service, responsible representative, purpose/funds, actual disclosure version/delivery evidence and applicable enhanced measures where supported. Missing preparation is part of this Codex task; do not require manual entry before beginning. Retain genuine gaps for confirmation; do not invent dates or claim delivery from an unsigned template.\n" +
         "Read the actual evidence; complete current client and applicable-party screening, CDD and supported risk-factor answers. Reuse valid records; do not scan folders or invent results.\n" +
-        string.Join("\n", model.Evidence.ScreeningSubjects.Select(x => $"Screen: {x.Label}.")) + "\n" + string.Join("\n", model.CheckBlockers) + "\n" +
-        "Save actual findings, evidence links, Codex performer, sources/list versions, actual date/time and limitations through authorised KCAS services. Report genuine missing confirmations. Validate recorded results in the onboarding page; KI acceptance remains separate.";
+        "Preserve an existing client's lifecycle, supported reviews and history; distinguish historical relationship evidence from a new client instruction.\n" +
+        string.Join("\n", model.Evidence.ScreeningSubjects.Select(x => $"Screen: {x.Label}.")) + "\n" +
+        "Preparation gaps:\n" + string.Join("\n", model.IntakeBlockers) + "\nCheck gaps:\n" + string.Join("\n", model.CheckBlockers) + "\n" +
+        "Save actual findings, evidence links, Codex performer, sources/list versions, actual date/time and limitations through authorised KCAS services. Refresh the scoped request if preparation reveals a material service/party change. Validate recorded results in the onboarding page and prepare the substantive KI summary. Report only remaining unsupported facts or decisions. The authorised KI records acceptance; do not impersonate that decision.";
 
     private static string SummaryJson(ClientOnboardingModel model) => JsonSerializer.Serialize(new { model.Client.Id, model.Client.DisplayName,
         Preparation = model.Profile is null ? null : new { model.Profile.Version, model.Profile.RequestedService,
