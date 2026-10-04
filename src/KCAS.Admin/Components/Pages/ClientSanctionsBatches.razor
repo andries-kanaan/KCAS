@@ -4,17 +4,55 @@
 @using System.Security.Claims
 @using KCAS.Admin.Data
 @inject ClientSanctionsCoverageService Coverage
+@inject SanctionsAutomationService Automation
 @inject AuthenticationStateProvider Authentication
 
 <PageTitle>Client sanctions coverage</PageTitle>
 <div class="page-header"><h1>Client sanctions coverage</h1><AuthorizeView Policy="@KcasPermissions.ComplianceManage"><Authorized><a class="btn btn-primary" href="/compliance/sanctions/new"><i class="bi bi-plus-lg" aria-hidden="true"></i> Record list update</a></Authorized></AuthorizeView></div>
 @if (error is not null) { <div class="alert alert-danger" role="alert">@error</div> }
-<div class="table-responsive"><table class="table align-middle"><thead><tr><th>Official source / version</th><th>Published</th><th>Subjects</th><th>Clear</th><th>Excluded</th><th>Outstanding</th><th>Matches</th></tr></thead><tbody>
+@if (message is not null) { <div class="alert alert-info" role="status">@message</div> }
+@if (status is not null)
+{
+    <section class="work-area">
+        <h2>Official-list automation</h2>
+        <dl class="employee-details"><dt>Refresh:</dt><dd>@(status.Enabled ? $"Every {status.IntervalMinutes} minutes while KCAS is running" : "Disabled")</dd>
+            <dt>Last attempt:</dt><dd>@(status.LatestCheck is null ? "Not yet recorded" : $"{LocalTime(status.LatestCheck.CompletedAtUtc)} - {status.LatestCheck.Outcome}")</dd>
+            <dt>Last valid retrieval:</dt><dd>@(status.LastSuccessfulCheck is null ? "None" : LocalTime(status.LastSuccessfulCheck.CompletedAtUtc))</dd></dl>
+        @if (status.LatestCheck?.Outcome == "Failed" || status.IsStale) { <div class="alert alert-warning">Official source needs attention. @status.LatestCheck?.Detail</div> }
+        @if (status.LastSuccessfulCheck?.Snapshot is { } snapshot)
+        {
+            <p>@snapshot.Individuals individuals; @snapshot.Entities entities. Checked by @SanctionsAutomationService.Performer.</p>
+            <a href="@($"/compliance/sanctions/snapshots/{snapshot.Id}/file")"><i class="bi bi-file-earmark-code" aria-hidden="true"></i> Retained official XML</a>
+            <details class="mt-2"><summary>Source and snapshot identifier</summary><p class="text-break">@snapshot.SourceUrl<br />SHA256: @snapshot.ContentSha256</p></details>
+        }
+        <AuthorizeView Policy="@KcasPermissions.ComplianceManage"><Authorized>
+            <button class="btn btn-outline-primary mt-3" disabled="@(busy || !status.Enabled)" @onclick="CheckAsync"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i> @(busy ? "Checking official list" : "Check official list now")</button>
+        </Authorized></AuthorizeView>
+    </section>
+}
+<div class="table-responsive"><table class="table align-middle"><thead><tr><th>Official source / version</th><th>Source date / first retrieval</th><th>Subjects</th><th>Clear</th><th>Excluded</th><th>Outstanding</th><th>Matches</th></tr></thead><tbody>
 @foreach (var row in rows) { <tr><td><a href="@($"/compliance/sanctions/{row.Batch.Id}")">@row.Batch.SourceVersion</a></td><td>@row.Batch.SourcePublishedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td><td>@row.Total</td><td>@row.Clear</td><td>@row.Excluded</td><td>@row.Remaining</td><td>@row.Matches</td></tr> }
 </tbody></table></div>
 @if (rows.Count == 0 && error is null) { <p>No official list-update coverage batches recorded.</p> }
 @code {
     private IReadOnlyList<SanctionsBatchRow> rows = [];
     private string? error;
-    protected override async Task OnInitializedAsync() { try { rows = await Coverage.RegisterAsync((await Authentication.GetAuthenticationStateAsync()).User); } catch (Exception ex) { error = ex.Message; } }
+    private string? message;
+    private SanctionsAutomationStatus? status;
+    private bool busy;
+    private async Task LoadAsync() { var principal = (await Authentication.GetAuthenticationStateAsync()).User; rows = await Coverage.RegisterAsync(principal); status = await Automation.StatusAsync(principal); }
+    protected override async Task OnInitializedAsync() { try { await LoadAsync(); } catch (Exception ex) { error = ex.Message; } }
+    private async Task CheckAsync()
+    {
+        busy = true; error = null;
+        try
+        {
+            var result = await Automation.CheckNowAsync((await Authentication.GetAuthenticationStateAsync()).User);
+            message = result is null ? "A check is already running or automation is disabled." : $"{result.Outcome}: {result.SubjectsChecked} checked; {result.NoCandidates} without candidates; {result.NeedsReview} requiring review. No management approval was recorded.";
+            await LoadAsync();
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+    private static string LocalTime(DateTime utc) => DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz");
 }

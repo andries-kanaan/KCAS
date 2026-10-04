@@ -1,0 +1,120 @@
+@page "/clients/{ClientId:int}/investments/{AccountId:int}/returns"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.InvestmentsView)]
+@using System.Globalization
+@using KCAS.Admin.Data
+@inject InvestmentReturnService Returns
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Investment returns</PageTitle>
+<div class="page-header">
+    <div><h1>Investment returns</h1>
+        @if (report is not null)
+        {
+            <p>@report.Account.AccountNumber · @report.Account.Administrator · @report.Account.FundName</p>
+        }
+    </div>
+    <div class="header-actions"><a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}#investments")">Back to investments</a></div>
+</div>
+@if (loading)
+{
+    <p role="status">Loading investment history...</p>
+}
+else if (report is null)
+{
+    <div class="alert alert-warning">Investment not found or not available.</div>
+}
+else
+{
+    <div class="filter-row mb-3">
+        <label>Return currency
+            <select class="form-select" value="@currency" @onchange="ChangeCurrencyAsync">
+                <option>ZAR</option><option>USD</option><option>GBP</option><option>EUR</option>
+            </select>
+        </label>
+    </div>
+    <div class="alert alert-info">Annualised investor return (XIRR), based on recorded dated cash flows and the closing value. Check cash-flow completeness against administrator statements. This is not the underlying fund's published return.</div>
+    <div class="table-responsive"><table class="table align-middle">
+        <thead><tr><th>Period</th><th>From</th><th>To</th><th>CAR (% p.a.)</th><th>Net gain (@currency)</th></tr></thead>
+        <tbody>
+            @foreach (var period in Periods)
+            {
+                <tr>
+                    <th scope="row">@period.Label</th>
+                    <td>@Date(period.Result.StartDate)</td><td>@Date(period.Result.EndDate)</td>
+                    <td>@(period.Result.IsAvailable ? $"{period.Result.AnnualisedPercent:0.00}%" : "Not available")</td>
+                    <td>@(period.Result.IsAvailable ? period.Result.Gain?.ToString("N2", CultureInfo.GetCultureInfo("en-ZA")) : "-")</td>
+                </tr>
+            }
+        </tbody>
+    </table></div>
+    <p class="text-muted">Current investment: this account's recorded inception to its closing valuation or payout. Long term: the original investment through reviewed administrator transfers, including later top-ups on their actual dates. Earlier performance of separate top-up source accounts is excluded. With no earlier transfer, both periods are the same. Rates for periods under a year are annualised, not the period's cumulative gain.</p>
+    <h2>Investment chain</h2>
+    <ol>
+        @foreach (var account in report.History)
+        {
+            <li>@account.AccountNumber · @account.Administrator · @account.FundName · @Date(account.InvestmentDate)</li>
+        }
+    </ol>
+    @foreach (var period in Periods)
+    {
+        <section class="mt-4">
+            <h2>@period.Label</h2>
+            @if (period.Result.Notes.Count > 0)
+            {
+                <div class="alert alert-info"><ul class="mb-0">@foreach (var note in period.Result.Notes.Distinct()) { <li>@note</li> }</ul></div>
+            }
+            @if (period.Result.Issues.Count > 0)
+            {
+                <div class="alert alert-warning"><strong>Cash-flow history needs attention</strong>
+                    <ul class="mb-0">@foreach (var issue in period.Result.Issues.Distinct()) { <li>@issue</li> }</ul>
+                </div>
+            }
+            <details><summary>Calculation cash flows (@period.Result.CashFlows.Count)</summary>
+                <div class="table-responsive mt-2">
+                    <table class="table table-sm">
+                        <thead><tr><th>Date</th><th>Account</th><th>Reference</th><th>Cash flow (@currency)</th><th>Treatment</th></tr></thead>
+                        <tbody>
+                        @foreach (var flow in period.Result.CashFlows.OrderBy(x => x.Date).ThenBy(x => x.AccountId))
+                        {
+                            <tr><td>@Date(flow.Date)</td>
+                                <td>@report.History.FirstOrDefault(x => x.Id == flow.AccountId)?.AccountNumber</td>
+                                <td>@flow.Reference @if (flow.TransactionId.HasValue) { <span class="text-muted">(transaction @flow.TransactionId)</span> }</td>
+                                <td>@flow.Amount.ToString("N2", CultureInfo.GetCultureInfo("en-ZA"))</td>
+                                <td>@(flow.IsInternalTransfer ? "Internal transfer - excluded" : flow.IsClosingValue ? "Closing value" : flow.Amount < 0 ? "Capital invested" : "Payment received")</td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            </details>
+        </section>
+    }
+}
+
+@code {
+    [Parameter] public int ClientId { get; set; }
+    [Parameter] public int AccountId { get; set; }
+    private InvestmentReturnReport? report;
+    private string currency = "ZAR";
+    private bool loading = true;
+    private IEnumerable<(string Label, InvestmentReturnResult Result)> Periods =>
+        report is null ? [] : new[] { ("Current investment", report.ShortTerm), ("Long term - original inception", report.LongTerm) };
+    protected override async Task OnParametersSetAsync() => await LoadAsync();
+    private async Task ChangeCurrencyAsync(ChangeEventArgs e)
+    {
+        currency = e.Value?.ToString() ?? "ZAR";
+        await LoadAsync();
+    }
+    private async Task LoadAsync()
+    {
+        loading = true;
+        try
+        {
+            var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            report = await Returns.LoadAsync(ClientId, AccountId, state.User.IsInRole(KcasRoles.Administrator), currency);
+        }
+        finally { loading = false; }
+    }
+    private static string Date(DateOnly? value) => value?.ToString("yyyy-MM-dd") ?? "-";
+}

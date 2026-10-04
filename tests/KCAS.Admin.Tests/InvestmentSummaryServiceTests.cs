@@ -134,12 +134,14 @@ public sealed class InvestmentSummaryServiceTests(KcasWebApplicationFactory fact
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        await using var fixtureTransaction = await db.Database.BeginTransactionAsync();
         var service = new InvestmentSummaryService(db);
 
+        var family = $"IS-WCD-{Guid.NewGuid():N}"[..24];
         var source = new Client
         {
-            LegacyClientId = 99101,
-            KanaanId = "IS-WCD",
+            LegacyClientId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
+            KanaanId = family,
             DisplayName = "IS Wrong Duplicate Source",
             SurnameOrEntityName = "IS Wrong Duplicate Source",
             LifecycleStatus = ClientLifecycleStatuses.Current,
@@ -156,8 +158,8 @@ public sealed class InvestmentSummaryServiceTests(KcasWebApplicationFactory fact
         };
         var owner = new Client
         {
-            LegacyClientId = 99102,
-            KanaanId = "IS-WCD",
+            LegacyClientId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
+            KanaanId = family,
             DisplayName = "IS Correct Owner",
             SurnameOrEntityName = "IS Correct Owner",
             LifecycleStatus = ClientLifecycleStatuses.Current,
@@ -175,7 +177,7 @@ public sealed class InvestmentSummaryServiceTests(KcasWebApplicationFactory fact
             {
                 new ClientFundValuation
                 {
-                    LegacyFundId = 99103,
+                    LegacyFundId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
                     InvestmentUniqueNumber = "IS-WRONG-CLIENT",
                     Administrator = "IS Platform",
                     ProductName = "Owned account",
@@ -206,7 +208,7 @@ public sealed class InvestmentSummaryServiceTests(KcasWebApplicationFactory fact
         await db.SaveChangesAsync();
 
         var model = await service.LoadAsync(new InvestmentSummaryQuery(
-            KanaanId: "IS-WCD",
+            KanaanId: family,
             Scope: InvestmentSummaryScopes.All));
 
         var duplicateRow = Assert.Single(model.Rows, row => row.ClientId == source.Id);
@@ -221,13 +223,15 @@ public sealed class InvestmentSummaryServiceTests(KcasWebApplicationFactory fact
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        await using var fixtureTransaction = await db.Database.BeginTransactionAsync();
         var service = new InvestmentSummaryService(db);
         var today = DateOnly.FromDateTime(DateTime.Today);
 
+        var family = $"IS-{Guid.NewGuid():N}"[..24];
         var primary = new Client
         {
-            LegacyClientId = 99001,
-            KanaanId = "IS-990",
+            LegacyClientId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
+            KanaanId = family,
             DisplayName = "IS Primary Client",
             SurnameOrEntityName = "IS Primary Client",
             LifecycleStatus = ClientLifecycleStatuses.Current,
@@ -251,7 +255,7 @@ public sealed class InvestmentSummaryServiceTests(KcasWebApplicationFactory fact
             {
                 new ClientFundValuation
                 {
-                    LegacyFundId = 99001,
+                    LegacyFundId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
                     InvestmentUniqueNumber = "IS-ACC-SA",
                     Administrator = "IS Platform",
                     ProductName = "Living Annuity",
@@ -261,7 +265,7 @@ public sealed class InvestmentSummaryServiceTests(KcasWebApplicationFactory fact
                 },
                 new ClientFundValuation
                 {
-                    LegacyFundId = 99002,
+                    LegacyFundId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
                     InvestmentUniqueNumber = "IS-ACC-OFF",
                     Administrator = "IS Platform",
                     ProductName = "Offshore Investment",
@@ -274,8 +278,8 @@ public sealed class InvestmentSummaryServiceTests(KcasWebApplicationFactory fact
         };
         var secondary = new Client
         {
-            LegacyClientId = 99002,
-            KanaanId = "IS-990",
+            LegacyClientId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
+            KanaanId = family,
             DisplayName = "IS Secondary Client",
             SurnameOrEntityName = "IS Secondary Client",
             LifecycleStatus = ClientLifecycleStatuses.Unreviewed,
@@ -293,7 +297,7 @@ public sealed class InvestmentSummaryServiceTests(KcasWebApplicationFactory fact
             {
                 new ClientFundValuation
                 {
-                    LegacyFundId = 99003,
+                    LegacyFundId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
                     InvestmentUniqueNumber = "IS-UNMATCHED",
                     Administrator = "IS Other Platform",
                     FundName = "Equity SA",
@@ -312,7 +316,7 @@ public sealed class InvestmentSummaryServiceTests(KcasWebApplicationFactory fact
             {
                 new ClientInvestmentTransaction
                 {
-                    LegacyInvestmentHistoryId = 99001,
+                    LegacyInvestmentHistoryId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
                     TransactionDate = today.AddDays(-40),
                     BalanceZar = 25_000m,
                     IsFinal = true
@@ -321,8 +325,8 @@ public sealed class InvestmentSummaryServiceTests(KcasWebApplicationFactory fact
         };
         var closed = new Client
         {
-            LegacyClientId = 99003,
-            KanaanId = "IS-990",
+            LegacyClientId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
+            KanaanId = family,
             DisplayName = "IS Closed Client",
             SurnameOrEntityName = "IS Closed Client",
             LifecycleStatus = ClientLifecycleStatuses.Closed,
@@ -332,7 +336,7 @@ public sealed class InvestmentSummaryServiceTests(KcasWebApplicationFactory fact
         db.Clients.AddRange(primary, secondary, closed);
         await db.SaveChangesAsync();
 
-        var portfolio = await service.LoadAsync(new InvestmentSummaryQuery(KanaanId: "IS-990"));
+        var portfolio = await service.LoadAsync(new InvestmentSummaryQuery(KanaanId: family));
 
         Assert.Equal(3, portfolio.Rows.Count);
         Assert.Equal(350_000m, portfolio.TotalCurrentValueZar);
@@ -359,7 +363,7 @@ public sealed class InvestmentSummaryServiceTests(KcasWebApplicationFactory fact
         Assert.All(client.Rows, row => Assert.Equal(primary.Id, row.ClientId));
 
         var historical = await service.LoadAsync(new InvestmentSummaryQuery(
-            KanaanId: "IS-990",
+            KanaanId: family,
             Scope: InvestmentSummaryScopes.Historical));
         Assert.Equal(2, historical.Rows.Count);
         Assert.Contains(historical.Rows, row => row.ClientId == closed.Id && !row.NeedsStatusCorrection);

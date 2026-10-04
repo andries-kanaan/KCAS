@@ -8,6 +8,7 @@
 @inject ClientOnboardingService Onboarding
 @inject ClientAdvicePreparationService AdvicePreparation
 @inject ClientSanctionsCoverageService Sanctions
+@inject SanctionsAutomationService SanctionsAutomation
 @inject ComplaintRegisterService Complaints
 @inject IAuthorizationService Authorization
 @inject AuthenticationStateProvider AuthenticationStateProvider
@@ -201,6 +202,7 @@
             try
             {
                 if (await Sanctions.ReminderAsync(state.User) is { } sanctions) controlReminders.Add(sanctions);
+                if (await SanctionsAutomation.ReminderAsync(state.User) is { } source) controlReminders.Add(source);
                 if (await Complaints.ReminderAsync(state.User) is { } complaints) controlReminders.Add(complaints);
             }
             catch (Exception ex) { controlReminderError = ex.Message; }

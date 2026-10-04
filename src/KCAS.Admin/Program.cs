@@ -83,6 +83,7 @@ builder.Services.AddScoped<ClientOnboardingService>();
 builder.Services.AddScoped<ClientBraRiskReportService>();
 builder.Services.AddScoped<ClientVisibilityService>();
 builder.Services.AddScoped<InvestmentSummaryService>();
+builder.Services.AddScoped<InvestmentReturnService>();
 builder.Services.AddScoped<InvestmentReconciliationService>();
 builder.Services.AddScoped<ClientReviewTransferService>();
 builder.Services.AddScoped<ClientDuplicateReviewTransferService>();
@@ -101,6 +102,13 @@ builder.Services.AddScoped<BusinessRiskAssessmentService>();
 builder.Services.AddScoped<RmcpService>();
 builder.Services.AddScoped<ComplianceWorkService>();
 builder.Services.AddScoped<ClientSanctionsCoverageService>();
+builder.Services.AddOptions<SanctionsAutomationOptions>().BindConfiguration(SanctionsAutomationOptions.Section)
+    .Validate(o => o.PollIntervalMinutes is >= 1 and <= 1440 && o.MaximumSourceAgeHours is >= 1 and <= 168 &&
+        o.MinimumIndividuals >= 1 && o.MinimumEntities >= 1, "Invalid sanctions refresh configuration.").ValidateOnStart();
+builder.Services.AddSingleton<SanctionsAutomationLock>();
+builder.Services.AddHttpClient<ISanctionsFeed, OfficialSanctionsFeed>(http => http.Timeout = TimeSpan.FromSeconds(90))
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddScoped<SanctionsAutomationService>();
 builder.Services.AddScoped<ComplaintRegisterService>();
 builder.Services.AddSingleton<EmployeeEvidenceFiles>();
 builder.Services.AddScoped<EmployeeComplianceService>();
@@ -108,6 +116,7 @@ builder.Services.AddScoped<EmployeeTransferService>();
 if (!builder.Environment.IsEnvironment("Testing"))
 {
     builder.Services.AddHostedService<EmployeeReviewReminderJob>();
+    builder.Services.AddHostedService<SanctionsAutomationJob>();
 }
 builder.Services.AddScoped<InspectionService>();
 builder.Services.AddScoped<GoAmlDailyCheckService>();
@@ -172,6 +181,15 @@ app.MapGet("/kcas-bootstrap.css", () =>
     Results.Text(File.ReadAllText(Path.Combine(webRoot, "lib", "bootstrap", "dist", "css", "bootstrap.min.css")), "text/css"));
 
 app.MapGet("/health/live", () => Results.Ok(new { status = "Healthy" }));
+app.MapGet("/compliance/sanctions/snapshots/{id:int}/file", async Task<IResult> (int id, HttpContext context, SanctionsAutomationService sanctions) =>
+{
+    try
+    {
+        var snapshot = await sanctions.SnapshotAsync(id, context.User);
+        return snapshot is null ? Results.NotFound() : Results.File(snapshot.Payload, "application/xml", $"FIC-UN-sanctions-snapshot-{id}.xml");
+    }
+    catch (UnauthorizedAccessException) { return Results.Forbid(); }
+}).RequireAuthorization(KcasPermissions.ComplianceView);
 app.MapGet("/compliance/complaints/export", async Task<IResult> (HttpContext context, ComplaintRegisterService complaints, string? search, string? status, DateOnly? from, DateOnly? to) =>
 {
     try { return Results.File(await complaints.ExportCsvAsync(context.User, search, status, from, to), "text/csv", $"KCAS-complaints-{DateTime.Today:yyyy-MM-dd}.csv"); }

@@ -1,8 +1,49 @@
 # Kanaan 2026 Policy Review Checkpoint
 
-Last updated: 3 October 2026.
+Last updated: 4 October 2026.
 
 ## Resume Here
+
+**Corrections and sanctions automation, 4 October 2026:** Current management-review
+pair is **BRA 1.6 / RMCP 1.12**, in the existing `02 Working BRA and RMCP revisions`
+folder. Operative references now identify this replacement pair and adopted linked
+2026 policies; July signed files remain historical sources. KCAS descriptions
+distinguish implemented acceptance, employee, advice-preparation and issue controls
+from deferred client-authority/submission/execution tracking. Internal drafting
+commentary is removed without discarding substantive procedures, source history,
+examples or the 132 linked legal footnotes. The complaints procedure records the
+current Ombud route and the required website/disclosure correction; the public
+website was not edited. Prior drafts are preserved in the restricted management
+readiness archive. Management approval, effective dates, risk/tolerance judgements,
+recovery objectives and selected review cycles remain actual management decisions.
+
+Official FIC XML monitoring and deterministic client/party/current-or-prospective
+employee screening are implemented, with retained source snapshots/hashes,
+attributed checks, failure/coverage alerts and existing business gates. PEP/PIP and
+adverse-information research remain the separate scoped Codex handoff. See
+`docs/KCAS_SANCTIONS_AND_COMPLAINTS_IMPLEMENTATION.md`. Additive migration:
+`20261004091640_AddOfficialSanctionsAutomation`; no client reset or database deletion.
+The initial 20 automation/parser tests and 40 existing affected workflow tests pass.
+Document structural checks pass; fresh visual QA could not complete (LibreOffice
+absent, Word renderer hung, browser connection failed). No management decision,
+external freeze, regulatory submission or live-server deployment is manufactured.
+Read the restricted `04 Management readiness review` completion record for the
+actual local run and remaining operating actions. Older entries below are history.
+
+**Management-readiness review, 4 October 2026:** Read the actual BRA 1.5,
+RMCP 1.11 public-source screening and all fourteen policy drafts against the
+nineteen combined-minutes subjects. Procedural coverage is present and the set
+is ready for management review/decisions, not signature unchanged or a claim of
+FSCA closure. Targeted finalisation remains: operative cross-references,
+implemented/deferred KCAS wording, internal drafting commentary and actual
+management adoption of risk judgements, recovery objectives and selected review
+intervals. Automatic official sanctions-list polling/screening remains a genuine
+implementation gap; the current register is not that automation. Later mandate,
+submission and execution tracking remains deferred. No policy, approval, live
+deployment or screening was changed by this review. Detailed findings and the
+nineteen-topic matrix are in the restricted document
+`Compliance/FSCA inspections/2026/22Sep2026FeedbackRemediation/SUBMISSION_READINESS_REVIEW_2026-10-04.md`.
+Older dated entries below are history, not the current document-version pointer.
 
 **Advice preparation handoff implemented locally, 3 October 2026:** An adviser can
 open `Clients -> Client -> Advice -> Request Codex preparation`, describe the

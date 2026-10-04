@@ -13,7 +13,7 @@
 @if (message is not null) { <div class="alert alert-info" role="status">@message</div> }
 @if (error is not null) { <div class="alert alert-danger" role="alert">@error</div> }
 @if (view is not null) {
-<section class="work-area sanctions-coverage-details"><h2>@view.Batch.SourceVersion</h2><p>Source: <a href="@view.Batch.SourceUrl" target="_blank" rel="noopener">@view.Batch.SourceUrl</a></p><p>Published: @view.Batch.SourcePublishedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm") · Recorded by: @view.Batch.CreatedBy · Recorded: @view.Batch.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</p>
+<section class="work-area sanctions-coverage-details"><h2>@view.Batch.SourceVersion</h2><p>Source: <a href="@view.Batch.SourceUrl" target="_blank" rel="noopener">@view.Batch.SourceUrl</a></p><p>Source date / first retrieval: @view.Batch.SourcePublishedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm") · Recorded by: @view.Batch.CreatedBy · Recorded: @view.Batch.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</p><p>@view.Batch.Reason</p>
 <p>Subjects: @view.Subjects.Count · Clear: @view.Subjects.Count(x => x.Status == "Clear") · Outstanding: @view.Subjects.Count(x => x.Status is not ("Clear" or "Excluded"))</p>
 @if (!view.IsAdministrator) { <p class="text-muted">Restricted clients are omitted from this view; the full population remains recorded.</p> }
 @if (view.PopulationChanged) { <div class="alert alert-warning">Client or party scope changed. Refresh the population before treating coverage as complete.</div> }
