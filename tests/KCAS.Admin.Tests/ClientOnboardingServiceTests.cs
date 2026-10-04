@@ -79,7 +79,17 @@ public sealed class ClientOnboardingServiceTests(KcasWebApplicationFactory facto
         Assert.Contains("screeningSources", decision.SnapshotJson);
         // Identity changes are not silently covered by the earlier acceptance.
         var client = await db.Clients.SingleAsync(x => x.Id == id);
+        var originalFullName = client.FullName;
         client.FullName += " changed";
+        await db.SaveChangesAsync();
+        Assert.False((await service.LoadAsync(id, ki)).IsAccepted);
+        await Assert.ThrowsAsync<ValidationException>(() => ClientOnboardingService.RequireAcceptedAsync(db, id));
+        client.FullName = originalFullName;
+        await db.SaveChangesAsync();
+        Assert.True((await service.LoadAsync(id, ki)).IsAccepted);
+        client.PersonalProfile ??= new ClientPersonalProfile { Client = client };
+        client.PersonalProfile.PassportNumber = "SYNTHETIC-P123";
+        client.PersonalProfile.PassportCountry = "United Kingdom";
         await db.SaveChangesAsync();
         Assert.False((await service.LoadAsync(id, ki)).IsAccepted);
         await Assert.ThrowsAsync<ValidationException>(() => ClientOnboardingService.RequireAcceptedAsync(db, id));

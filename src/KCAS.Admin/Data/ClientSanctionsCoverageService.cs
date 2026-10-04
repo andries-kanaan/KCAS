@@ -216,8 +216,12 @@ public sealed class ClientSanctionsCoverageService(IDbContextFactory<Application
         var result = new List<ClientSanctionsSubject>();
         foreach (var client in clients)
         {
+            var identity = JsonSerializer.Serialize(new { client.FullName, client.SurnameOrEntityName, client.ClientCategory, client.PersonalProfile?.SouthAfricanIdNumber });
+            if (!string.IsNullOrWhiteSpace(client.PersonalProfile?.PassportNumber))
+                identity = JsonSerializer.Serialize(new { client.FullName, client.SurnameOrEntityName, client.ClientCategory,
+                    client.PersonalProfile.SouthAfricanIdNumber, client.PersonalProfile.PassportNumber, client.PersonalProfile.PassportCountry });
             Add(client, $"C:{client.Id}", ClientEvidenceScreeningSubjectTypes.Client, client.DisplayName, null,
-                JsonSerializer.Serialize(new { client.FullName, client.SurnameOrEntityName, client.ClientCategory, client.PersonalProfile?.SouthAfricanIdNumber }));
+                identity);
             foreach (var party in client.RelatedParties.Where(x => x.IsActive))
                 Add(client, $"P:{party.Id}", ClientEvidenceReadinessService.MapRelatedPartySubjectType(party.Roles.Select(x => x.RoleCode)), party.DisplayName, party.Id,
                     JsonSerializer.Serialize(new { party.PartyType, party.SouthAfricanIdNumber, party.PassportNumber, party.PassportCountry, party.BirthDate, party.RegistrationNumber,

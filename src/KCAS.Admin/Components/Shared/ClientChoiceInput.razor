@@ -1,0 +1,46 @@
+@inherits InputBase<string?>
+
+<select @attributes="AdditionalAttributes" class="@CssClass" value="@SelectedValue" @onchange="Select">
+    <option value="">Not recorded</option>
+    @foreach (var option in Options)
+    {
+        <option value="@option">@Label(option)</option>
+    }
+    @if (!string.IsNullOrEmpty(CurrentValue) && !Options.Contains(CurrentValue, StringComparer.Ordinal))
+    {
+        <option value="@CurrentValue">@CurrentValue (recorded)</option>
+    }
+    @if (AllowCustom)
+    {
+        <option value="__custom">Other...</option>
+    }
+</select>
+@if (customEntry)
+{
+    <input class="form-control" aria-label="Other value" maxlength="@MaximumLength" value="@CurrentValueAsString" @onchange="SetCustom" />
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<string> Options { get; set; } = [];
+    [Parameter] public bool AllowCustom { get; set; } = true;
+    [Parameter] public int MaximumLength { get; set; } = 100;
+    private bool customEntry;
+    private string? SelectedValue => customEntry ? "__custom" : CurrentValue;
+    private static string Label(string value) => value switch
+    {
+        "HomePhone" => "Home phone", "WorkPhone" => "Work phone", "FamilyContact" => "Family contact", _ => value
+    };
+    private void Select(ChangeEventArgs args)
+    {
+        var selected = args.Value?.ToString();
+        customEntry = selected == "__custom";
+        if (!customEntry) CurrentValueAsString = selected;
+    }
+    private void SetCustom(ChangeEventArgs args) => CurrentValueAsString = args.Value?.ToString();
+    protected override bool TryParseValueFromString(string? value, out string? result, [System.Diagnostics.CodeAnalysis.NotNullWhen(false)] out string? validationErrorMessage)
+    {
+        result = string.IsNullOrWhiteSpace(value) ? null : value;
+        validationErrorMessage = null;
+        return true;
+    }
+}

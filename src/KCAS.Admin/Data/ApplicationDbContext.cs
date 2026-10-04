@@ -457,6 +457,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
                 .HasForeignKey<ClientPersonalProfile>(profile => profile.ClientId)
                 .OnDelete(DeleteBehavior.Cascade);
             entity.Property(profile => profile.WorkdayTravelPercent).HasPrecision(9, 4);
+            ConfigureDateOnly(entity.Property(profile => profile.PassportExpiryDate));
             entity.HasIndex(profile => profile.SouthAfricanIdNumber);
         });
 

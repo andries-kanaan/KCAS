@@ -18,6 +18,11 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
 
     public async Task<int> SaveClientAsync(ClientEditModel model, bool canManageComplianceVisibility = false)
     {
+        var existing = model.Id is { } id ? await LoadClientAggregateAsync(id) : null;
+        var errors = ClientEditValidation.Validate(model, existing is null ? null : ClientEditModel.FromClient(existing));
+        if (errors.Count > 0)
+            throw new ValidationException(string.Join(" ", errors.Select(error => error.Message)));
+
         var surname = Normalize(model.SurnameOrEntityName);
         var displayName = Normalize(model.DisplayName);
         var kanaanId = Normalize(model.KanaanId);
@@ -41,7 +46,7 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
         }
         else
         {
-            client = await LoadClientAggregateAsync(model.Id.Value);
+            client = existing!;
             client.UpdatedAtUtc = DateTime.UtcNow;
         }
 
@@ -66,6 +71,9 @@ public sealed class ClientOperationsService(ApplicationDbContext db, ClientCodeG
 
         client.PersonalProfile ??= new ClientPersonalProfile { Client = client };
         client.PersonalProfile.SouthAfricanIdNumber = Normalize(model.SouthAfricanIdNumber);
+        client.PersonalProfile.PassportNumber = Normalize(model.PassportNumber);
+        client.PersonalProfile.PassportCountry = Normalize(model.PassportCountry);
+        client.PersonalProfile.PassportExpiryDate = model.PassportExpiryDate;
         client.PersonalProfile.Gender = Normalize(model.Gender);
         client.PersonalProfile.MaritalStatus = Normalize(model.MaritalStatus);
         client.PersonalProfile.TaxNumber = Normalize(model.TaxNumber);
@@ -1059,6 +1067,9 @@ public sealed class ClientEditModel
     public bool IsActive { get; set; } = true;
     public bool ExcludeFromComplianceLists { get; set; }
     public string? SouthAfricanIdNumber { get; set; }
+    public string? PassportNumber { get; set; }
+    public string? PassportCountry { get; set; }
+    public DateOnly? PassportExpiryDate { get; set; }
     public string? Gender { get; set; }
     public string? MaritalStatus { get; set; }
     public string? TaxNumber { get; set; }
@@ -1104,6 +1115,9 @@ public sealed class ClientEditModel
             IsActive = client.IsActive,
             ExcludeFromComplianceLists = client.ExcludeFromComplianceLists,
             SouthAfricanIdNumber = client.PersonalProfile?.SouthAfricanIdNumber,
+            PassportNumber = client.PersonalProfile?.PassportNumber,
+            PassportCountry = client.PersonalProfile?.PassportCountry,
+            PassportExpiryDate = client.PersonalProfile?.PassportExpiryDate,
             Gender = client.PersonalProfile?.Gender,
             MaritalStatus = client.PersonalProfile?.MaritalStatus,
             TaxNumber = client.PersonalProfile?.TaxNumber,
@@ -1147,6 +1161,7 @@ public sealed class ClientEditModel
                 .ThenBy(relationship => relationship.Name)
                 .Select(relationship => new ClientRelationshipEditModel
                 {
+                    Id = relationship.Id,
                     RelationshipType = relationship.RelationshipType,
                     LegacyRelatedClientId = relationship.LegacyRelatedClientId,
                     Name = relationship.Name,
@@ -1190,6 +1205,7 @@ public sealed class ClientAddressEditModel
 
 public sealed class ClientRelationshipEditModel
 {
+    public int? Id { get; set; }
     public string RelationshipType { get; set; } = "Spouse";
     public int? LegacyRelatedClientId { get; set; }
     public string? Name { get; set; }
