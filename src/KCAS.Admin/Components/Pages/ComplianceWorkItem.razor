@@ -117,7 +117,13 @@ else
     }
     private async Task LoadAsync()
     {
-        model = await WorkService.LoadAsync(Id);
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        model = await WorkService.LoadAsync(Id, state.User);
+        if (model?.Task.TaskType == ComplianceTaskTypes.AdvicePreparation)
+        {
+            Navigation.NavigateTo($"/clients/{model.Task.ClientId}/advice/{model.Task.LinkedEntityId}/preparation");
+            return;
+        }
         if (model?.Task.TaskType is ComplianceTaskTypes.SanctionsCoverage or ComplianceTaskTypes.Complaint)
         {
             Navigation.NavigateTo(model.Task.TaskType == ComplianceTaskTypes.SanctionsCoverage

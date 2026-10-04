@@ -8,6 +8,51 @@ KCAS will be the authoritative structured record, generate controlled Risk Analy
 
 ## Core workflow
 
+### Adviser request and Codex preparation
+
+The adviser can open `Clients -> Client -> Advice -> Request Codex preparation`
+(`/clients/{clientId}/advice/request`), describe the situation and optionally link
+the email, telephone note or document reference. The KCAS evidenced investment-risk
+methodology is selected by default; the alternate methodology remains an explicit
+choice. Saving creates a new Draft advice case and an in-app task for approved users
+with ComplianceAdministrator or ComplianceApprover rights and access to the advice.
+The confirmation identifies where the notification appears.
+
+On `Home -> Awaiting Codex advice preparation`, the officer opens the case handoff
+and uses **Copy handoff** in an authorised Codex session. The brief supplies the
+case/client/Kanaan IDs, request, selected methodology, client/participant folders,
+account references and required outputs. Codex reads actual evidence and latest
+dated valuations, saves supported facts, risk answers, products and CAR text in the
+existing case, and retains genuine unsupported facts as findings. Private source
+paths and internal deliberations belong in the internal sources/findings, not the
+client-facing letter. Draft previews retain the internal issue report.
+
+The officer records a substantive preparation summary after the actual draft and
+sources have been saved. KCAS records Codex as performer and the real saving
+account/time, closes the preparation task and leaves the advice in Draft. Genuine
+gaps remain visible and subject to existing advice validation. The adviser confirms
+the prepared advice and submits it for independent review. Neither the original
+preparer nor the account that recorded Codex preparation can independently approve
+that case. Client approval follows issue of the internally approved proposal.
+
+An existing Draft/Returned case has **Codex preparation** in its header, so an
+adviser can request further preparation without replacing another case. A pending
+request reuses its task; changed request versions reject stale completion. A
+confirmed repeat submission of the new-case form reuses the case. Submission for
+independent review remains blocked while its preparation task is pending. Generic
+worklist closure cannot substitute for recording actual preparation results.
+
+This handoff is an in-app coordination task; the officer runs the separate Codex
+session. Task closure does not approve advice, record client agreement, submit an
+instruction or claim execution. Existing manual preparation remains available.
+
+Verified locally on 3 October 2026: 51 affected tests covering preparation, existing
+advice approval, worklist controls and advice transfers passed. Request, handoff,
+case and Home notification views passed desktop/mobile browser checks. Verification
+used synthetic records in the preserved test database, not real client cases.
+No schema migration is required; this uses existing advice cases, tasks and audit
+events. Pending tasks are local coordination records, not transferred notifications.
+
 1. **Start an advice case**
    - Open `Clients -> Client -> Advice`.
    - Select new investment, top-up, switch, retirement decision, replacement, annual review or other advice.

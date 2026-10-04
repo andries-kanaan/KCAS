@@ -198,6 +198,10 @@ public sealed class ClientAdviceService(ApplicationDbContext db)
     {
         var item = await QueryCase().SingleAsync(value => value.Id == caseId);
         EnsureEditable(item);
+        if (await db.ComplianceTasks.AnyAsync(x => x.TaskType == ComplianceTaskTypes.AdvicePreparation &&
+            x.LinkedEntityType == nameof(ClientAdviceCase) && x.LinkedEntityId == caseId && x.ClientId == item.ClientId &&
+            x.Status == ComplianceWorkStatuses.Open))
+            throw new InvalidOperationException("Record the current Codex preparation results before submitting this advice for independent review.");
         var errors = Validate(item);
         if (errors.Count > 0) throw new InvalidOperationException(string.Join(" ", errors));
         item.Status = ClientAdviceStatuses.ReadyForReview;
@@ -215,6 +219,9 @@ public sealed class ClientAdviceService(ApplicationDbContext db)
         var user = User(reviewer);
         if (string.Equals(item.PreparedBy, user, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("The preparer cannot approve their own advice case.");
+        if (await db.ComplianceAuditEvents.AnyAsync(x => x.EntityType == nameof(ClientAdviceCase) && x.EntityId == caseId &&
+            x.Action == "AdviceCodexPreparationRecorded" && x.UserName == user))
+            throw new InvalidOperationException("The account that recorded Codex preparation cannot independently approve that advice case.");
         if (item.ReviewFindings.Any(finding => finding.Status == ClientAdviceFindingStatuses.Open))
             throw new InvalidOperationException("Resolve or accept every review finding before approval.");
         if (item.ReviewFindings.Any(finding => finding.Status == ClientAdviceFindingStatuses.AwaitingClientConfirmation &&
@@ -753,7 +760,7 @@ public sealed class ClientAdviceService(ApplicationDbContext db)
         _ => throw new InvalidOperationException($"Advice risk methodology '{methodologyCode}' is not supported.")
     };
 
-    private static List<string> Validate(ClientAdviceCase item)
+    internal static List<string> Validate(ClientAdviceCase item)
     {
         var errors = new List<string>();
         var methodology = Methodology(item.RiskMethodologyCode);

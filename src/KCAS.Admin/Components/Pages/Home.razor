@@ -6,6 +6,7 @@
 @inject ComplianceWorkService WorkService
 @inject EmployeeComplianceService Employees
 @inject ClientOnboardingService Onboarding
+@inject ClientAdvicePreparationService AdvicePreparation
 @inject ClientSanctionsCoverageService Sanctions
 @inject ComplaintRegisterService Complaints
 @inject IAuthorizationService Authorization
@@ -69,6 +70,18 @@
         {
             <div class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2">
                 <strong>@item.ClientName</strong><a class="btn btn-sm btn-primary" href="@($"/clients/{item.ClientId}/onboarding")">Open Codex task</a>
+            </div>
+        }
+    </div></section>
+}
+@if (adviceNotifications.Count > 0)
+{
+    <section class="work-area"><h2>Awaiting Codex advice preparation</h2><div class="list-group">
+        @foreach (var item in adviceNotifications)
+        {
+            <div class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <div class="text-break" style="min-width: 0; max-width: 100%"><strong>@item.ClientName</strong><div class="small">Case @item.CaseId - requested by @item.RequestedBy - @item.RequestedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</div></div>
+                <a class="btn btn-sm btn-primary" href="@($"/clients/{item.ClientId}/advice/{item.CaseId}/preparation")">Open advice handoff</a>
             </div>
         }
     </div></section>
@@ -153,6 +166,7 @@
     private string databaseStatus = "Pending";
     private IReadOnlyList<ComplianceWorkListItem> reviewNotifications = [];
     private IReadOnlyList<ClientCodexNotification> codexNotifications = [];
+    private IReadOnlyList<AdvicePreparationNotification> adviceNotifications = [];
     private int annualNotificationsCreated;
     private IReadOnlyList<EmployeeTaskRow> employeeNotifications = [];
     private int employeeNotificationsCreated;
@@ -191,6 +205,7 @@
             }
             catch (Exception ex) { controlReminderError = ex.Message; }
             codexNotifications = await Onboarding.NotificationsAsync(state.User);
+            adviceNotifications = await AdvicePreparation.NotificationsAsync(state.User);
             annualNotificationsCreated = await WorkService.EnsureAnnualClientReviewTasksAsync(DateOnly.FromDateTime(DateTime.Today), userName);
             reviewNotifications = await WorkService.LoadDueReviewNotificationsAsync(
                 state.User.IsInRole(KcasRoles.Administrator));

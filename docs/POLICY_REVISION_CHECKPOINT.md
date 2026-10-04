@@ -4,6 +4,21 @@ Last updated: 3 October 2026.
 
 ## Resume Here
 
+**Advice preparation handoff implemented locally, 3 October 2026:** An adviser can
+open `Clients -> Client -> Advice -> Request Codex preparation`, describe the
+situation and record a correspondence reference. KCAS creates a Draft advice case
+and a Home notification for approved ComplianceAdministrator/ComplianceApprover
+users with advice access. The copyable handoff guides a separate authorised Codex
+session through evidence, current valuations, Risk Analyser and CAR preparation.
+Saved findings retain Codex attribution, the real recording account/time and genuine
+gaps. The adviser confirms the draft; independent approval and issue remain separate.
+The original preparer and the account recording preparation cannot approve their own
+work. No migration or automatic Codex launch is introduced. See
+`docs/CLIENT_ADVICE_WORKFLOW_PLAN.md`. Later mandate, instruction authentication,
+administrator submission and execution tracking remain deferred, not implemented
+by this handoff. Verification: 51 affected tests and eight desktop/mobile views pass.
+Live deployment remains outstanding.
+
 **PEP/PIP approach clarified, 3 October 2026:** Use the existing Client -> Client
 acceptance -> Request Codex review handoff for live public-source PEP/PIP and
 adverse-information research. Do not build an annually compiled PEP register or

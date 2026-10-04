@@ -395,7 +395,7 @@ public sealed class ClientAdviceServiceTests(KcasWebApplicationFactory factory)
         }
     }
 
-    private static ClientAdviceEditModel Complete(ClientAdviceEditModel edit)
+    internal static ClientAdviceEditModel Complete(ClientAdviceEditModel edit)
     {
         edit.AdviceScope = "Advise on a new long-term investment.";
         edit.MeetingSummary = "The client requested investment advice at a recorded meeting.";

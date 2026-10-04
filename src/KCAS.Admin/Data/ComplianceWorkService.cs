@@ -72,7 +72,7 @@ public sealed class ComplianceWorkService(ApplicationDbContext db)
             .ToListAsync();
     }
 
-    public async Task<ComplianceWorkPageModel?> LoadAsync(int id)
+    public async Task<ComplianceWorkPageModel?> LoadAsync(int id, System.Security.Claims.ClaimsPrincipal? principal = null)
     {
         var task = await db.ComplianceTasks.AsNoTracking()
             .Include(item => item.Client)
@@ -84,6 +84,13 @@ public sealed class ComplianceWorkService(ApplicationDbContext db)
         if (task is null)
         {
             return null;
+        }
+        if (task.TaskType == ComplianceTaskTypes.AdvicePreparation)
+        {
+            var actor = await ComplianceWorkflowAccess.ActorAsync(db, principal ?? new(), KCAS.Admin.Security.KcasPermissions.AdviceView);
+            if (task.Client is not null) await ComplianceWorkflowAccess.VisibleAsync(db, task.Client, actor.Id);
+            var subjects = await db.ClientAdviceParticipants.Include(x => x.Client).Where(x => x.ClientAdviceCaseId == task.LinkedEntityId).ToListAsync();
+            foreach (var subject in subjects) await ComplianceWorkflowAccess.VisibleAsync(db, subject.Client, actor.Id);
         }
         var approvals = await LoadClosureApprovalsAsync(id);
         return new(task, approvals, RequiredClosureApprovals(task));
@@ -113,8 +120,8 @@ public sealed class ComplianceWorkService(ApplicationDbContext db)
         RequireReason(reason);
         var user = RequireUser(userName);
         var type = Allowed(model.TaskType, ComplianceTaskTypes.All, "task type");
-        if (type is ComplianceTaskTypes.SanctionsCoverage or ComplianceTaskTypes.Complaint)
-            throw new ValidationException("Record this work through sanctions coverage or the complaints register.");
+        if (type is ComplianceTaskTypes.SanctionsCoverage or ComplianceTaskTypes.Complaint or ComplianceTaskTypes.AdvicePreparation)
+            throw new ValidationException("Record this work through sanctions coverage, the complaints register or advice preparation.");
         ComplianceTask task;
         string action;
         string? oldJson = null;
@@ -368,8 +375,8 @@ public sealed class ComplianceWorkService(ApplicationDbContext db)
     }
     private static void RequireGeneralTask(ComplianceTask task)
     {
-        if (task.TaskType is ComplianceTaskTypes.SanctionsCoverage or ComplianceTaskTypes.Complaint)
-            throw new ValidationException("Use the controlled sanctions coverage or complaint case; a generic task action cannot resolve its evidence requirements.");
+        if (task.TaskType is ComplianceTaskTypes.SanctionsCoverage or ComplianceTaskTypes.Complaint or ComplianceTaskTypes.AdvicePreparation)
+            throw new ValidationException("Use the controlled sanctions coverage, complaint or advice preparation case; a generic task action cannot resolve its evidence requirements.");
     }
 
     private async Task<List<ComplianceApproval>> LoadClosureApprovalsAsync(int id)
