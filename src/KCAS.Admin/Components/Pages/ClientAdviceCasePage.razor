@@ -3,6 +3,7 @@
 @attribute [Authorize(Policy = KcasPermissions.AdviceView)]
 @using KCAS.Admin.Data
 @inject ClientAdviceService AdviceService
+@inject ClientAdvicePreparationService Preparation
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject NavigationManager Navigation
 
@@ -26,10 +27,18 @@ else
                 <Authorized><a class="btn btn-outline-primary" href="@($"/advice/transfers?clientId={ClientId}")">Transfer advice record</a></Authorized>
             </AuthorizeView>
             <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/advice")">Advice history</a>
+            @if (IsEditable || preparation?.Request is not null) { <a class="btn btn-outline-primary" href="@($"/clients/{ClientId}/advice/{CaseId}/preparation")">Codex preparation</a> }
         </div>
     </div>
 
     @if (!string.IsNullOrWhiteSpace(message)) { <div class="alert @(error ? "alert-danger" : "alert-success")">@message</div> }
+    @if (preparation?.Task is { } preparationTask)
+    {
+        <div class="alert alert-info text-break"><strong>@(preparationTask.Status == ComplianceStatuses.Closed ? "Codex preparation findings recorded" : "Awaiting Codex preparation")</strong>
+            @if (preparationTask.Status == ComplianceStatuses.Closed) { <span> - recorded by @preparationTask.ClosedBy at @preparationTask.ClosedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</span> }
+            <a class="ms-2" href="@($"/clients/{ClientId}/advice/{CaseId}/preparation")">View handoff and findings</a>
+        </div>
+    }
 
     <EditForm Model="model" OnValidSubmit="SaveAsync">
         <fieldset disabled="@(!IsEditable)">
@@ -220,6 +229,7 @@ else
     [Parameter] public int ClientId { get; set; }
     [Parameter] public int CaseId { get; set; }
     private ClientAdviceEditModel? model;
+    private AdvicePreparationPage? preparation;
     private string? message; private bool error; private string decisionReason = "Independent review completed."; private string signedPath = ""; private string findingResolution = "";
     private ClientAdviceFindingEditModel newFinding = new();
     private static readonly string[] RiskLevels = ["Very low", "Low", "Medium", "Medium to high", "High", "Very Conservative", "Conservative", "Moderate", "Moderately Aggressive", "Aggressive"];
@@ -228,7 +238,12 @@ else
     private bool IsApproved => model?.Status is ClientAdviceStatuses.ApprovedForIssue or ClientAdviceStatuses.Issued or ClientAdviceStatuses.Complete or ClientAdviceStatuses.Superseded;
     private bool CanRevise => model?.Status is ClientAdviceStatuses.ApprovedForIssue or ClientAdviceStatuses.Issued or ClientAdviceStatuses.Complete;
     protected override async Task OnParametersSetAsync() => await ReloadAsync();
-    private async Task ReloadAsync() => model = await AdviceService.LoadCaseAsync(CaseId);
+    private async Task ReloadAsync()
+    {
+        var auth = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        preparation = await Preparation.LoadAsync(ClientId, CaseId, auth.User);
+        model = await AdviceService.LoadCaseAsync(CaseId);
+    }
     private void AddProduct() => model!.Products.Add(new());
     private void RemoveProduct(ClientAdviceProductEditModel product) => model!.Products.Remove(product);
     private void AddFactSource() => model!.FactSources.Add(new());

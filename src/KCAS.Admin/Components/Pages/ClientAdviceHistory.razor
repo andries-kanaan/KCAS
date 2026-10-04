@@ -23,6 +23,7 @@ else
         <Authorized>
             <section class="work-area">
                 <h2>Start advice case</h2>
+                <a class="btn btn-primary mb-3" href="@($"/clients/{ClientId}/advice/request")">Request Codex preparation</a>
                 <div class="row g-2 align-items-end">
                     <div class="col-md-5"><label class="form-label">Advice type</label><select class="form-select" @bind="adviceType">@foreach (var type in ClientAdviceTypes.All) { <option value="@type">@Label(type)</option> }</select></div>
                     <div class="col-auto"><button type="button" class="btn btn-primary" @onclick="CreateAsync">Start case</button></div>

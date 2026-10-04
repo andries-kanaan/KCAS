@@ -1,0 +1,137 @@
+@page "/clients/{ClientId:int}/advice/request"
+@page "/clients/{ClientId:int}/advice/{CaseId:int}/preparation"
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+@attribute [Authorize(Policy = KcasPermissions.AdviceView)]
+@using System.Security.Claims
+@using KCAS.Admin.Data
+@inject ClientAdvicePreparationService Preparation
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<PageTitle>Advice preparation</PageTitle>
+@if (error is not null) { <div class="alert alert-danger" role="alert">@error</div> }
+@if (message is not null) { <div class="alert alert-success" role="status">@message</div> }
+@if (model is not null)
+{
+    <div class="page-header">
+        <div><p class="eyebrow">Kanaan ID @model.KanaanId</p><h1>@model.ClientName</h1><p class="mb-0">Advice preparation @(model.Case is null ? "" : $"- case {model.Case.Id}")</p></div>
+        <div class="header-actions">
+            @if (model.Case is not null) { <a class="btn btn-primary" href="@($"/clients/{ClientId}/advice/{model.Case.Id}")">Open advice case</a> }
+            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/advice")">Advice history</a>
+        </div>
+    </div>
+    @if (model.Task is { } task && model.Request is { } request)
+    {
+        <section class="work-area">
+            <div class="section-heading-row"><h2>Codex handoff</h2><button class="btn btn-outline-secondary" type="button" disabled="@busy" title="Copy advice preparation handoff" @onclick="CopyAsync">Copy handoff</button></div>
+            <dl class="row">
+                <dt class="col-sm-3">Preparation</dt><dd class="col-sm-9">@(task.Status == ComplianceStatuses.Closed ? "Findings recorded" : "Awaiting Codex preparation")</dd>
+                <dt class="col-sm-3">Requested by</dt><dd class="col-sm-9 text-break">@request.RequestedBy - @request.RequestedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</dd>
+                <dt class="col-sm-3">Evidence folder</dt><dd class="col-sm-9 text-break">@(model.Folder ?? "Not recorded")</dd>
+                @if (task.ClosedAtUtc is not null)
+                {
+                    <dt class="col-sm-3">Performed by</dt><dd class="col-sm-9">Codex</dd>
+                    <dt class="col-sm-3">Recorded by</dt><dd class="col-sm-9 text-break">@task.ClosedBy - @task.ClosedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</dd>
+                }
+            </dl>
+            <textarea class="form-control" rows="12" readonly aria-label="Codex advice handoff" @ref="briefElement">@task.Description</textarea>
+            <div role="status" aria-live="polite" class="mt-2">@copyStatus</div>
+            @if (!string.IsNullOrWhiteSpace(task.Outcome)) { <h3 class="mt-3">Preparation findings</h3><p class="text-break" style="white-space: pre-wrap">@task.Outcome</p><p>@task.ClosureReason</p> }
+        </section>
+    }
+    @if (model.CanRequest)
+    {
+        <section class="work-area">
+            <h2>@(model.Request is null ? "Request advice preparation" : "Update preparation request")</h2>
+            @if (model.Case is null)
+            {
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6"><label class="form-label" for="adviceType">Advice type</label><select id="adviceType" class="form-select" @bind="edit.AdviceType" disabled="@busy">@foreach (var type in ClientAdviceTypes.All) { <option value="@type">@Label(type)</option> }</select></div>
+                    <div class="col-md-6"><label class="form-label" for="methodology">Risk Analyser methodology</label><select id="methodology" class="form-select" @bind="edit.RiskMethodologyCode" disabled="@busy">@foreach (var method in ClientAdviceService.Methodologies) { <option value="@method.Code">@method.Name</option> }</select></div>
+                </div>
+            }
+            else { <p>@Label(model.Case.AdviceType) - @ClientAdviceService.Methodology(model.Case.RiskMethodologyCode).Name</p> }
+            <label class="form-label" for="situation">Situation and advice requested</label>
+            <textarea id="situation" class="form-control" rows="5" maxlength="12000" @bind="edit.Situation" disabled="@busy"></textarea>
+            <label class="form-label mt-3" for="reference">Email, telephone note or document reference (optional)</label>
+            <textarea id="reference" class="form-control" rows="2" maxlength="2000" @bind="edit.Reference" disabled="@busy"></textarea>
+            <button class="btn btn-primary mt-3" type="button" disabled="@busy" @onclick="RequestAsync">@(model.Task?.Status == ComplianceWorkStatuses.Open ? "Update Codex request" : "Request Codex preparation")</button>
+        </section>
+    }
+    @if (model.CanRecordResults)
+    {
+        <section class="work-area">
+            <h2>Record Codex preparation findings</h2>
+            <label class="form-label" for="findings">Saved draft, sources, calculations and outstanding confirmations</label>
+            <textarea id="findings" class="form-control" rows="5" maxlength="12000" @bind="summary" disabled="@busy"></textarea>
+            <button class="btn btn-outline-primary mt-3" type="button" disabled="@busy" @onclick="RecordAsync">Record preparation results</button>
+        </section>
+    }
+    @if (model.Task?.Status == ComplianceStatuses.Closed && model.Blockers.Count > 0)
+    {
+        <section class="work-area"><h2>Outstanding advice facts</h2><ul>@foreach (var blocker in model.Blockers) { <li>@blocker</li> }</ul></section>
+    }
+}
+
+@code {
+    [Parameter] public int ClientId { get; set; }
+    [Parameter] public int? CaseId { get; set; }
+    private AdvicePreparationPage? model;
+    private AdvicePreparationEdit edit = new();
+    private ClaimsPrincipal user = new();
+    private string? error, message, copyStatus;
+    private string summary = "";
+    private bool busy;
+    private ElementReference briefElement;
+    private IJSObjectReference? clipboard;
+    protected override async Task OnParametersSetAsync()
+    {
+        user = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User;
+        await LoadAsync();
+        if (Navigation.Uri.Contains("notification=recorded", StringComparison.Ordinal))
+            message = "Advice preparation task recorded. The Compliance Officer can open it from Home > Awaiting Codex advice preparation.";
+    }
+    private async Task LoadAsync()
+    {
+        try
+        {
+            model = await Preparation.LoadAsync(ClientId, CaseId, user);
+            edit = new() { ExpectedVersion = model.Request?.Version, Situation = model.Request?.Situation ?? "",
+                Reference = model.Request?.Reference, AdviceType = model.Case?.AdviceType ?? ClientAdviceTypes.AnnualReview,
+                RiskMethodologyCode = model.Case?.RiskMethodologyCode ?? ClientAdviceMethodologies.KcasEvidenced };
+        }
+        catch (Exception ex) { model = null; error = ex.Message; }
+    }
+    private async Task RequestAsync()
+    {
+        busy = true; error = message = null;
+        try
+        {
+            var result = await Preparation.RequestAsync(ClientId, CaseId, edit, user);
+            if (CaseId is null) Navigation.NavigateTo($"/clients/{ClientId}/advice/{result.CaseId}/preparation?notification=recorded");
+            else { await LoadAsync(); message = $"Advice preparation task recorded for {result.RecipientCount} authorised Compliance user(s). Available on Home; no email sent."; }
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+    private async Task RecordAsync()
+    {
+        busy = true; error = message = null;
+        try { await Preparation.RecordResultsAsync(ClientId, CaseId!.Value, model!.Request!.Version, summary, user); await LoadAsync(); summary = ""; message = "Codex preparation findings recorded. Open the advice case for adviser confirmation and independent review."; }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+    private async Task CopyAsync()
+    {
+        try
+        {
+            clipboard ??= await JS.InvokeAsync<IJSObjectReference>("import", "./Components/Pages/ClientOnboarding.razor.js");
+            copyStatus = await clipboard.InvokeAsync<bool>("copyBrief", briefElement) ? "Copied to clipboard." : "The handoff is selected; use your browser's Copy command.";
+        }
+        catch (JSException) { copyStatus = "Select the handoff and copy it manually."; }
+    }
+    public async ValueTask DisposeAsync() { if (clipboard is not null) try { await clipboard.DisposeAsync(); } catch (JSDisconnectedException) { } }
+    private static string Label(string value) => string.Concat(value.Select((c, i) => i > 0 && char.IsUpper(c) ? $" {c}" : c.ToString()));
+}

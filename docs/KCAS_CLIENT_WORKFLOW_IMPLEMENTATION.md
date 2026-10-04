@@ -4,6 +4,14 @@ Updated: 3 October 2026. Status: working documents aligned and the capture-to-KI
 
 ## Resume Here
 
+The advice preparation handoff is now implemented locally as the next addition:
+`Clients -> Client -> Advice -> Request Codex preparation`, followed by the
+Compliance Officer's Home notification and copyable handoff. It creates/reuses a
+Draft advice case and task, retains request/result provenance, and preserves
+independent advice approval. See `CLIENT_ADVICE_WORKFLOW_PLAN.md`. Later mandate,
+instruction authentication, administrator submission/acknowledgement and execution
+tracking remain the separate stage described below.
+
 The user agreed that KCAS must guide and enforce the documented client workflow, not merely store a checklist. One authorised Key Individual accepts an ordinary client after the required checks; a separate routine Compliance approval is not required. Compliance provides oversight and handles relevant escalations. The user expressly asked to agree and document this before software implementation, using the appropriate supporting policies rather than duplicating everything in the RMCP.
 
 The user authorised document alignment and KCAS implementation on 3 October. Next: walk through the local client acceptance page, then deploy the reviewed code/migration and approve the working policies through the normal process. Preserve existing unrelated changes. Do not treat an in-app Codex task as an automatically launched Codex session.

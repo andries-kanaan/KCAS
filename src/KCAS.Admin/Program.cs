@@ -94,6 +94,7 @@ builder.Services.AddScoped<ClientRiskAssessmentService>();
 builder.Services.AddScoped<ClientOperationalVerificationService>();
 builder.Services.AddScoped<ClientComplianceReviewService>();
 builder.Services.AddScoped<ClientAdviceService>();
+builder.Services.AddScoped<ClientAdvicePreparationService>();
 builder.Services.AddScoped<ClientAdviceTransferService>();
 builder.Services.AddSingleton<DocumentPathDisplayService>();
 builder.Services.AddScoped<BusinessRiskAssessmentService>();
