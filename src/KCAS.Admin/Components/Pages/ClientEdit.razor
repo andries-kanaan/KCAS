@@ -2,7 +2,9 @@
 @page "/clients/{Id:int}/edit"
 @rendermode InteractiveServer
 @attribute [Authorize(Policy = KcasPermissions.ClientsManage)]
+@implements IDisposable
 @using System.ComponentModel.DataAnnotations
+@using System.Text.Json
 @using KCAS.Admin.Data
 @using KCAS.Admin.Security
 @using Microsoft.AspNetCore.Components.Authorization
@@ -17,7 +19,7 @@
     <div>
         <p class="eyebrow">Client operations</p>
         <h1>@(Id is null ? "New client" : "Edit client")</h1>
-        <p class="lede">Maintain the KCAS client record. A Kanaan ID is generated if it is left blank.</p>
+        @if (Id is not null) { <p class="lede">@model.DisplayName <span class="text-muted">(@model.KanaanId)</span></p> }
     </div>
     <a class="btn btn-outline-secondary" href="@(Id is null ? "/clients" : $"/clients/{Id}")">Cancel</a>
 </div>
@@ -27,18 +29,30 @@
     <div class="alert alert-warning">@statusMessage</div>
 }
 
-<EditForm Model="model" OnValidSubmit="SaveAsync" FormName="client-edit">
+@if (editContext is null)
+{
+    <p role="status">Loading client...</p>
+}
+else
+{
+<EditForm EditContext="editContext" OnSubmit="SaveAsync" FormName="client-edit" class="client-edit-form" novalidate>
+    <ValidationSummary class="alert alert-danger" />
+    <nav class="client-edit-nav" aria-label="Client details sections">
+        <a href="#overview">Overview</a><a href="#personal">Identity and personal</a><a href="#contact">Contact</a>
+        <a href="#addresses">Addresses</a><a href="#relationships">Family</a><a href="#financial">Financial</a><a href="#notes">Notes</a>
+    </nav>
+    <fieldset disabled="@saving">
     <section class="detail-grid">
-        <article class="detail-panel form-panel">
+        <article id="overview" class="detail-panel form-panel">
             <h2>Overview</h2>
-            <label>Kanaan ID <InputText class="form-control" @bind-Value="model.KanaanId" /></label>
-            <label>Title <InputText class="form-control" @bind-Value="model.Title" /></label>
-            <label>Initials <InputText class="form-control" @bind-Value="model.Initials" /></label>
-            <label>Full name <InputText class="form-control" @bind-Value="model.FullName" /></label>
-            <label>Surname/entity <InputText class="form-control" @bind-Value="model.SurnameOrEntityName" /></label>
-            <label>Display name <InputText class="form-control" @bind-Value="model.DisplayName" /></label>
-            <label>Language <InputText class="form-control" @bind-Value="model.Language" /></label>
-            <label>Client folder <InputText class="form-control" @bind-Value="model.ClientFolder" /></label>
+            <label>Kanaan ID <InputText class="form-control" @bind-Value="model.KanaanId" maxlength="30" placeholder="Generated if blank" /><ValidationMessage For="() => model.KanaanId" /></label>
+            <label>Title <ClientChoiceInput class="form-select" Options="ClientFormOptions.Titles" @bind-Value="model.Title" MaximumLength="30" /></label>
+            <label>Initials <InputText class="form-control" @bind-Value="model.Initials" maxlength="50" /><ValidationMessage For="() => model.Initials" /></label>
+            <label>Full name <InputText class="form-control" @bind-Value="model.FullName" maxlength="200" /><ValidationMessage For="() => model.FullName" /></label>
+            <label>Surname or entity name (required) <InputText class="form-control" @bind-Value="model.SurnameOrEntityName" maxlength="200" aria-required="true" /><ValidationMessage For="() => model.SurnameOrEntityName" /></label>
+            <label>Display name <InputText class="form-control" @bind-Value="model.DisplayName" maxlength="220" placeholder="Full name or surname if blank" /></label>
+            <label>Language <ClientChoiceInput class="form-select" Options="ClientFormOptions.Languages" @bind-Value="model.Language" MaximumLength="50" /></label>
+            <label>Client folder <InputText class="form-control" @bind-Value="model.ClientFolder" maxlength="512" spellcheck="false" /><ValidationMessage For="() => model.ClientFolder" /></label>
             <label>
                 Client category
                 <InputSelect class="form-control" @bind-Value="model.ClientCategory">
@@ -55,67 +69,72 @@
             }
         </article>
 
-        <article class="detail-panel form-panel">
-            <h2>Personal</h2>
-            <label>ID number <InputText class="form-control" @bind-Value="model.SouthAfricanIdNumber" /></label>
-            <label>Gender <InputText class="form-control" @bind-Value="model.Gender" /></label>
-            <label>Marital status <InputText class="form-control" @bind-Value="model.MaritalStatus" /></label>
-            <label>Tax number <InputText class="form-control" @bind-Value="model.TaxNumber" /></label>
-            <label>Tax office <InputText class="form-control" @bind-Value="model.TaxOffice" /></label>
-            <label>Qualification <InputText class="form-control" @bind-Value="model.HighestQualification" /></label>
-            <label>Dependents <InputNumber class="form-control" @bind-Value="model.NumberOfDependents" /></label>
-            <label>Workday travelling % <InputNumber class="form-control" @bind-Value="model.WorkdayTravelPercent" /></label>
-            <label>Family detail <InputTextArea class="form-control" @bind-Value="model.FamilyDetailRaw" /></label>
+        <article id="personal" class="detail-panel form-panel">
+            <h2>Identity and personal</h2>
+            <label>South African ID number <InputText class="form-control" @bind-Value="model.SouthAfricanIdNumber" maxlength="13" inputmode="numeric" /><ValidationMessage For="() => model.SouthAfricanIdNumber" />
+                @if (!string.IsNullOrWhiteSpace(model.SouthAfricanIdNumber) && !ClientEditValidation.IsValidSouthAfricanId(model.SouthAfricanIdNumber) && model.SouthAfricanIdNumber == original?.SouthAfricanIdNumber)
+                { <span class="text-warning">Existing ID needs verification. Unrelated changes can still be saved.</span> }
+            </label>
+            <label>Passport number <InputText class="form-control" @bind-Value="model.PassportNumber" maxlength="64" /><ValidationMessage For="() => model.PassportNumber" /></label>
+            <label>Passport issuing country <ClientChoiceInput class="form-select" Options="ClientFormOptions.Countries" @bind-Value="model.PassportCountry" MaximumLength="96" /><ValidationMessage For="() => model.PassportCountry" /></label>
+            <label>Passport expiry date <InputDate class="form-control" @bind-Value="model.PassportExpiryDate" />
+                @if (model.PassportExpiryDate < DateOnly.FromDateTime(DateTime.Today)) { <span class="text-warning">Passport has expired.</span> }
+            </label>
+            <label>Gender <ClientChoiceInput class="form-select" Options="ClientFormOptions.Genders" @bind-Value="model.Gender" AllowCustom="false" /></label>
+            <label>Marital status <ClientChoiceInput class="form-select" Options="ClientFormOptions.MaritalStatuses" @bind-Value="model.MaritalStatus" /></label>
+            <label>Tax number <InputText class="form-control" @bind-Value="model.TaxNumber" maxlength="50" inputmode="numeric" /><ValidationMessage For="() => model.TaxNumber" /></label>
+            <label>Tax office <InputText class="form-control" @bind-Value="model.TaxOffice" maxlength="100" /><ValidationMessage For="() => model.TaxOffice" /></label>
+            <label>Highest qualification <ClientChoiceInput class="form-select" Options="ClientFormOptions.Qualifications" @bind-Value="model.HighestQualification" MaximumLength="150" /></label>
+            <label>Number of dependants <InputNumber class="form-control" @bind-Value="model.NumberOfDependents" min="0" max="100" step="1" /><ValidationMessage For="() => model.NumberOfDependents" /></label>
+            <label>Workday travelling (%) <InputNumber class="form-control" @bind-Value="model.WorkdayTravelPercent" min="0" max="100" step="0.01" /><ValidationMessage For="() => model.WorkdayTravelPercent" /></label>
+            <label>Family detail <InputTextArea class="form-control" @bind-Value="model.FamilyDetailRaw" maxlength="1000" rows="3" /><ValidationMessage For="() => model.FamilyDetailRaw" /></label>
         </article>
     </section>
 
-    <section class="detail-panel form-panel">
+    <section id="contact" class="detail-panel form-panel">
         <div class="section-heading-row">
             <div>
                 <h2>Contact</h2>
-                <p class="section-subtitle">Blank rows are ignored when saved.</p>
             </div>
-            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="AddContact">Add contact</button>
+            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="AddContact"><span class="bi bi-plus" aria-hidden="true"></span> Add contact</button>
         </div>
         @for (var index = 0; index < model.ContactPoints.Count; index++)
         {
             var rowIndex = index;
             <div class="edit-row" @key="model.ContactPoints[rowIndex]">
-                <label>Type <InputText class="form-control" @bind-Value="model.ContactPoints[rowIndex].ContactType" /></label>
-                <label>Label <InputText class="form-control" @bind-Value="model.ContactPoints[rowIndex].Label" /></label>
-                <label>Value <InputText class="form-control" @bind-Value="model.ContactPoints[rowIndex].Value" /></label>
+                <label>Contact type <ClientChoiceInput class="form-select" Options="ClientFormOptions.ContactTypes" @bind-Value="model.ContactPoints[rowIndex].ContactType" MaximumLength="30" /></label>
+                <label>Label <InputText class="form-control" @bind-Value="model.ContactPoints[rowIndex].Label" maxlength="80" /><ValidationMessage For="() => model.ContactPoints[rowIndex].Label" /></label>
+                <label>@ContactValueLabel(model.ContactPoints[rowIndex].ContactType) <InputText class="form-control" type="@ContactInputType(model.ContactPoints[rowIndex].ContactType)" @bind-Value="model.ContactPoints[rowIndex].Value" maxlength="254" /><ValidationMessage For="() => model.ContactPoints[rowIndex].Value" /></label>
                 <label class="check-row"><InputCheckbox @bind-Value="model.ContactPoints[rowIndex].IsPrimary" /> Primary</label>
-                <button class="btn btn-outline-danger btn-sm" type="button" @onclick="() => RemoveContact(rowIndex)">Remove</button>
+                <button class="btn btn-outline-danger icon-button" type="button" title="Remove contact" aria-label="@($"Remove contact {rowIndex + 1}")" @onclick="() => RemoveContact(rowIndex)"><span class="bi bi-trash" aria-hidden="true"></span></button>
             </div>
         }
     </section>
 
-    <section class="detail-panel form-panel">
+    <section id="addresses" class="detail-panel form-panel">
         <div class="section-heading-row">
             <div>
                 <h2>Addresses</h2>
-                <p class="section-subtitle">Use one row per address block.</p>
             </div>
-            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="AddAddress">Add address</button>
+            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="AddAddress"><span class="bi bi-plus" aria-hidden="true"></span> Add address</button>
         </div>
         @for (var index = 0; index < model.Addresses.Count; index++)
         {
             var rowIndex = index;
             <div class="edit-row address-edit-row" @key="model.Addresses[rowIndex]">
-                <label>Type <InputText class="form-control" @bind-Value="model.Addresses[rowIndex].AddressType" /></label>
-                <label>Lines <InputTextArea class="form-control" @bind-Value="model.Addresses[rowIndex].LinesRaw" /></label>
-                <button class="btn btn-outline-danger btn-sm" type="button" @onclick="() => RemoveAddress(rowIndex)">Remove</button>
+                <label>Address type <ClientChoiceInput class="form-select" Options="ClientFormOptions.AddressTypes" @bind-Value="model.Addresses[rowIndex].AddressType" MaximumLength="40" /></label>
+                <label>Address <InputTextArea class="form-control" @bind-Value="model.Addresses[rowIndex].LinesRaw" rows="3" maxlength="1000" /><ValidationMessage For="() => model.Addresses[rowIndex].LinesRaw" /></label>
+                <button class="btn btn-outline-danger icon-button" type="button" title="Remove address" aria-label="@($"Remove address {rowIndex + 1}")" @onclick="() => RemoveAddress(rowIndex)"><span class="bi bi-trash" aria-hidden="true"></span></button>
             </div>
         }
     </section>
 
-    <section class="detail-panel form-panel">
+    <section id="relationships" class="detail-panel form-panel">
         <div class="section-heading-row">
             <div>
-                <h2>Relationships</h2>
-                <p class="section-subtitle">Use one row for each spouse, child, dependent, or family contact.</p>
+                <h2>Family and relationships</h2>
             </div>
-            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="AddRelationship">Add relationship</button>
+            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="AddRelationship"><span class="bi bi-plus" aria-hidden="true"></span> Add relationship</button>
         </div>
         @for (var index = 0; index < model.Relationships.Count; index++)
         {
@@ -124,86 +143,101 @@
                 <div class="relationship-edit-row-header">
                     <label>
                         Type
-                        <InputSelect class="form-control" @bind-Value="model.Relationships[rowIndex].RelationshipType">
-                            @foreach (var relationshipType in RelationshipTypes)
-                            {
-                                <option value="@relationshipType">@relationshipType</option>
-                            }
-                        </InputSelect>
+                        <ClientChoiceInput class="form-select" Options="ClientFormOptions.RelationshipTypes" @bind-Value="model.Relationships[rowIndex].RelationshipType" MaximumLength="40" />
                     </label>
-                    <label>Name <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].Name" /></label>
-                    <label>Initials <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].Initials" /></label>
-                    <label>Gender <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].Gender" /></label>
-                    <label>Birth date <InputDate class="form-control" @bind-Value="model.Relationships[rowIndex].BirthDate" /></label>
-                    <button class="btn btn-outline-danger btn-sm" type="button" @onclick="() => RemoveRelationship(rowIndex)">Remove</button>
+                    <label>Name <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].Name" maxlength="200" /><ValidationMessage For="() => model.Relationships[rowIndex].Name" /></label>
+                    <label>Initials <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].Initials" maxlength="50" /><ValidationMessage For="() => model.Relationships[rowIndex].Initials" /></label>
+                    <label>Gender <ClientChoiceInput class="form-select" Options="ClientFormOptions.Genders" @bind-Value="model.Relationships[rowIndex].Gender" AllowCustom="false" /></label>
+                    <label>Birth date <InputDate class="form-control" @bind-Value="model.Relationships[rowIndex].BirthDate" /><ValidationMessage For="() => model.Relationships[rowIndex].BirthDate" /></label>
+                    <button class="btn btn-outline-danger icon-button" type="button" title="Remove relationship" aria-label="@($"Remove relationship {rowIndex + 1}")" @onclick="() => RemoveRelationship(rowIndex)"><span class="bi bi-trash" aria-hidden="true"></span></button>
                 </div>
                 <div class="relationship-edit-row-body">
-                    <label>ID number <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].SouthAfricanIdNumber" /></label>
-                    <label>Email <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].Email" /></label>
-                    <label>Home phone <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].HomePhone" /></label>
-                    <label>Work phone <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].WorkPhone" /></label>
-                    <label>Mobile <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].MobilePhone" /></label>
-                    <label>Employer <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].Employer" /></label>
-                    <label>Occupation <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].Occupation" /></label>
-                    <label>Qualification <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].HighestQualification" /></label>
-                    <label>Gross monthly salary <InputNumber class="form-control" @bind-Value="model.Relationships[rowIndex].GrossMonthlySalary" /></label>
-                    <label>Gross annual salary <InputNumber class="form-control" @bind-Value="model.Relationships[rowIndex].GrossAnnualSalary" /></label>
-                    <label>Yearly bonus <InputNumber class="form-control" @bind-Value="model.Relationships[rowIndex].YearlyBonus" /></label>
-                    <label>Other income <InputNumber class="form-control" @bind-Value="model.Relationships[rowIndex].OtherIncome" /></label>
-                    <label>Pension fund <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].PensionFundName" /></label>
-                    <label>Employer pension amount <InputNumber class="form-control" @bind-Value="model.Relationships[rowIndex].EmployerPensionContributionAmount" /></label>
-                    <label>Employer pension % <InputNumber class="form-control" @bind-Value="model.Relationships[rowIndex].EmployerPensionContributionPercent" /></label>
+                    <label>South African ID number <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].SouthAfricanIdNumber" maxlength="13" inputmode="numeric" /><ValidationMessage For="() => model.Relationships[rowIndex].SouthAfricanIdNumber" /></label>
+                    <label>Email <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].Email" type="email" maxlength="254" /><ValidationMessage For="() => model.Relationships[rowIndex].Email" /></label>
+                    <label>Home phone <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].HomePhone" maxlength="30" type="tel" /><ValidationMessage For="() => model.Relationships[rowIndex].HomePhone" /></label>
+                    <label>Work phone <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].WorkPhone" maxlength="30" type="tel" /><ValidationMessage For="() => model.Relationships[rowIndex].WorkPhone" /></label>
+                    <label>Mobile <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].MobilePhone" maxlength="30" type="tel" /><ValidationMessage For="() => model.Relationships[rowIndex].MobilePhone" /></label>
                 </div>
+                <details open="@HasFinancialErrors(model.Relationships[rowIndex])"><summary>Employment and income</summary>
+                <div class="relationship-edit-row-body">
+                    <label>Employer <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].Employer" maxlength="150" /><ValidationMessage For="() => model.Relationships[rowIndex].Employer" /></label>
+                    <label>Occupation <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].Occupation" maxlength="150" /><ValidationMessage For="() => model.Relationships[rowIndex].Occupation" /></label>
+                    <label>Highest qualification <ClientChoiceInput class="form-select" Options="ClientFormOptions.Qualifications" @bind-Value="model.Relationships[rowIndex].HighestQualification" MaximumLength="150" /></label>
+                    <label>Gross monthly salary <InputNumber class="form-control" @bind-Value="model.Relationships[rowIndex].GrossMonthlySalary" min="0" step="0.01" /><ValidationMessage For="() => model.Relationships[rowIndex].GrossMonthlySalary" /></label>
+                    <label>Gross annual salary <InputNumber class="form-control" @bind-Value="model.Relationships[rowIndex].GrossAnnualSalary" min="0" step="0.01" /><ValidationMessage For="() => model.Relationships[rowIndex].GrossAnnualSalary" /></label>
+                    <label>Yearly bonus <InputNumber class="form-control" @bind-Value="model.Relationships[rowIndex].YearlyBonus" min="0" step="0.01" /><ValidationMessage For="() => model.Relationships[rowIndex].YearlyBonus" /></label>
+                    <label>Other income <InputNumber class="form-control" @bind-Value="model.Relationships[rowIndex].OtherIncome" min="0" step="0.01" /><ValidationMessage For="() => model.Relationships[rowIndex].OtherIncome" /></label>
+                    <label>Pension fund <InputText class="form-control" @bind-Value="model.Relationships[rowIndex].PensionFundName" maxlength="150" /><ValidationMessage For="() => model.Relationships[rowIndex].PensionFundName" /></label>
+                    <label>Employer pension amount <InputNumber class="form-control" @bind-Value="model.Relationships[rowIndex].EmployerPensionContributionAmount" min="0" step="0.01" /><ValidationMessage For="() => model.Relationships[rowIndex].EmployerPensionContributionAmount" /></label>
+                    <label>Employer pension % <InputNumber class="form-control" @bind-Value="model.Relationships[rowIndex].EmployerPensionContributionPercent" min="0" max="100" step="0.01" /><ValidationMessage For="() => model.Relationships[rowIndex].EmployerPensionContributionPercent" /></label>
+                </div>
+                </details>
             </div>
         }
     </section>
 
     <section class="detail-grid">
-        <article class="detail-panel form-panel">
+        <article id="financial" class="detail-panel form-panel">
             <h2>Financial</h2>
-            <label>Employer <InputText class="form-control" @bind-Value="model.Employer" /></label>
-            <label>Occupation <InputText class="form-control" @bind-Value="model.Occupation" /></label>
-            <label>Gross monthly salary <InputNumber class="form-control" @bind-Value="model.GrossMonthlySalary" /></label>
-            <label>Monthly expenses <InputNumber class="form-control" @bind-Value="model.MonthlyExpenses" /></label>
-            <label>Retirement age <InputNumber class="form-control" @bind-Value="model.RetirementAge" /></label>
-            <label>Pension fund <InputText class="form-control" @bind-Value="model.PensionFundName" /></label>
-            <label>Broker <InputText class="form-control" @bind-Value="model.RepresentativeName" /></label>
+            <label>Employer <InputText class="form-control" @bind-Value="model.Employer" maxlength="150" /><ValidationMessage For="() => model.Employer" /></label>
+            <label>Occupation <InputText class="form-control" @bind-Value="model.Occupation" maxlength="150" /><ValidationMessage For="() => model.Occupation" /></label>
+            <label>Gross monthly salary (ZAR) <InputNumber class="form-control" @bind-Value="model.GrossMonthlySalary" min="0" step="0.01" /><ValidationMessage For="() => model.GrossMonthlySalary" /></label>
+            <label>Monthly expenses (ZAR) <InputNumber class="form-control" @bind-Value="model.MonthlyExpenses" min="0" step="0.01" /><ValidationMessage For="() => model.MonthlyExpenses" /></label>
+            <label>Retirement age <InputNumber class="form-control" @bind-Value="model.RetirementAge" min="0" max="120" step="1" /><ValidationMessage For="() => model.RetirementAge" /></label>
+            <label>Pension fund <InputText class="form-control" @bind-Value="model.PensionFundName" maxlength="150" /><ValidationMessage For="() => model.PensionFundName" /></label>
+            <label>Responsible representative <InputText class="form-control" @bind-Value="model.RepresentativeName" maxlength="150" /></label>
         </article>
 
-        <article class="detail-panel form-panel">
+        <article id="notes" class="detail-panel form-panel">
             <h2>Planning notes</h2>
-            <label>Goals <InputTextArea class="form-control" @bind-Value="model.OtherGoalsRaw" /></label>
-            <label>Bank details <InputTextArea class="form-control" @bind-Value="model.BankDetailRaw" /></label>
-            <label>Will details <InputTextArea class="form-control" @bind-Value="model.WillDetailRaw" /></label>
-            <label>Important notes <InputTextArea class="form-control" @bind-Value="model.OtherDetailsRaw" /></label>
+            <label>Goals <InputTextArea class="form-control" @bind-Value="model.OtherGoalsRaw" maxlength="1000" rows="4" /><ValidationMessage For="() => model.OtherGoalsRaw" /></label>
+            <label>Bank details <InputTextArea class="form-control" @bind-Value="model.BankDetailRaw" maxlength="1000" rows="4" /><ValidationMessage For="() => model.BankDetailRaw" /></label>
+            <label>Will details <InputTextArea class="form-control" @bind-Value="model.WillDetailRaw" maxlength="1000" rows="4" /><ValidationMessage For="() => model.WillDetailRaw" /></label>
+            <label>Important notes <InputTextArea class="form-control" @bind-Value="model.OtherDetailsRaw" maxlength="1000" rows="4" /><ValidationMessage For="() => model.OtherDetailsRaw" /></label>
         </article>
     </section>
 
-    <div class="form-actions">
-        <button class="btn btn-primary" type="submit">Save client</button>
+    </fieldset>
+    <div class="form-actions client-save-bar">
+        <button class="btn btn-primary" type="submit" disabled="@saving"><span class="bi bi-check-lg" aria-hidden="true"></span> @(saving ? "Saving..." : "Save client")</button>
         <a class="btn btn-outline-secondary" href="@(Id is null ? "/clients" : $"/clients/{Id}")">Cancel</a>
+        @if (editContext.IsModified()) { <span class="text-muted" role="status">Unsaved changes</span> }
     </div>
 </EditForm>
+}
 
 @code {
     [Parameter]
     public int? Id { get; set; }
 
     private ClientEditModel model = new();
+    private ClientEditModel? original;
+    private EditContext? editContext;
+    private ValidationMessageStore? messages;
+    private bool saving;
     private string? statusMessage;
     private bool isAdministrator;
-    private static readonly IReadOnlyList<string> RelationshipTypes = ["Spouse", "Child", "Dependent", "FamilyContact", "Other"];
 
     protected override async Task OnParametersSetAsync()
     {
+        Unsubscribe();
+        editContext = null;
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
         isAdministrator = authState.User.IsInRole(KcasRoles.Administrator);
         model = await ClientOperations.LoadClientAsync(Id);
+        original = JsonSerializer.Deserialize<ClientEditModel>(JsonSerializer.Serialize(model));
         EnsureEditableRows();
+        editContext = new EditContext(model);
+        messages = new ValidationMessageStore(editContext);
+        editContext.OnValidationRequested += ValidateAll;
+        editContext.OnFieldChanged += ValidateField;
     }
 
     private async Task SaveAsync()
     {
+        if (saving || !editContext!.Validate()) return;
+        saving = true;
+        statusMessage = null;
         try
         {
             var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
@@ -233,9 +267,10 @@
         {
             statusMessage = ex.Message;
         }
+        finally { saving = false; }
     }
 
-    private void AddContact() => model.ContactPoints.Add(new ClientContactPointEditModel());
+    private void AddContact() { model.ContactPoints.Add(new()); MarkRowsChanged(nameof(model.ContactPoints)); }
 
     private void RemoveContact(int index)
     {
@@ -244,10 +279,10 @@
             model.ContactPoints.RemoveAt(index);
         }
 
-        EnsureEditableRows();
+        MarkRowsChanged(nameof(model.ContactPoints));
     }
 
-    private void AddAddress() => model.Addresses.Add(new ClientAddressEditModel());
+    private void AddAddress() { model.Addresses.Add(new()); MarkRowsChanged(nameof(model.Addresses)); }
 
     private void RemoveAddress(int index)
     {
@@ -256,16 +291,17 @@
             model.Addresses.RemoveAt(index);
         }
 
-        EnsureEditableRows();
+        MarkRowsChanged(nameof(model.Addresses));
     }
 
-    private void AddRelationship() => model.Relationships.Add(new ClientRelationshipEditModel());
+    private void AddRelationship() { model.Relationships.Add(new()); MarkRowsChanged(nameof(model.Relationships)); }
 
     private void RemoveRelationship(int index)
     {
         if (index >= 0 && index < model.Relationships.Count)
         {
             model.Relationships.RemoveAt(index);
+            MarkRowsChanged(nameof(model.Relationships));
         }
     }
 
@@ -283,4 +319,44 @@
             model.Addresses.Add(new ClientAddressEditModel { AddressType = "Postal" });
         }
     }
+
+    private void ValidateAll(object? sender, ValidationRequestedEventArgs args)
+    {
+        messages!.Clear();
+        foreach (var error in ClientEditValidation.Validate(model, original))
+            messages.Add(new FieldIdentifier(error.Owner, error.Field), error.Message);
+        editContext!.NotifyValidationStateChanged();
+    }
+    private void ValidateField(object? sender, FieldChangedEventArgs args)
+    {
+        messages!.Clear(args.FieldIdentifier);
+        foreach (var error in ClientEditValidation.Validate(model, original).Where(error =>
+            ReferenceEquals(error.Owner, args.FieldIdentifier.Model) && error.Field == args.FieldIdentifier.FieldName))
+            messages.Add(args.FieldIdentifier, error.Message);
+        if (ReferenceEquals(args.FieldIdentifier.Model, model) && args.FieldIdentifier.FieldName == nameof(model.PassportNumber))
+        {
+            var country = new FieldIdentifier(model, nameof(model.PassportCountry));
+            messages.Clear(country);
+            foreach (var error in ClientEditValidation.Validate(model, original).Where(error => error.Owner == model && error.Field == nameof(model.PassportCountry)))
+                messages.Add(country, error.Message);
+        }
+        editContext!.NotifyValidationStateChanged();
+    }
+    private void MarkRowsChanged(string field)
+    {
+        editContext!.NotifyFieldChanged(new FieldIdentifier(model, field));
+        ValidateAll(this, new ValidationRequestedEventArgs());
+    }
+    private bool HasFinancialErrors(ClientRelationshipEditModel row) => new[] { nameof(row.GrossMonthlySalary), nameof(row.GrossAnnualSalary),
+        nameof(row.YearlyBonus), nameof(row.OtherIncome), nameof(row.EmployerPensionContributionAmount), nameof(row.EmployerPensionContributionPercent) }
+        .Any(field => editContext!.GetValidationMessages(new FieldIdentifier(row, field)).Any());
+    private static string ContactInputType(string? type) => type switch { "Email" => "email", "Mobile" or "HomePhone" or "WorkPhone" or "Fax" => "tel", _ => "text" };
+    private static string ContactValueLabel(string? type) => type == "Email" ? "Email address" : ContactInputType(type) == "tel" ? "Phone number" : "Value";
+    private void Unsubscribe()
+    {
+        if (editContext is null) return;
+        editContext.OnValidationRequested -= ValidateAll;
+        editContext.OnFieldChanged -= ValidateField;
+    }
+    public void Dispose() => Unsubscribe();
 }

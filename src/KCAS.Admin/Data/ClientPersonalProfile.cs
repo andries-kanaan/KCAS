@@ -11,6 +11,14 @@ public class ClientPersonalProfile
     [MaxLength(13)]
     public string? SouthAfricanIdNumber { get; set; }
 
+    [MaxLength(64)]
+    public string? PassportNumber { get; set; }
+
+    [MaxLength(96)]
+    public string? PassportCountry { get; set; }
+
+    public DateOnly? PassportExpiryDate { get; set; }
+
     [MaxLength(20)]
     public string? Gender { get; set; }
 

@@ -235,6 +235,9 @@ public sealed class ClientOnboardingService(IDbContextFactory<ApplicationDbConte
             Addresses = client.Addresses.OrderBy(x => x.Id).Select(x => new { x.AddressType, x.LinesRaw }),
             Parties = client.RelatedParties.Where(x => x.IsActive).OrderBy(x => x.Id).Select(x => new { x.Id, x.DisplayName, x.SouthAfricanIdNumber, x.PassportNumber, x.PassportCountry, x.BirthDate, x.CountryOfResidence, x.OwnershipPercent, x.AuthorityBasis, x.ControlBasis, Roles = x.Roles.Select(r => r.RoleCode).OrderBy(x => x) }),
             profile?.RequestedService, profile?.PurposeAndProposedFunds });
+        if (!string.IsNullOrWhiteSpace(client.PersonalProfile?.PassportNumber))
+            model.MaterialHash = Hash(new { ClientMaterialHash = model.MaterialHash, client.PersonalProfile.PassportNumber,
+                client.PersonalProfile.PassportCountry, client.PersonalProfile.PassportExpiryDate });
         model.CheckBlockers.AddRange(evidence.Requirements.Where(x => x.IsBlocked).Select(x => $"{x.Title}: required check/evidence is unresolved."));
         model.CheckBlockers.AddRange(evidence.OwnershipBlockers);
         model.CheckBlockers.AddRange(await ClientSanctionsCoverageService.BlockersAsync(db, clientId));

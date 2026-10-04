@@ -64,6 +64,7 @@ public sealed class ClientSearchService
                 client.SurnameOrEntityName.Contains(normalizedQuery) ||
                 (client.FullName != null && client.FullName.Contains(normalizedQuery)) ||
                 (client.PersonalProfile != null && client.PersonalProfile.SouthAfricanIdNumber != null && client.PersonalProfile.SouthAfricanIdNumber.Contains(normalizedQuery)) ||
+                (client.PersonalProfile != null && client.PersonalProfile.PassportNumber != null && client.PersonalProfile.PassportNumber.Contains(normalizedQuery)) ||
                 client.ContactPoints.Any(contact => contact.Value.Contains(normalizedQuery)));
         }
 

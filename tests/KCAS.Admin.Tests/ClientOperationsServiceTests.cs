@@ -93,7 +93,7 @@ public sealed class ClientOperationsServiceTests(KcasWebApplicationFactory facto
             RelationshipType = "Child",
             Name = "Child Client",
             BirthDate = new DateTime(2010, 1, 2),
-            SouthAfricanIdNumber = "1001020000000"
+            SouthAfricanIdNumber = "1001020000086"
         });
         await service.SaveClientAsync(editModel);
 
@@ -121,7 +121,7 @@ public sealed class ClientOperationsServiceTests(KcasWebApplicationFactory facto
         Assert.Contains(saved.Relationships, relationship =>
             relationship.RelationshipType == "Child" &&
             relationship.BirthDate == new DateTime(2010, 1, 2) &&
-            relationship.SouthAfricanIdNumber == "1001020000000");
+            relationship.SouthAfricanIdNumber == "1001020000086");
         Assert.DoesNotContain(saved.Relationships, relationship => relationship.RelationshipType == "FamilyContact");
         Assert.Equal(2, saved.Relationships.Count);
     }

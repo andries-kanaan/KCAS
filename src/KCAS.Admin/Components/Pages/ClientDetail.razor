@@ -107,6 +107,12 @@ else
             <dl>
                 <dt>ID number</dt>
                 <dd>@Display(client.PersonalProfile?.SouthAfricanIdNumber)</dd>
+                @if (!string.IsNullOrWhiteSpace(client.PersonalProfile?.PassportNumber))
+                {
+                    <dt>Passport number</dt><dd>@client.PersonalProfile.PassportNumber</dd>
+                    <dt>Passport issuing country</dt><dd>@Display(client.PersonalProfile.PassportCountry)</dd>
+                    <dt>Passport expiry date</dt><dd>@Display(client.PersonalProfile.PassportExpiryDate?.ToString("yyyy-MM-dd"))</dd>
+                }
                 <dt>Gender</dt>
                 <dd>@Display(client.PersonalProfile?.Gender)</dd>
                 <dt>Marital status</dt>

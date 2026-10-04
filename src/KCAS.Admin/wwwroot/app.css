@@ -1561,6 +1561,40 @@ h1:focus {
 .employee-transfer-fields label { min-width: 0; }
 @media (max-width: 600px) { .employee-transfer-fields { grid-template-columns: minmax(0, 1fr); } }
 
+.client-edit-form, .client-edit-form fieldset { min-width: 0; }
+.client-edit-form .detail-grid { grid-template-columns: minmax(0, 1fr); gap: 0; }
+.client-edit-form .detail-panel { border: 0; border-radius: 0; box-shadow: none; background: transparent; padding: 1.5rem 0; border-bottom: 1px solid #dce0e4; scroll-margin-top: 1rem; }
+.client-edit-form .form-panel { grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 1rem; align-items: start; }
+.client-edit-form .form-panel > h2, .client-edit-form .section-heading-row, .client-edit-form .edit-row, .client-edit-form .relationship-edit-row { grid-column: 1 / -1; }
+.client-edit-form label { min-width: 0; font-size: .9rem; }
+.client-edit-form label input, .client-edit-form label select, .client-edit-form label textarea { font-weight: 400; min-width: 0; max-width: 100%; }
+.client-edit-form label select { text-overflow: ellipsis; }
+.client-edit-form label .validation-message { font-size: .83rem; font-weight: 400; }
+.client-edit-form label > .text-warning { font-size: .83rem; font-weight: 400; color: #855700 !important; }
+.client-edit-nav { display: flex; flex-wrap: wrap; gap: .55rem 1.25rem; padding: .75rem 0; border-bottom: 1px solid #dce0e4; }
+.client-edit-nav a { font-size: .9rem; }
+.client-edit-form .relationship-edit-row-header { grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); }
+.client-edit-form .relationship-edit-row-body { grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); }
+.client-edit-form summary { padding: .5rem 0; cursor: pointer; font-weight: 600; }
+.client-edit-form details .relationship-edit-row-body { margin-top: .75rem; }
+.client-edit-form .icon-button { width: 40px; height: 40px; flex-shrink: 0; }
+.client-save-bar { position: sticky; bottom: 0; padding: 1rem 0; margin: 0; background: #fff; border-top: 1px solid #dce0e4; z-index: 2; }
+.client-save-bar .text-muted { font-size: .85rem; }
+@media (max-width: 1100px) {
+    .client-edit-form .edit-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .client-edit-form .address-edit-row { grid-template-columns: minmax(0, 1fr) 40px; }
+    .client-edit-form .address-edit-row label:first-child { grid-column: 1 / -1; }
+}
+@media (max-width: 600px) {
+    .client-edit-form .edit-row, .client-edit-form .relationship-edit-row-header { grid-template-columns: minmax(0, 1fr); }
+    .client-edit-form .section-heading-row { flex-wrap: wrap; }
+    .client-save-bar { padding: .75rem 0; }
+}
+.client-edit-form .bi { width: 1.1rem; height: 1.1rem; margin: 0; vertical-align: middle; background: currentColor; mask-repeat: no-repeat; mask-position: center; mask-size: contain; }
+.client-edit-form .bi-trash { mask-image: url('/images/icons/bootstrap/trash.svg'); }
+.client-edit-form .bi-plus { mask-image: url('/images/icons/bootstrap/plus.svg'); }
+.client-edit-form .bi-check-lg { mask-image: url('/images/icons/bootstrap/check-lg.svg'); }
+
 .client-onboarding-header { flex-wrap: wrap; gap: 1rem; }
 .client-onboarding-header > div, .client-onboarding-header h1 { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .client-onboarding-header > div:first-child { flex: 1 1 22rem; }

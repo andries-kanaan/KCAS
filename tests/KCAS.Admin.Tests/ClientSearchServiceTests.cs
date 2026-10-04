@@ -12,6 +12,7 @@ public sealed class ClientSearchServiceTests(KcasWebApplicationFactory factory)
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        await using var transaction = await db.Database.BeginTransactionAsync();
         var service = new ClientSearchService(db);
         var client = new Client
         {
@@ -33,11 +34,12 @@ public sealed class ClientSearchServiceTests(KcasWebApplicationFactory factory)
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        await using var transaction = await db.Database.BeginTransactionAsync();
         var service = new ClientSearchService(db);
 
         var client = new Client
         {
-            LegacyClientId = 500,
+            LegacyClientId = await NextLegacyIdAsync(db.Clients.Select(item => item.LegacyClientId)),
             KanaanId = "123",
             SurnameOrEntityName = "Botha",
             DisplayName = "Botha, C",
@@ -63,40 +65,46 @@ public sealed class ClientSearchServiceTests(KcasWebApplicationFactory factory)
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        await using var transaction = await db.Database.BeginTransactionAsync();
         var service = new ClientSearchService(db);
+        var legacyId = await NextLegacyIdAsync(db.Clients.Select(item => item.LegacyClientId));
+        var searchToken = Guid.NewGuid().ToString("N");
 
-        db.Clients.Add(new Client
+        var zulu = new Client
         {
-            LegacyClientId = 501,
+            LegacyClientId = legacyId,
             KanaanId = "900",
             SurnameOrEntityName = "Zulu",
-            DisplayName = "Zulu, Z",
+            DisplayName = $"Zulu, Z {searchToken}",
             ContactPoints =
             {
                 new ClientContactPoint { ContactType = "Email", Value = "zulu@example.test", IsPrimary = true, SortOrder = 10 },
                 new ClientContactPoint { ContactType = "Mobile", Value = "0830000000", IsPrimary = true, SortOrder = 20 }
             }
-        });
-        db.Clients.Add(new Client
+        };
+        var alpha = new Client
         {
-            LegacyClientId = 502,
+            LegacyClientId = legacyId + 1,
             KanaanId = "100",
             SurnameOrEntityName = "Alpha",
-            DisplayName = "Alpha, A",
+            DisplayName = $"Alpha, A {searchToken}",
             ContactPoints =
             {
                 new ClientContactPoint { ContactType = "Email", Value = "alpha@example.test", IsPrimary = true, SortOrder = 10 },
                 new ClientContactPoint { ContactType = "Mobile", Value = "0840000000", IsPrimary = true, SortOrder = 20 }
             }
-        });
+        };
+        db.Clients.AddRange(zulu, alpha);
         await db.SaveChangesAsync();
 
         var filtered = await service.SearchAsync(new ClientSearchRequest(Email: "zulu@example.test"));
-        Assert.Contains(filtered, result => result.KanaanId == "900");
-        Assert.DoesNotContain(filtered, result => result.KanaanId == "100");
+        Assert.Contains(filtered, result => result.Id == zulu.Id);
+        Assert.DoesNotContain(filtered, result => result.Id == alpha.Id);
 
-        var sorted = await service.SearchAsync(new ClientSearchRequest(SortColumn: "kanaanId", SortDescending: true));
-        Assert.True(sorted.FindIndex(result => result.KanaanId == "900") < sorted.FindIndex(result => result.KanaanId == "100"));
+        var sorted = await service.SearchAsync(new ClientSearchRequest(Name: searchToken, SortColumn: "kanaanId", SortDescending: true));
+        Assert.Contains(sorted, result => result.Id == zulu.Id);
+        Assert.Contains(sorted, result => result.Id == alpha.Id);
+        Assert.True(sorted.FindIndex(result => result.Id == zulu.Id) < sorted.FindIndex(result => result.Id == alpha.Id));
     }
 
     [Fact]
@@ -104,11 +112,13 @@ public sealed class ClientSearchServiceTests(KcasWebApplicationFactory factory)
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        await using var transaction = await db.Database.BeginTransactionAsync();
         var service = new ClientSearchService(db);
+        var legacyId = await NextLegacyIdAsync(db.Clients.Select(item => item.LegacyClientId));
 
         var current = new Client
         {
-            LegacyClientId = 95001,
+            LegacyClientId = legacyId,
             KanaanId = "LIFECYCLE-CURRENT",
             SurnameOrEntityName = "Current Holdings",
             DisplayName = "Current Holdings",
@@ -126,7 +136,7 @@ public sealed class ClientSearchServiceTests(KcasWebApplicationFactory factory)
             {
                 new ClientFundValuation
                 {
-                    LegacyFundId = 95001,
+                    LegacyFundId = await NextLegacyIdAsync(db.ClientFundValuations.Select(item => (int?)item.LegacyFundId)),
                     InvestmentUniqueNumber = "INV-95001",
                     Administrator = "Test Platform",
                     FundName = "Test Fund",
@@ -136,7 +146,7 @@ public sealed class ClientSearchServiceTests(KcasWebApplicationFactory factory)
         };
         var historical = new Client
         {
-            LegacyClientId = 95002,
+            LegacyClientId = legacyId + 1,
             KanaanId = "LIFECYCLE-HISTORICAL",
             SurnameOrEntityName = "Historical Holdings",
             DisplayName = "Historical Holdings",
@@ -154,7 +164,7 @@ public sealed class ClientSearchServiceTests(KcasWebApplicationFactory factory)
         };
         var correction = new Client
         {
-            LegacyClientId = 95003,
+            LegacyClientId = legacyId + 2,
             KanaanId = "LIFECYCLE-CORRECTION",
             SurnameOrEntityName = "Correction Holdings",
             DisplayName = "Correction Holdings",
@@ -171,7 +181,7 @@ public sealed class ClientSearchServiceTests(KcasWebApplicationFactory factory)
         };
         var noInvestments = new Client
         {
-            LegacyClientId = 95004,
+            LegacyClientId = legacyId + 3,
             KanaanId = "LIFECYCLE-NONE",
             SurnameOrEntityName = "No Holdings",
             DisplayName = "No Holdings",
@@ -228,17 +238,19 @@ public sealed class ClientSearchServiceTests(KcasWebApplicationFactory factory)
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        await using var transaction = await db.Database.BeginTransactionAsync();
+        var noteId = await NextLegacyIdAsync(db.ClientNotes.Select(item => item.LegacyClientNoteId));
 
         var client = new Client
         {
-            LegacyClientId = 503,
+            LegacyClientId = await NextLegacyIdAsync(db.Clients.Select(item => item.LegacyClientId)),
             KanaanId = "503",
             SurnameOrEntityName = "Notes",
             DisplayName = "Notes Client"
         };
         client.Notes.Add(new ClientNote
         {
-            LegacyClientNoteId = 9001,
+            LegacyClientNoteId = noteId,
             NoteDate = new DateOnly(2026, 5, 31),
             Title = "Imported note",
             Details = "Imported details",
@@ -254,7 +266,7 @@ public sealed class ClientSearchServiceTests(KcasWebApplicationFactory factory)
             .Include(client => client.Notes)
             .SingleAsync(client => client.Id == clientId);
 
-        Assert.Contains(loaded.Notes, note => note.LegacyClientNoteId == 9001);
+        Assert.Contains(loaded.Notes, note => note.LegacyClientNoteId == noteId);
     }
 
     [Fact]
@@ -262,18 +274,20 @@ public sealed class ClientSearchServiceTests(KcasWebApplicationFactory factory)
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        await using var transaction = await db.Database.BeginTransactionAsync();
+        var policyId = await NextLegacyIdAsync(db.ClientKycPolicies.Select(item => item.LegacyKycId));
 
         var client = new Client
         {
-            LegacyClientId = 504,
+            LegacyClientId = await NextLegacyIdAsync(db.Clients.Select(item => item.LegacyClientId)),
             KanaanId = "504",
             SurnameOrEntityName = "Kyc",
             DisplayName = "Kyc Client"
         };
         client.KycPolicies.Add(new ClientKycPolicy
         {
-            LegacyKycId = 9101,
-            LegacyClientId = 504,
+            LegacyKycId = policyId,
+            LegacyClientId = client.LegacyClientId,
             LegacyMainClassId = 6,
             MainClassName = "Other",
             LegacySubClassId = 29,
@@ -295,7 +309,7 @@ public sealed class ClientSearchServiceTests(KcasWebApplicationFactory factory)
             .Include(client => client.KycPolicies)
             .SingleAsync(client => client.Id == clientId);
 
-        Assert.Contains(loaded.KycPolicies, policy => policy.LegacyKycId == 9101 && policy.SubClassName == "Life and Disability Cover");
+        Assert.Contains(loaded.KycPolicies, policy => policy.LegacyKycId == policyId && policy.SubClassName == "Life and Disability Cover");
     }
 
     [Fact]
@@ -303,18 +317,21 @@ public sealed class ClientSearchServiceTests(KcasWebApplicationFactory factory)
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        await using var databaseTransaction = await db.Database.BeginTransactionAsync();
+        var accountId = await NextLegacyIdAsync(db.ClientInvestmentAccounts.Select(item => item.LegacyInvestmentAccountId));
+        var historyId = await NextLegacyIdAsync(db.ClientInvestmentTransactions.Select(item => item.LegacyInvestmentHistoryId));
 
         var client = new Client
         {
-            LegacyClientId = 505,
+            LegacyClientId = await NextLegacyIdAsync(db.Clients.Select(item => item.LegacyClientId)),
             KanaanId = "505",
             SurnameOrEntityName = "Investments",
             DisplayName = "Investments Client"
         };
         client.InvestmentAccounts.Add(new ClientInvestmentAccount
         {
-            LegacyInvestmentAccountId = 9201,
-            LegacyClientId = 505,
+            LegacyInvestmentAccountId = accountId,
+            LegacyClientId = client.LegacyClientId,
             Administrator = "Glacier",
             AccountNumber = "ACC-505",
             ProductName = "Retirement Annuity",
@@ -325,8 +342,8 @@ public sealed class ClientSearchServiceTests(KcasWebApplicationFactory factory)
             {
                 new ClientInvestmentTransaction
                 {
-                    LegacyInvestmentHistoryId = 9301,
-                    LegacyInvestmentAccountId = 9201,
+                    LegacyInvestmentHistoryId = historyId,
+                    LegacyInvestmentAccountId = accountId,
                     TransactionDate = new DateOnly(2026, 5, 31),
                     Description = "Imported transaction",
                     InvestmentAmountZar = 1000m,
@@ -346,7 +363,9 @@ public sealed class ClientSearchServiceTests(KcasWebApplicationFactory factory)
             .SingleAsync(client => client.Id == clientId);
 
         var account = Assert.Single(loaded.InvestmentAccounts);
-        Assert.Equal(9201, account.LegacyInvestmentAccountId);
-        Assert.Contains(account.Transactions, transaction => transaction.LegacyInvestmentHistoryId == 9301);
+        Assert.Equal(accountId, account.LegacyInvestmentAccountId);
+        Assert.Contains(account.Transactions, transaction => transaction.LegacyInvestmentHistoryId == historyId);
     }
+
+    private static async Task<int> NextLegacyIdAsync(IQueryable<int?> ids) => (await ids.MaxAsync() ?? 0) + 1;
 }
