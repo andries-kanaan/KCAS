@@ -25,15 +25,15 @@
         <h1>@PageHeading</h1>
         <p class="lede">@PageDescription</p>
     </div>
-    <a class="btn btn-outline-secondary" href="/compliance">Dashboard</a>
+    <a class="btn btn-outline-secondary" href="/compliance/programme">Programme and evidence</a>
 </div>
 
-<nav class="nav nav-tabs mb-4" aria-label="Compliance settings">
+<nav class="nav nav-tabs mb-4" aria-label="Programme records">
     <NavLink class="nav-link" href="/compliance/methodologies" Match="NavLinkMatch.All">Methodology</NavLink>
     <NavLink class="nav-link" href="/compliance/organisation" Match="NavLinkMatch.All">Organisation and governance</NavLink>
     <NavLink class="nav-link" href="/compliance/references" Match="NavLinkMatch.All">References</NavLink>
     <NavLink class="nav-link" href="/compliance/evidence" Match="NavLinkMatch.All">Evidence</NavLink>
-    <NavLink class="nav-link" href="/compliance/tasks" Match="NavLinkMatch.All">Tasks</NavLink>
+    <NavLink class="nav-link" href="/compliance/tasks" Match="NavLinkMatch.All">Task configuration</NavLink>
     <NavLink class="nav-link" href="/compliance/audit" Match="NavLinkMatch.All">Audit</NavLink>
 </nav>
 
@@ -238,7 +238,7 @@ else
         "organisation" => "Organisation and governance",
         "references" => "Regulatory references",
         "evidence" => "Evidence register",
-        "tasks" => "Monitoring and tasks",
+        "tasks" => "Task configuration",
         "audit" => "Compliance audit trail",
         _ => "Compliance"
     };
@@ -248,7 +248,7 @@ else
         "organisation" => "Kanaan's FSP identity, authorisation, leadership and compliance accountability.",
         "references" => "The external obligations and internal classifications on which the compliance programme relies.",
         "evidence" => "The source documents and proof retained to demonstrate operation of the compliance programme.",
-        "tasks" => "Assigned compliance actions, due dates and status for ongoing monitoring.",
+        "tasks" => "Configured compliance tasks, responsible persons, due dates and status.",
         "audit" => "The immutable history of controlled compliance changes recorded in KCAS.",
         _ => "Kanaan compliance records."
     };

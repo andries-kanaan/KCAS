@@ -21,16 +21,12 @@ else
             <p class="text-muted mb-0">Kanaan ID: @(model.KanaanId ?? "Not captured") | Category: @model.ClientCategory</p>
         </div>
         <div class="header-actions">
-            <a class="btn btn-primary" href="@($"/clients/{ClientId}/compliance-review")">Back to compliance review</a>
-            @if (model.ClientCategory is ClientCategories.Trust or ClientCategories.LegalPerson)
-            {
-                <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/ownership")">Ownership register</a>
-            }
-            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/investments/reconciliation")">Investment verification</a>
-            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}")">Client detail</a>
+            <AuthorizeView Policy="@KcasPermissions.ClientsView"><Authorized><a class="btn btn-primary" href="@($"/clients/{ClientId}/compliance-review")">Back to compliance review</a></Authorized></AuthorizeView>
             <a class="btn btn-outline-secondary" href="/compliance/client-evidence">Evidence dashboard</a>
         </div>
     </div>
+
+    <ClientWorkspaceNav ClientId="ClientId" KanaanId="model.KanaanId" ClientCategory="model.ClientCategory" />
 
     @if (!string.IsNullOrWhiteSpace(statusMessage))
     {

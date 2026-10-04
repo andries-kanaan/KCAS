@@ -22,6 +22,7 @@
             <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/advice")">Advice history</a>
         </div>
     </div>
+    <ClientWorkspaceNav ClientId="ClientId" KanaanId="model.KanaanId" />
     @if (model.Task is { } task && model.Request is { } request)
     {
         <section class="work-area">

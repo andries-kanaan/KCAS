@@ -1,0 +1,58 @@
+@implements IDisposable
+@inject NavigationManager Navigation
+
+<nav class="client-workspace-nav" aria-label="Client workspace">
+    <AuthorizeView Policy="@KcasPermissions.ClientsView"><Authorized><a href="@Href("")" class="@Selected("overview")" aria-current="@Current("overview")">Overview</a></Authorized></AuthorizeView>
+    <AuthorizeView Policy="@KcasPermissions.InvestmentsView"><Authorized Context="investmentContext"><AuthorizeView Policy="@KcasPermissions.ClientsView"><Authorized><a href="@Href("#investments")" class="@Selected("investments")" aria-current="@Current("investments")">Investments</a></Authorized></AuthorizeView></Authorized></AuthorizeView>
+    <AuthorizeView Policy="@KcasPermissions.ClientsView"><Authorized><a href="@Href("/compliance-review")" class="@Selected("compliance")" aria-current="@Current("compliance")">Compliance</a></Authorized></AuthorizeView>
+    <AuthorizeView Policy="@KcasPermissions.AdviceView"><Authorized><a href="@Href("/advice")" class="@Selected("advice")" aria-current="@Current("advice")">Advice</a></Authorized></AuthorizeView>
+    <AuthorizeView Policy="@KcasPermissions.ClientsView"><Authorized><a href="@Href("#notes")" class="@Selected("notes")" aria-current="@Current("notes")">Notes</a></Authorized></AuthorizeView>
+    @if (ReturnPath is not null)
+    {
+        <AuthorizeView Policy="@ReturnPolicy"><Authorized><a class="client-list-return" href="@ReturnPath">Back to results</a></Authorized></AuthorizeView>
+    }
+    <details class="workspace-action-menu">
+        <summary>Related pages <span aria-hidden="true">&#9662;</span></summary>
+        <div class="workspace-action-list">
+            <AuthorizeView Policy="@KcasPermissions.RiskAssessmentsView"><Authorized>
+                <a href="@Href("/onboarding")">Client acceptance</a><a href="@Href("/risk")">Compliance risk assessment</a><a href="@Href("/risk/bra")">ML / TF / PF report</a>
+            </Authorized></AuthorizeView>
+            <AuthorizeView Policy="@KcasPermissions.ComplianceView"><Authorized>
+                <a href="@Href("/evidence")">Evidence and screening</a><a href="@Href("/investments/reconciliation")">Investment verification</a>
+                @if (ClientCategory is KCAS.Admin.Data.ClientCategories.Trust or KCAS.Admin.Data.ClientCategories.LegalPerson) { <a href="@Href("/ownership")">Ownership and control</a> }
+            </Authorized></AuthorizeView>
+            <AuthorizeView Policy="@KcasPermissions.InvestmentsView"><Authorized>
+                <a href="@($"/investments/summary?clientId={ClientId}")">Client investment summary</a>
+                @if (!string.IsNullOrWhiteSpace(KanaanId)) { <a href="@($"/investments/summary?kanaanId={Uri.EscapeDataString(KanaanId)}")">Family investments (Kanaan ID @KanaanId)</a> }
+            </Authorized></AuthorizeView>
+            <AuthorizeView Policy="@KcasPermissions.ClientsManage"><Authorized><a href="@Href("/edit")">Edit client</a></Authorized></AuthorizeView>
+            <AuthorizeView Policy="@KcasPermissions.ClientsView"><Authorized><a href="/clients">Client register</a></Authorized></AuthorizeView>
+        </div>
+    </details>
+</nav>
+
+@code {
+    [Parameter] public int ClientId { get; set; }
+    [Parameter] public string? KanaanId { get; set; }
+    [Parameter] public string? ClientCategory { get; set; }
+    private string section = "overview";
+    private string Root => $"/clients/{ClientId}";
+    private string? ReturnPath => ClientListNavigation.ReturnPathFromUri(Navigation.Uri);
+    private string ReturnPolicy => ReturnPath?.StartsWith("/compliance/", StringComparison.Ordinal) == true ? KcasPermissions.ComplianceView : KcasPermissions.ClientsView;
+    private string Href(string suffix) => ClientListNavigation.WithReturnPath(Root + suffix, ReturnPath);
+    private string? Selected(string value) => section == value ? "active" : null;
+    private string? Current(string value) => section == value ? "page" : null;
+
+    protected override void OnInitialized() => Navigation.LocationChanged += LocationChanged;
+    protected override void OnParametersSet() => UpdateSection();
+    private void UpdateSection()
+    {
+        var uri = new Uri(Navigation.Uri);
+        var suffix = uri.AbsolutePath.StartsWith(Root + "/", StringComparison.OrdinalIgnoreCase) ? uri.AbsolutePath[(Root.Length + 1)..] : "";
+        section = suffix.StartsWith("advice", StringComparison.OrdinalIgnoreCase) ? "advice"
+            : suffix.StartsWith("investments", StringComparison.OrdinalIgnoreCase) && !suffix.StartsWith("investments/reconciliation", StringComparison.OrdinalIgnoreCase) ? "investments"
+            : suffix is "" or "edit" ? uri.Fragment == "#investments" ? "investments" : uri.Fragment == "#notes" ? "notes" : "overview" : "compliance";
+    }
+    private void LocationChanged(object? sender, LocationChangedEventArgs e) => _ = InvokeAsync(() => { UpdateSection(); StateHasChanged(); });
+    public void Dispose() => Navigation.LocationChanged -= LocationChanged;
+}

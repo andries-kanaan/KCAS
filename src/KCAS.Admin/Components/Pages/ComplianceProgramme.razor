@@ -1,54 +1,30 @@
 @page "/compliance/programme"
 @attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
 
-<PageTitle>Programme and controls</PageTitle>
+<PageTitle>Programme and regulatory evidence</PageTitle>
 
 <div class="page-header">
-    <div>
-        <p class="eyebrow">Compliance</p>
-        <h1>Programme and controls</h1>
-        <p class="lede">Business risk, the RMCP and ongoing monitoring in one working area.</p>
-    </div>
+    <div><p class="eyebrow">Compliance</p><h1>Programme and regulatory evidence</h1></div>
     <a class="btn btn-outline-secondary" href="/compliance">Compliance overview</a>
 </div>
 
-<section class="summary-grid">
-    <article class="summary-card">
-        <span>Business risk</span>
-        <strong>Assess and approve</strong>
-        <a class="btn btn-sm btn-outline-primary mt-3" href="/compliance/business-risk">Open business risk</a>
-    </article>
-    <article class="summary-card">
-        <span>RMCP</span>
-        <strong>Programme and controls</strong>
-        <a class="btn btn-sm btn-outline-primary mt-3" href="/compliance/rmcp">Open RMCP</a>
-    </article>
-    <article class="summary-card">
-        <span>Monitoring</span>
-        <strong>Work register</strong>
-        <a class="btn btn-sm btn-outline-primary mt-3" href="/compliance/work-register">Open monitoring</a>
-    </article>
-    <AuthorizeView Policy="@KcasPermissions.ComplianceManage">
-        <Authorized>
-            <article class="summary-card">
-                <span>Configuration</span>
-                <strong>Controlled settings</strong>
-                <a class="btn btn-sm btn-outline-secondary mt-3" href="/compliance/methodologies">Open settings</a>
-            </article>
-        </Authorized>
-    </AuthorizeView>
-    <AuthorizeView Policy="@KcasPolicies.AdministratorOnly">
-        <Authorized>
-            <article class="summary-card">
-                <span>Transfer</span>
-                <strong>Move signed programme bundle</strong>
-                <a class="btn btn-sm btn-outline-primary mt-3" href="/compliance/programme-transfers">Open transfers</a>
-            </article>
-        </Authorized>
-    </AuthorizeView>
-</section>
-
-<section class="work-area">
-    <h2>How these fit together</h2>
-    <p class="mb-0">Business risk identifies Kanaan's material risks. The RMCP records the controls used to manage them. Monitoring records the recurring work, findings and follow-up that demonstrate those controls are operating.</p>
-</section>
+<ol class="programme-navigation">
+    <li><h2><a href="/compliance/methodologies">Risk methodology</a></h2></li>
+    <li><h2><a href="/compliance/business-risk">Business risk assessment</a></h2></li>
+    <li><h2><a href="/compliance/rmcp">RMCP and controls</a></h2></li>
+    <li><h2><a href="/compliance/organisation">Organisation and governance</a></h2>
+        <AuthorizeView Policy="@KcasPermissions.EmployeesView"><Authorized><a href="/compliance/employees">Employee compliance</a></Authorized></AuthorizeView>
+    </li>
+    <li><h2><a href="/compliance/references">Regulatory references</a></h2></li>
+    <li><h2><a href="/compliance/evidence">Evidence register</a></h2></li>
+    <li><h2>Client compliance records</h2><div class="programme-related-links">
+        <AuthorizeView Policy="@KcasPermissions.ClientsView"><Authorized><a href="/clients/operational-review">Client compliance reviews</a></Authorized></AuthorizeView>
+        <a href="/compliance/client-evidence">Evidence readiness</a>
+        <AuthorizeView Policy="@KcasPermissions.RiskAssessmentsView"><Authorized><a href="/compliance/client-risk">Client risk register</a></Authorized></AuthorizeView>
+    </div></li>
+    <li><h2><a href="/compliance/work-register">Monitoring and remediation</a></h2><div class="programme-related-links">
+        <a href="/compliance/sanctions">Sanctions coverage</a><a href="/compliance/complaints">Complaints register</a><a href="/compliance/tasks">Task configuration</a>
+    </div></li>
+    <li><h2><a href="/compliance/audit">Audit trail</a></h2></li>
+    <AuthorizeView Policy="@KcasPermissions.InspectionsView"><Authorized><li><h2><a href="/compliance/inspections">Inspection response</a></h2></li></Authorized></AuthorizeView>
+</ol>

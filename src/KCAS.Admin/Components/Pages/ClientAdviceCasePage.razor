@@ -20,16 +20,21 @@ else
         <div class="header-actions">
             @if (IsApproved) { <a class="btn btn-primary" href="@($"/advice/{CaseId}/record.pdf")" target="_blank">Download approved PDF</a> }
             @if (!IsApproved) { <a class="btn btn-primary" href="@($"/advice/{CaseId}/draft-preview.pdf")" target="_blank">Download draft preview</a> }
-            @if (!IsApproved) { <a class="btn btn-outline-primary" href="@($"/advice/{CaseId}/approved-sample.pdf")" target="_blank">Download approved letter sample</a> }
-            @if (CanRevise) { <button type="button" class="btn btn-outline-primary" @onclick="CreateRevisionAsync">Create revision</button> }
-            @if (!IsApproved) { <a class="btn btn-outline-primary" href="@($"/advice/{CaseId}/review-manifest.json")">Download review manifest</a> }
-                <AuthorizeView Policy="@KcasPolicies.AdministratorOnly">
-                <Authorized><a class="btn btn-outline-primary" href="@($"/advice/transfers?clientId={ClientId}")">Transfer advice record</a></Authorized>
-            </AuthorizeView>
+            <details class="workspace-action-menu">
+                <summary>More actions <span aria-hidden="true">&#9662;</span></summary>
+                <div class="workspace-action-list">
+                    @if (!IsApproved) { <a href="@($"/advice/{CaseId}/approved-sample.pdf")" target="_blank" rel="noopener">Download approved letter sample</a> }
+                    @if (!IsApproved) { <a href="@($"/advice/{CaseId}/review-manifest.json")">Download review manifest</a> }
+                    @if (CanRevise) { <button type="button" @onclick="CreateRevisionAsync">Create revision</button> }
+                    @if (IsEditable || preparation?.Request is not null) { <a href="@($"/clients/{ClientId}/advice/{CaseId}/preparation")">Codex preparation</a> }
+                    <AuthorizeView Policy="@KcasPolicies.AdministratorOnly"><Authorized><a href="@($"/advice/transfers?clientId={ClientId}")">Transfer advice record</a></Authorized></AuthorizeView>
+                </div>
+            </details>
             <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/advice")">Advice history</a>
-            @if (IsEditable || preparation?.Request is not null) { <a class="btn btn-outline-primary" href="@($"/clients/{ClientId}/advice/{CaseId}/preparation")">Codex preparation</a> }
         </div>
     </div>
+
+    <ClientWorkspaceNav ClientId="ClientId" KanaanId="model.KanaanId" />
 
     @if (!string.IsNullOrWhiteSpace(message)) { <div class="alert @(error ? "alert-danger" : "alert-success")">@message</div> }
     @if (preparation?.Task is { } preparationTask)

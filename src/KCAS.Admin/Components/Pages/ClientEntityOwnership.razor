@@ -21,9 +21,11 @@ else
         </div>
         <div class="header-actions">
             <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/evidence")">Evidence readiness</a>
-            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}")">Client detail</a>
+            <AuthorizeView Policy="@KcasPermissions.ClientsView"><Authorized><a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}")">Client detail</a></Authorized></AuthorizeView>
         </div>
     </div>
+
+    <ClientWorkspaceNav ClientId="ClientId" ClientCategory="model.ClientCategory" />
 
     @if (!string.IsNullOrWhiteSpace(statusMessage))
     {
