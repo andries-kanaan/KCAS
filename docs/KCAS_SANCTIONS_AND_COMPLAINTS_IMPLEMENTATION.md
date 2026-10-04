@@ -2,6 +2,58 @@
 
 Authorised: 3 October 2026. Advice/instruction execution workflow is explicitly deferred.
 
+## Current Update: 4 October 2026
+
+The earlier 3 October manual-coverage description below is retained as history.
+Official sanctions monitoring is now implemented:
+
+- While KCAS runs, an hourly background job retrieves the configured official FIC
+  XML over HTTPS. The interval and source-age threshold are operational settings,
+  not new legislative deadlines. Only approved official-source hosts are allowed;
+  redirects are checked before following, and download/XML size and structure are
+  validated. Failed, empty, partial or abruptly truncated sources do not clear anyone.
+- Each changed valid list is retained byte-for-byte with SHA256, source URL,
+  retrieval time, available publisher metadata and individual/entity counts.
+  The current FIC feed supplies no publication timestamp: the coverage source date
+  is explicitly its first-retrieval baseline, not an invented publication date.
+- New versions screen clients and applicable named parties, including hidden,
+  historical and zero-balance records, plus current/prospective employees.
+  Unchanged-source runs check new/changed identity scopes. Recorded aliases and
+  available identifiers are compared locally; client data is not sent to the feed.
+- Name/alias/initial/order/diacritic and identifier matching produces potential
+  candidates, not confirmed designations. Unsupported initials/joint labels or
+  unidentified beneficiary classes cannot be automatically cleared. This bounded
+  deterministic method is not universal transliteration or independent CDD.
+- Checks identify **KCAS automated sanctions**, actual time, recorded scope,
+  matched references, source snapshot and limitations. No Codex execution, human
+  approval, employee competence/integrity clearance or external asset freeze is
+  inferred. Earlier concerns remain for evidenced resolution; frozen reviews remain
+  unchanged. Human/manual supported official-source checks remain available.
+- Home alerts reach approved ComplianceAdministrators/Approvers for source failure,
+  stale retrieval or outstanding latest-list coverage. The existing acceptance gates
+  recheck source/subject coverage; employee review and sensitive-access controls
+  retain their separate decisions and prerequisites.
+
+Use `Compliance -> Client sanctions coverage` (`/compliance/sanctions`) to see
+retrieval status, manually trigger the same authorised check, inspect batch findings
+and download the retained public XML. Employee results are visible in the restricted
+employee review and TFS coverage pages. PEP/PIP and adverse-information remain the
+client-specific public-source Codex handoff; this job does not replace that work.
+
+Migration `20261004091640_AddOfficialSanctionsAutomation` adds three tables, with
+restrictive history references. Reviewed incremental and fresh-schema SQL are
+updated; deployment upgrades existing databases additively. It does not rewrite
+clients, frozen assessments, KI decisions or employee approvals. The official URL
+may change; an inaccessible/changed source creates a visible failure and requires
+verification of the current official download location, not a silent fallback.
+
+Verification: 20 focused parser/automation tests and 40 affected existing workflow
+tests pass; the actual public FIC payload parses as 961 designations. Local migration
+is applied. Live deployment remains a separate reviewed release. Fresh Word/browser
+visual QA was blocked by the local tooling, so no visual pass is claimed. The current
+working document pair is BRA 1.6 / RMCP 1.12. Approval and actual remediation evidence
+are distinct from software implementation. No GitHub mutation is part of this task.
+
 ## Scope
 
 - Add client/related-party TFS list-update coverage at `/compliance/sanctions`.

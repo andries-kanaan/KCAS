@@ -618,6 +618,9 @@ else
                                 <td>
                                     <strong>@Display(account.AccountNumber)</strong>
                                     <div class="text-muted small">@InvestmentAccountSource(account)</div>
+                                    <AuthorizeView Policy="@KcasPermissions.InvestmentsView">
+                                        <Authorized><a href="@($"/clients/{Id}/investments/{account.Id}/returns")">Investment returns</a></Authorized>
+                                    </AuthorizeView>
                                 </td>
                                 <td>@Display(account.Administrator)</td>
                                 <td>
@@ -828,6 +831,9 @@ else
                                     <td>
                                         <strong>@Display(account.AccountNumber)</strong>
                                         <div class="text-muted small">@InvestmentAccountSource(account)</div>
+                                        <AuthorizeView Policy="@KcasPermissions.InvestmentsView">
+                                            <Authorized><a href="@($"/clients/{Id}/investments/{account.Id}/returns")">Investment returns</a></Authorized>
+                                        </AuthorizeView>
                                     </td>
                                     <td>@Display(account.Administrator)</td>
                                     <td>

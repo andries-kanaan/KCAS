@@ -55,7 +55,11 @@ public sealed class EmployeeComplianceService(IDbContextFactory<ApplicationDbCon
         return new(profile, review, history, checks, access, decisions, accounts, scope, blockers,
             await db.EmployeeComplianceTasks.AsNoTracking().Where(x => x.EmployeeProfileId == employeeId).OrderByDescending(x => x.Id).ToListAsync(),
             await db.EmployeeComplianceAuditEvents.AsNoTracking().Where(x => x.EmployeeProfileId == employeeId).OrderByDescending(x => x.Id).Take(100).ToListAsync(),
-            await UserNamesAsync(db));
+            await UserNamesAsync(db))
+        {
+            AutomatedSanctions = await db.SanctionsAutomatedResults.AsNoTracking().Include(x => x.Snapshot)
+                .Where(x => x.EmployeeProfileId == employeeId).OrderByDescending(x => x.Id).ToListAsync()
+        };
     }
 
     public async Task<int> SaveProfileAsync(EmployeeProfileEdit edit, string reason, ClaimsPrincipal principal)
@@ -174,6 +178,19 @@ public sealed class EmployeeComplianceService(IDbContextFactory<ApplicationDbCon
                 SupersedesCheckId = edit.SupersedesCheckId, EmployeeTfsBatchId = edit.EmployeeTfsBatchId
             };
             db.EmployeeComplianceChecks.Add(check);
+            if (check.Kind == "TFS" && ClearTfs(check) && check.EmployeeTfsBatchId.HasValue)
+            {
+                var automated = await db.SanctionsAutomatedResults.Include(x => x.Snapshot).Where(x => x.EmployeeProfileId == profile.Id)
+                    .OrderByDescending(x => x.PerformedAtUtc).FirstOrDefaultAsync();
+                if (automated is not null && check.PerformedAtUtc >= automated.PerformedAtUtc &&
+                    check.EmployeeTfsBatchId == automated.Snapshot.EmployeeTfsBatchId &&
+                    automated.ScopeHash == SanctionsList.ScopeHash(SanctionsAutomationService.EmployeeScope(profile)))
+                {
+                    var tasks = await db.EmployeeComplianceTasks.Where(x => x.EmployeeProfileId == profile.Id &&
+                        x.TriggerKey.StartsWith("auto-tfs:") && x.Status != "Closed").ToListAsync();
+                    foreach (var task in tasks) { task.Status = "Closed"; task.ClosedAtUtc = DateTime.UtcNow; task.Reason += " Evidenced human resolution recorded; automated finding retained."; }
+                }
+            }
             review.Version = NewVersion();
             if (check.Outcome is "ConfirmedDesignation" or "Concern" or "Unresolved" or "SourceFailed")
                 await QueueAsync(db, profile.Id, "check:" + review.Version, "ScreeningFollowUp", "Unresolved or adverse employee check: retain evidence and apply the relevant restrictions/escalation.");
@@ -300,12 +317,29 @@ public sealed class EmployeeComplianceService(IDbContextFactory<ApplicationDbCon
         var tasks = await db.EmployeeComplianceTasks.AsNoTracking().Where(x => x.EmployeeTfsBatchId != null).ToListAsync();
         var checks = await db.EmployeeComplianceChecks.AsNoTracking().Where(x => x.EmployeeTfsBatchId != null).OrderByDescending(x => x.Id).ToListAsync();
         var reviews = await db.EmployeeComplianceReviews.AsNoTracking().ToDictionaryAsync(x => x.Id, x => x.EmployeeProfileId);
+        var automated = await db.SanctionsAutomatedResults.AsNoTracking().Include(x => x.Snapshot).Where(x => x.EmployeeProfileId != null).ToListAsync();
         return batches.Select(batch =>
         {
             var memberTasks = tasks.Where(t => t.EmployeeTfsBatchId == batch.Id).ToList();
             var results = checks.Where(c => c.EmployeeTfsBatchId == batch.Id).GroupBy(c => reviews[c.EmployeeComplianceReviewId]).Select(g => g.First()).ToList();
-            var clear = results.Count(ClearTfs);
-            return new EmployeeBatchRow(batch, memberTasks.Count, clear, memberTasks.Count - clear, results.Count(c => !ClearTfs(c)));
+            var population = memberTasks.Select(x => x.EmployeeProfileId).Distinct().ToList();
+            var automatic = automated.Where(x => x.Snapshot.EmployeeTfsBatchId == batch.Id).OrderByDescending(x => x.Id)
+                .GroupBy(x => x.EmployeeProfileId!.Value).ToDictionary(g => g.Key, g => g.First());
+            var clear = population.Count(id =>
+            {
+                var human = results.FirstOrDefault(c => reviews[c.EmployeeComplianceReviewId] == id);
+                automatic.TryGetValue(id, out var auto);
+                return human is not null && ClearTfs(human) && (auto is null || human.PerformedAtUtc >= auto.PerformedAtUtc) ||
+                    auto?.Outcome == "NoMatch" && (human is null || human.PerformedAtUtc < auto.PerformedAtUtc);
+            });
+            var followUp = population.Count(id =>
+            {
+                var human = results.FirstOrDefault(c => reviews[c.EmployeeComplianceReviewId] == id);
+                automatic.TryGetValue(id, out var auto);
+                return human is not null && (auto is null || human.PerformedAtUtc >= auto.PerformedAtUtc)
+                    ? !ClearTfs(human) : auto is not null && auto.Outcome != "NoMatch";
+            });
+            return new EmployeeBatchRow(batch, population.Count, clear, population.Count - clear, followUp);
         }).ToList();
     }
 
@@ -480,6 +514,7 @@ public sealed class EmployeeComplianceService(IDbContextFactory<ApplicationDbCon
         var profile = await db.EmployeeProfiles.SingleAsync(x => x.Id == link.EmployeeProfileId);
         if (profile.EmploymentStatus == "Inactive") throw new ValidationException("Do not grant access to an inactive employee.");
         if (await HasDesignationAsync(db, profile.Id)) throw new ValidationException("Confirmed designation: new access cannot be granted through an ordinary administrator override.");
+        if (await SanctionsAutomationService.SourceBlockerAsync(db, null) is { } sourceFailure) throw new ValidationException(sourceFailure);
         // Existing managers can receive the narrow decision role without a circular
         // demand that they first approve their own baseline. No access is revoked.
         if (profile.EmploymentStatus == "Current" && roleName == KcasRoles.EmployeeReviewer && !string.IsNullOrWhiteSpace(profile.IdentityReference)) return;
@@ -557,11 +592,13 @@ public sealed class EmployeeComplianceService(IDbContextFactory<ApplicationDbCon
         if (string.IsNullOrWhiteSpace(profile.IdentityReference)) blockers.Add("Record the verified identity source, including relevant aliases.");
         var checks = allChecks.Where(x => x.EmployeeComplianceReviewId == review.Id).OrderByDescending(x => x.Id).GroupBy(x => x.Kind).ToDictionary(g => g.Key, g => g.First());
         var required = new List<string> { "Identity", "Competence", "Integrity", "TFS" };
+        var automatedTfs = await SanctionsAutomationService.EmployeeClearAsync(db, profile);
         if (profile.RequireTraining) required.Add("Training");
         if (profile.RequireRegulatedCompetence) required.Add("RegulatedCompetence");
         if (profile.RequireAdditionalCheck) required.Add("Additional");
         foreach (var kind in required)
         {
+            if (kind == "TFS" && automatedTfs) continue;
             if (!checks.TryGetValue(kind, out var check) || (kind == "TFS" ? !ClearTfs(check) : check.Outcome != "Satisfied"))
                 blockers.Add($"Complete the evidenced {EmployeeComplianceValues.CheckLabel(kind)} check.");
         }
@@ -574,8 +611,9 @@ public sealed class EmployeeComplianceService(IDbContextFactory<ApplicationDbCon
         if (historyChecks.Any(x => x.EmployeeComplianceReviewId != review.Id && !superseded.Contains(x.Id) && x.Outcome is "Unresolved" or "SourceFailed" or "Concern"))
             blockers.Add("An earlier unresolved finding remains; explicitly supersede it with evidenced resolution rather than silently starting over.");
         var latestBatch = await db.EmployeeTfsBatches.OrderByDescending(x => x.CreatedAtUtc).ThenByDescending(x => x.Id).FirstOrDefaultAsync();
-        if (latestBatch is not null && (!checks.TryGetValue("TFS", out var tfs) || tfs.ListVersion != latestBatch.SourceVersion || tfs.SourceUrl != latestBatch.SourceUrl))
+        if (!automatedTfs && latestBatch is not null && (!checks.TryGetValue("TFS", out var tfs) || tfs.ListVersion != latestBatch.SourceVersion || tfs.SourceUrl != latestBatch.SourceUrl))
             blockers.Add("TFS evidence must cover the latest recorded official list/version.");
+        if (await SanctionsAutomationService.SourceBlockerAsync(db, null) is { } sourceFailure) blockers.Add(sourceFailure);
         var access = allAccess.Where(x => x.EmployeeComplianceReviewId == review.Id).OrderByDescending(x => x.Id).GroupBy(x => x.Kind).ToDictionary(g => g.Key, g => g.First());
         if (!access.TryGetValue("KCAS", out var kcas) || !kcas.IsAligned) blockers.Add("Verify actual KCAS account access against the authorised duties, including no account where applicable.");
         else if (kcas.AccountScopeJson != scope) blockers.Add("KCAS account approval/roles/permissions changed after verification; verify access again.");
@@ -635,6 +673,7 @@ public sealed class EmployeeComplianceService(IDbContextFactory<ApplicationDbCon
     private static async Task<Dictionary<string, string>> UserNamesAsync(ApplicationDbContext db)
     {
         var names = await db.Users.AsNoTracking().Select(x => new { x.Id, Label = x.Email ?? x.UserName ?? x.Id }).ToDictionaryAsync(x => x.Id, x => x.Label);
+        names[SanctionsAutomationService.SystemUserId] = SanctionsAutomationService.Performer;
         foreach (var record in await db.EmployeeTransferRecords.AsNoTracking().Where(x => x.Direction == "Incoming").OrderBy(x => x.Id).ToListAsync())
             foreach (var (id, label) in JsonSerializer.Deserialize<Dictionary<string, string>>(record.ActorNamesJson) ?? []) names.TryAdd(id, label);
         return names;

@@ -12,11 +12,12 @@ public sealed class InvestmentReconciliationReviewServiceTests(KcasWebApplicatio
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        await using var fixtureTransaction = await db.Database.BeginTransactionAsync();
         var service = new InvestmentReconciliationService(db);
         var transferDate = new DateOnly(2024, 5, 31);
         var client = new Client
         {
-            LegacyClientId = 99801,
+            LegacyClientId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
             KanaanId = "RECON-998",
             DisplayName = "Reconciliation Review Client",
             SurnameOrEntityName = "Reconciliation Review Client",
@@ -25,14 +26,14 @@ public sealed class InvestmentReconciliationReviewServiceTests(KcasWebApplicatio
             {
                 new ClientInvestmentAccount
                 {
-                    LegacyInvestmentAccountId = 99801,
+                    LegacyInvestmentAccountId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
                     AccountNumber = "CURRENT-998",
                     Administrator = "Test Platform",
                     InvestmentDate = new DateOnly(2020, 1, 1)
                 },
                 new ClientInvestmentAccount
                 {
-                    LegacyInvestmentAccountId = 99802,
+                    LegacyInvestmentAccountId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
                     AccountNumber = "HIST-998",
                     Administrator = "Test Platform",
                     InvestmentDate = new DateOnly(2018, 1, 1),
@@ -40,7 +41,7 @@ public sealed class InvestmentReconciliationReviewServiceTests(KcasWebApplicatio
                     {
                         new ClientInvestmentTransaction
                         {
-                            LegacyInvestmentHistoryId = 99801,
+                            LegacyInvestmentHistoryId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
                             TransactionDate = transferDate,
                             Description = "Full repurchase and transfer",
                             WithdrawalAmountZar = 75_000m,
@@ -53,7 +54,7 @@ public sealed class InvestmentReconciliationReviewServiceTests(KcasWebApplicatio
             {
                 new ClientFundValuation
                 {
-                    LegacyFundId = 99801,
+                    LegacyFundId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
                     InvestmentUniqueNumber = "CURRENT998",
                     Administrator = "Test Platform",
                     FundName = "Current Fund",
@@ -107,7 +108,7 @@ public sealed class InvestmentReconciliationReviewServiceTests(KcasWebApplicatio
         db.ClientFundValuations.Add(new ClientFundValuation
         {
             ClientId = client.Id,
-            LegacyFundId = 99802,
+            LegacyFundId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
             InvestmentUniqueNumber = "CURRENT998",
             Administrator = "Test Platform",
             FundName = "Current Fund",
@@ -135,17 +136,18 @@ public sealed class InvestmentReconciliationReviewServiceTests(KcasWebApplicatio
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        await using var fixtureTransaction = await db.Database.BeginTransactionAsync();
         var service = new InvestmentReconciliationService(db);
         var client = new Client
         {
-            LegacyClientId = 99811,
+            LegacyClientId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
             KanaanId = "RECON-999",
             DisplayName = "Duplicate Review Client",
             SurnameOrEntityName = "Duplicate Review Client",
             InvestmentAccounts =
             {
-                new ClientInvestmentAccount { LegacyInvestmentAccountId = 99811, AccountNumber = "DUP-999", Administrator = "Old Platform" },
-                new ClientInvestmentAccount { LegacyInvestmentAccountId = 99812, AccountNumber = "DUP999", Administrator = "New Platform" }
+                new ClientInvestmentAccount { LegacyInvestmentAccountId = Random.Shared.Next(1_000_000_000, 2_000_000_000), AccountNumber = "DUP-999", Administrator = "Old Platform" },
+                new ClientInvestmentAccount { LegacyInvestmentAccountId = Random.Shared.Next(1_000_000_000, 2_000_000_000), AccountNumber = "DUP999", Administrator = "New Platform" }
             }
         };
         db.Clients.Add(client);
@@ -166,12 +168,13 @@ public sealed class InvestmentReconciliationReviewServiceTests(KcasWebApplicatio
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        await using var fixtureTransaction = await db.Database.BeginTransactionAsync();
         var service = new InvestmentReconciliationService(db);
         var valuationDate = new DateOnly(2026, 7, 31);
         var surrenderDate = new DateOnly(2026, 9, 9);
         var client = new Client
         {
-            LegacyClientId = 99871,
+            LegacyClientId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
             KanaanId = "RECON-PRE-SURRENDER",
             DisplayName = "Pre-surrender valuation client",
             SurnameOrEntityName = "Pre-surrender valuation client",
@@ -179,7 +182,7 @@ public sealed class InvestmentReconciliationReviewServiceTests(KcasWebApplicatio
             {
                 new ClientInvestmentAccount
                 {
-                    LegacyInvestmentAccountId = 99871,
+                    LegacyInvestmentAccountId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
                     AccountNumber = "CLOSED-998",
                     Administrator = "Test Platform"
                 }
@@ -188,7 +191,7 @@ public sealed class InvestmentReconciliationReviewServiceTests(KcasWebApplicatio
             {
                 new ClientFundValuation
                 {
-                    LegacyFundId = 99871,
+                    LegacyFundId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
                     InvestmentUniqueNumber = "CLOSED998",
                     Administrator = "Test Platform",
                     AmountForeign = 10_000m,
@@ -219,11 +222,12 @@ public sealed class InvestmentReconciliationReviewServiceTests(KcasWebApplicatio
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        await using var fixtureTransaction = await db.Database.BeginTransactionAsync();
         var service = new InvestmentReconciliationService(db);
         var surrenderDate = new DateOnly(2026, 9, 9);
         var client = new Client
         {
-            LegacyClientId = 99872,
+            LegacyClientId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
             KanaanId = "RECON-POST-SURRENDER",
             DisplayName = "Post-surrender valuation client",
             SurnameOrEntityName = "Post-surrender valuation client",
@@ -231,7 +235,7 @@ public sealed class InvestmentReconciliationReviewServiceTests(KcasWebApplicatio
             {
                 new ClientInvestmentAccount
                 {
-                    LegacyInvestmentAccountId = 99872,
+                    LegacyInvestmentAccountId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
                     AccountNumber = "OPEN-998",
                     Administrator = "Test Platform"
                 }
@@ -240,7 +244,7 @@ public sealed class InvestmentReconciliationReviewServiceTests(KcasWebApplicatio
             {
                 new ClientFundValuation
                 {
-                    LegacyFundId = 99872,
+                    LegacyFundId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
                     InvestmentUniqueNumber = "OPEN998",
                     Administrator = "Test Platform",
                     AmountForeign = 10_000m,
@@ -267,10 +271,11 @@ public sealed class InvestmentReconciliationReviewServiceTests(KcasWebApplicatio
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        await using var fixtureTransaction = await db.Database.BeginTransactionAsync();
         var service = new InvestmentReconciliationService(db);
         var source = new Client
         {
-            LegacyClientId = 99831,
+            LegacyClientId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
             KanaanId = "RECON-HOUSE-1",
             DisplayName = "Wrong Client Source",
             SurnameOrEntityName = "Wrong Client Source",
@@ -279,7 +284,7 @@ public sealed class InvestmentReconciliationReviewServiceTests(KcasWebApplicatio
             {
                 new ClientInvestmentAccount
                 {
-                    LegacyInvestmentAccountId = 99831,
+                    LegacyInvestmentAccountId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
                     AccountNumber = "WRONG-1",
                     Administrator = "Test Platform"
                 }
@@ -287,7 +292,7 @@ public sealed class InvestmentReconciliationReviewServiceTests(KcasWebApplicatio
         };
         var linked = new Client
         {
-            LegacyClientId = 99832,
+            LegacyClientId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
             KanaanId = "RECON-HOUSE-1",
             DisplayName = "Correct Linked Client",
             SurnameOrEntityName = "Correct Linked Client",
@@ -296,7 +301,7 @@ public sealed class InvestmentReconciliationReviewServiceTests(KcasWebApplicatio
             {
                 new ClientInvestmentAccount
                 {
-                    LegacyInvestmentAccountId = 99832,
+                    LegacyInvestmentAccountId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
                     AccountNumber = "WRONG-1",
                     Administrator = "Test Platform"
                 }
@@ -304,7 +309,7 @@ public sealed class InvestmentReconciliationReviewServiceTests(KcasWebApplicatio
         };
         var unrelated = new Client
         {
-            LegacyClientId = 99833,
+            LegacyClientId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
             KanaanId = "RECON-OTHER",
             DisplayName = "Unrelated Client",
             SurnameOrEntityName = "Unrelated Client",
@@ -313,7 +318,7 @@ public sealed class InvestmentReconciliationReviewServiceTests(KcasWebApplicatio
             {
                 new ClientInvestmentAccount
                 {
-                    LegacyInvestmentAccountId = 99833,
+                    LegacyInvestmentAccountId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
                     AccountNumber = "WRONG-1",
                     Administrator = "Test Platform"
                 }
@@ -369,14 +374,14 @@ public sealed class InvestmentReconciliationReviewServiceTests(KcasWebApplicatio
         var service = new InvestmentReconciliationService(db);
         var client = new Client
         {
-            LegacyClientId = 99821,
+            LegacyClientId = Random.Shared.Next(1_000_000_000, 2_000_000_000),
             KanaanId = "RECON-1000",
             DisplayName = "Atomic Reconciliation Client",
             SurnameOrEntityName = "Atomic Reconciliation Client",
             InvestmentAccounts =
             {
-                new ClientInvestmentAccount { LegacyInvestmentAccountId = 99821, AccountNumber = "ATOMIC-1", Administrator = "Platform A" },
-                new ClientInvestmentAccount { LegacyInvestmentAccountId = 99822, AccountNumber = "ATOMIC-2", Administrator = "Platform B" }
+                new ClientInvestmentAccount { LegacyInvestmentAccountId = Random.Shared.Next(1_000_000_000, 2_000_000_000), AccountNumber = "ATOMIC-1", Administrator = "Platform A" },
+                new ClientInvestmentAccount { LegacyInvestmentAccountId = Random.Shared.Next(1_000_000_000, 2_000_000_000), AccountNumber = "ATOMIC-2", Administrator = "Platform B" }
             }
         };
         db.Clients.Add(client);
@@ -406,5 +411,8 @@ public sealed class InvestmentReconciliationReviewServiceTests(KcasWebApplicatio
         Assert.Equal(0, await db.ComplianceAuditEvents.CountAsync(item =>
             item.EntityType == nameof(ClientInvestmentAccount) &&
             (item.EntityId == accounts[0].Id || item.EntityId == accounts[1].Id)));
+        db.ChangeTracker.Clear();
+        db.Clients.Remove(await db.Clients.SingleAsync(item => item.Id == client.Id));
+        await db.SaveChangesAsync();
     }
 }

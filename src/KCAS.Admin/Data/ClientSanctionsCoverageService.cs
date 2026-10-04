@@ -64,7 +64,7 @@ public sealed class ClientSanctionsCoverageService(IDbContextFactory<Application
             var batch = new ClientSanctionsBatch { SourceVersion = version, SourceUrl = url, SourcePublishedAtUtc = date, Reason = reason,
                 CreatedBy = Label(actor), RecipientUserIdsJson = JsonSerializer.Serialize(recipients) };
             db.ClientSanctionsBatches.Add(batch); await db.SaveChangesAsync();
-            await SynchronizeAsync(db, batch, actor, reason);
+            await SynchronizeAsync(db, batch, Label(actor), reason);
             Audit(db, nameof(ClientSanctionsBatch), batch.Id, "ListUpdateRecorded", actor, reason, new { version, url, date, recipients });
             return batch.Id;
         });
@@ -83,7 +83,7 @@ public sealed class ClientSanctionsCoverageService(IDbContextFactory<Application
             .OrderByDescending(x => x.RecordedAtUtc).ThenByDescending(x => x.Id).ToListAsync();
         var changed = !current.Select(x => x.SubjectKey + x.ScopeHash).Order().SequenceEqual(stored.Select(x => x.SubjectKey + x.ScopeHash).Order());
         return new(batch, rows, history, changed, await PermissionAsync(db, actor.Id, KcasPermissions.ComplianceManage), admin,
-            $"Official TFS list: {batch.SourceVersion}; source: {batch.SourceUrl}; published: {batch.SourcePublishedAtUtc:O}.\n" +
+            $"Official TFS list: {batch.SourceVersion}; source: {batch.SourceUrl}; source date/first retrieval: {batch.SourcePublishedAtUtc:O}; provenance: {batch.Reason}.\n" +
             "Read actual identity and party evidence; screen every outstanding subject against this exact official list version. " +
             "Record actual findings through the existing client evidence service with source URL/version, actual UTC time, Codex performer and authenticated saving user. " +
             "Do not scan folders, clear failed sources, infer identity matches or manufacture KI/MLCO decisions. " +
@@ -98,7 +98,7 @@ public sealed class ClientSanctionsCoverageService(IDbContextFactory<Application
         => await WriteAsync(principal, async (db, actor) =>
         {
             var batch = await db.ClientSanctionsBatches.SingleAsync(x => x.Id == id); Expect(batch.Version, version);
-            await SynchronizeAsync(db, batch, actor, Required(reason, "Population change reason")); return true;
+            await SynchronizeAsync(db, batch, Label(actor), Required(reason, "Population change reason")); return true;
         });
 
     public async Task RecordEvidenceAsync(int subjectId, int evidenceId, string version, string reason, ClaimsPrincipal principal)
@@ -147,10 +147,16 @@ public sealed class ClientSanctionsCoverageService(IDbContextFactory<Application
     {
         var batch = await db.ClientSanctionsBatches.AsNoTracking().OrderByDescending(x => x.SourcePublishedAtUtc).ThenByDescending(x => x.Id).FirstOrDefaultAsync();
         if (batch is null)
-            return await RawDesignationAsync(db, clientId) ? ["A confirmed sanctions designation requires MLCO/legal resolution."] : [];
+        {
+            var initial = new List<string>();
+            if (await RawDesignationAsync(db, clientId)) initial.Add("A confirmed sanctions designation requires MLCO/legal resolution.");
+            if (await SanctionsAutomationService.SourceBlockerAsync(db, null) is { } failure) initial.Add(failure);
+            return initial;
+        }
         var expected = await PopulationAsync(db, clientId);
         var rows = await RowsAsync(db, batch, true, clientId);
         var blockers = new List<string>();
+        if (await SanctionsAutomationService.SourceBlockerAsync(db, batch) is { } sourceBlocker) blockers.Add(sourceBlocker);
         foreach (var subject in expected)
         {
             var row = rows.SingleOrDefault(x => x.Subject.SubjectKey == subject.SubjectKey && x.Subject.ScopeHash == subject.ScopeHash);
@@ -169,7 +175,7 @@ public sealed class ClientSanctionsCoverageService(IDbContextFactory<Application
             throw new ValidationException("The subject/identity scope changed. Refresh the batch and use the current row.");
         return subject;
     }
-    private static async Task SynchronizeAsync(ApplicationDbContext db, ClientSanctionsBatch batch, ApplicationUser actor, string reason)
+    internal static async Task SynchronizeAsync(ApplicationDbContext db, ClientSanctionsBatch batch, string performer, string reason)
     {
         var current = await PopulationAsync(db);
         var stored = await db.ClientSanctionsSubjects.Where(x => x.ClientSanctionsBatchId == batch.Id).ToListAsync();
@@ -186,7 +192,7 @@ public sealed class ClientSanctionsCoverageService(IDbContextFactory<Application
                 if (!subject.IsCurrent)
                 {
                     db.ClientSanctionsCoverageRecords.Add(new() { ClientSanctionsSubjectId = subject.Id, Outcome = "ScopeChanged",
-                        Reason = "Identity scope restored after a change; obtain a fresh check.", RecordedBy = Label(actor) });
+                        Reason = "Identity scope restored after a change; obtain a fresh check.", RecordedBy = performer });
                     await UpdateTaskAsync(db, subject, false, "Restored scope requires a fresh check.");
                 }
                 subject.IsCurrent = true; continue;
@@ -195,14 +201,15 @@ public sealed class ClientSanctionsCoverageService(IDbContextFactory<Application
             scope.Task = new ComplianceTask { ClientId = scope.ClientId, TaskType = ComplianceTaskTypes.SanctionsCoverage,
                 Title = $"TFS list-update check: {scope.SubjectName[..Math.Min(scope.SubjectName.Length, 210)]}", Status = ComplianceWorkStatuses.Open, Owner = ComplianceWorkService.ComplianceReviewAudience,
                 Priority = "High", LinkedEntityType = nameof(ClientSanctionsBatch), LinkedEntityId = batch.Id,
-                Description = $"Codex/manual check required against {batch.SourceVersion}, {batch.SourceUrl}. Scope {scope.ScopeHash}. Creation is not screening.", UpdatedBy = Label(actor) };
+                Description = $"Current supported check required against {batch.SourceVersion}, {batch.SourceUrl}. Scope {scope.ScopeHash}. Creation is not screening.", UpdatedBy = performer };
             db.ClientSanctionsSubjects.Add(scope);
         }
         batch.Version = NewVersion();
-        Audit(db, nameof(ClientSanctionsBatch), batch.Id, "PopulationCaptured", actor, reason, new { Subjects = current.Count, Clients = current.Select(x => x.ClientId).Distinct().Count() });
+        db.ComplianceAuditEvents.Add(new() { EntityType = nameof(ClientSanctionsBatch), EntityId = batch.Id, Action = "PopulationCaptured", UserName = performer,
+            Reason = reason, NewValueJson = JsonSerializer.Serialize(new { Subjects = current.Count, Clients = current.Select(x => x.ClientId).Distinct().Count() }) });
     }
 
-    private static async Task<List<ClientSanctionsSubject>> PopulationAsync(ApplicationDbContext db, int? clientId = null)
+    internal static async Task<List<ClientSanctionsSubject>> PopulationAsync(ApplicationDbContext db, int? clientId = null)
     {
         var clients = await db.Clients.AsNoTracking().Include(x => x.PersonalProfile).Include(x => x.Relationships)
             .Include(x => x.RelatedParties).ThenInclude(x => x.Roles).AsSplitQuery().Where(x => clientId == null || x.Id == clientId).ToListAsync();
@@ -254,12 +261,13 @@ public sealed class ClientSanctionsCoverageService(IDbContextFactory<Application
             var status = !expected.TryGetValue(subject.SubjectKey, out var scope) || scope != subject.ScopeHash ? "ScopeChanged" :
                 concern is not null ? (concern.EscalationRequired && concern.ScreeningOutcome == ClientEvidenceScreeningOutcomes.NoMatch ? "EscalationRequired" : concern.ScreeningOutcome ?? "EscalationRequired") :
                 record is null ? "Outstanding" : record.Outcome == "Excluded" ? "Excluded" :
+                record.Outcome is "UnidentifiedSubject" or "ManualReviewRequired" ? record.Outcome :
                 record.Evidence is null || record.EvidenceFingerprint != Fingerprint(record.Evidence) || !Supports(subject, record.Evidence, after) ? "EvidenceChanged" :
                 record.Outcome == ClientEvidenceScreeningOutcomes.NoMatch ? "Clear" : record.Outcome;
             return new SanctionsSubjectRow(subject, status, record, evidence.Where(x => Supports(subject, x, after)).OrderByDescending(x => x.ScreeningReviewedAtUtc).ToList());
         }).ToList();
     }
-    private static bool Supports(ClientSanctionsSubject s, ClientEvidenceItem e, DateTime after) => e.ClientId == s.ClientId && e.EvidenceType == "SanctionsTfs" &&
+    internal static bool Supports(ClientSanctionsSubject s, ClientEvidenceItem e, DateTime after) => e.ClientId == s.ClientId && e.EvidenceType == "SanctionsTfs" &&
         e.Status == ClientEvidenceStatuses.Verified && e.SelectionStatus == ClientEvidenceSelectionStatuses.Current &&
         ClientEvidenceOwnershipStatuses.IsActive(e.OwnershipStatus) && e.SupersededByClientEvidenceItemId == null &&
         SameSubject(s, e) && e.ScreeningReviewedAtUtc >= after && e.ScreeningReviewedAtUtc <= DateTime.UtcNow.AddMinutes(1) &&
@@ -275,7 +283,7 @@ public sealed class ClientSanctionsCoverageService(IDbContextFactory<Application
         return Regex.IsMatch(sources, "(?<!" + boundary + ")" + Regex.Escape(reference) + "(?!" + boundary + ")",
             url ? RegexOptions.IgnoreCase | RegexOptions.CultureInvariant : RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(250));
     }
-    private static string Fingerprint(ClientEvidenceItem e) => Hash(JsonSerializer.Serialize(new { e.Id, e.ClientId, e.ClientRelatedPartyId, e.Status, e.OwnershipStatus, e.SelectionStatus,
+    internal static string Fingerprint(ClientEvidenceItem e) => Hash(JsonSerializer.Serialize(new { e.Id, e.ClientId, e.ClientRelatedPartyId, e.Status, e.OwnershipStatus, e.SelectionStatus,
         e.SupersededByClientEvidenceItemId, e.ScreeningSubjectName, e.ScreeningSubjectType, e.ScreeningSources, e.ScreeningOutcome, e.ScreeningPerformedBy, e.Reviewer,
         ReviewedAt = e.ScreeningReviewedAtUtc?.Ticks / 10, e.ExpiryDate, e.Notes, e.EscalationRequired, e.ScreeningRiskSignal,
         e.SourcePath, e.RelativePath, e.FileSha256, e.FileSizeBytes }));
@@ -289,7 +297,7 @@ public sealed class ClientSanctionsCoverageService(IDbContextFactory<Application
         x.ClientId == clientId && x.EvidenceType == "SanctionsTfs" && x.Status == ClientEvidenceStatuses.Verified &&
         (x.OwnershipStatus == ClientEvidenceOwnershipStatuses.Confirmed || x.OwnershipStatus == ClientEvidenceOwnershipStatuses.AutoAssigned) &&
         x.ScreeningOutcome == ClientEvidenceScreeningOutcomes.ConfirmedMatch);
-    private static async Task UpdateTaskAsync(ApplicationDbContext db, ClientSanctionsSubject s, bool satisfied, string reason)
+    internal static async Task UpdateTaskAsync(ApplicationDbContext db, ClientSanctionsSubject s, bool satisfied, string reason)
     {
         var task = s.Task ?? (s.ComplianceTaskId.HasValue ? await db.ComplianceTasks.SingleAsync(x => x.Id == s.ComplianceTaskId) : null);
         if (task is null) return;

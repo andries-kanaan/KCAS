@@ -44,6 +44,19 @@
     </section>
     <section class="work-area">
         <h2>2. Screening and competence</h2>
+        @if (page.AutomatedSanctions.Count > 0)
+        {
+            <details class="mb-3" open><summary>Automated official-list checks</summary>
+            @foreach (var result in page.AutomatedSanctions.Take(10))
+            {
+                <div class="employee-history"><strong>@result.Outcome</strong><div class="small">@SanctionsAutomationService.Performer · @LocalTime(result.PerformedAtUtc)</div>
+                    <p class="employee-text">@result.Finding</p><div class="small text-break">Official source: @result.Snapshot.SourceUrl<br />SHA256: @result.Snapshot.ContentSha256</div>
+                    <details><summary>Recorded names, identifiers and candidates</summary><pre class="employee-permissions">@result.ScopeJson
+@result.CandidatesJson</pre></details>
+                </div>
+            }
+            </details>
+        }
         @foreach (var kind in RequiredKinds(p))
         {
             var check = page.Checks.FirstOrDefault(x => x.EmployeeComplianceReviewId == review?.Id && x.Kind == kind);

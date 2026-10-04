@@ -71,7 +71,10 @@ public sealed record EmployeeReviewPage(
     IReadOnlyList<string> Blockers,
     IReadOnlyList<EmployeeComplianceTask> Tasks,
     IReadOnlyList<EmployeeComplianceAuditEvent> Audit,
-    IReadOnlyDictionary<string, string> UserNames);
+    IReadOnlyDictionary<string, string> UserNames)
+{
+    public IReadOnlyList<SanctionsAutomatedResult> AutomatedSanctions { get; init; } = [];
+}
 
 public sealed class EmployeeBaseline
 {
