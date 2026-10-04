@@ -17,14 +17,11 @@
     <div class="page-header client-onboarding-header">
         <div><p class="eyebrow">Kanaan ID @model.Client.KanaanId</p><h1>@model.Client.DisplayName</h1><p>Client acceptance: <strong>@model.Status</strong></p></div>
         <div class="d-flex flex-wrap gap-2">
-            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}")">Client</a>
-            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/evidence")">Evidence and screening</a>
-            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/risk")">Compliance risk</a>
-            <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/risk/bra")">ML / TF / PF report</a>
             @if (model.CanPrepare && !model.IsAccepted) { <a class="btn btn-primary" href="@($"/clients/{ClientId}/onboarding/preparation")">Update preparation</a> }
             @if (model.CanPrepare && !model.IsAccepted) { <button class="btn btn-outline-primary" disabled="@busy" @onclick="RequestAsync">Request Codex review</button> }
         </div>
     </div>
+    <ClientWorkspaceNav ClientId="ClientId" KanaanId="model.Client.KanaanId" ClientCategory="model.Client.ClientCategory" />
     @if (model.Request is { Status: "AwaitingCodex" } notice)
     {
         <div class="alert alert-info" role="status">Codex review task recorded: @notice.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm"). Available on the designated Compliance users' home page. No email sent.</div>

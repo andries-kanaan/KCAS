@@ -1,5 +1,7 @@
 ﻿@inherits LayoutComponentBase
 
+<a class="skip-navigation" href="#main-content">Skip to content</a>
+
 <div class="app-shell">
     <input id="sidebar-toggle" class="sidebar-toggle" type="checkbox" />
 
@@ -7,9 +9,9 @@
         <NavMenu />
     </div>
 
-    <main class="main-panel">
+    <main id="main-content" class="main-panel" tabindex="-1">
         <div class="top-row">
-            <label class="sidebar-toggle-button" for="sidebar-toggle" title="Collapse navigation" aria-label="Collapse navigation">
+            <label class="sidebar-toggle-button" for="sidebar-toggle" title="Toggle sidebar" aria-label="Toggle sidebar">
                 <span></span>
                 <span></span>
                 <span></span>
@@ -19,9 +21,9 @@
             </div>
             <div class="top-title">
                 <p class="top-kicker">Kanaan Client Administration System</p>
-                <h1>Administration workspace</h1>
+                <span class="workspace-title">KCAS workspace</span>
             </div>
-            <a class="account-link" href="Account/Manage">Account</a>
+            <AuthorizeView><Authorized><a class="account-link" href="/Account/Manage">Account</a></Authorized><NotAuthorized><a class="account-link" href="/Account/Login">Sign in</a></NotAuthorized></AuthorizeView>
         </div>
 
         <article class="content-shell">

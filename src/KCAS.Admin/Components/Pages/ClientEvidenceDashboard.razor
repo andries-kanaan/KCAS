@@ -7,6 +7,7 @@
 @inject ClientEvidenceReadinessService EvidenceService
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject DocumentPathDisplayService PathDisplay
+@inject NavigationManager Navigation
 
 <PageTitle>Client evidence readiness</PageTitle>
 
@@ -26,7 +27,8 @@
 
 @if (model is null)
 {
-    <p>Loading client evidence readiness...</p>
+    @if (loadError is null) { <p role="status">Loading client evidence readiness...</p> }
+    else { <div class="alert alert-danger" role="alert">@loadError <button type="button" class="btn btn-outline-danger btn-sm" @onclick="TryLoadAsync">Retry</button></div> }
 }
 else
 {
@@ -46,7 +48,8 @@ else
     </section>
 
     <section class="work-area">
-        <h2>Client folder root</h2>
+        <details><summary>Client folder configuration</summary>
+        <h2 class="mt-3">Client folder root</h2>
         <p class="text-muted">Set the server path used to find client folders. Changing this path does not scan folders or change linked evidence.</p>
         <div class="workspace-grid">
             <input class="form-control" @bind="scanRootPath" placeholder="Server client document root path" disabled="@(!canManage)" />
@@ -62,10 +65,16 @@ else
                             Title="Choose client folder root"
                             Selected="SelectFolder"
                             Closed="CloseFolderPicker" />
+        </details>
     </section>
 
     <section class="work-area">
         <h2>Client readiness</h2>
+        <div class="client-list-toolbar" aria-label="Evidence filters">
+            <div class="client-list-search"><label class="form-label" for="evidence-search">Search clients</label>
+            <input id="evidence-search" type="search" class="form-control" placeholder="Kanaan ID or client" @bind="searchText" @bind:event="oninput" @bind:after="UpdateFilters" /></div>
+            <button class="btn btn-outline-secondary" type="button" @onclick="ResetFilters">Reset filters</button>
+        </div>
         <div class="notes-toolbar">
             <div class="note-count">Showing @ClientShowingStart(FilteredClients.Count)-@ClientShowingEnd(FilteredClients.Count) of @FilteredClients.Count</div>
         </div>
@@ -73,6 +82,7 @@ else
             <table class="table align-middle filter-table">
                 <thead>
                     <tr>
+                        <th><button type="button" class="sort-header" @onclick='() => SetClientSort("kanaanId")'>Kanaan ID @SortGlyph("kanaanId")</button></th>
                         <th>
                             <button type="button" class="sort-header" @onclick='() => SetClientSort("client")'>Client @SortGlyph("client")</button>
                         </th>
@@ -91,11 +101,12 @@ else
                         <th></th>
                     </tr>
                     <tr class="filter-row">
-                        <th><input class="form-control form-control-sm" @bind="clientSearch" @bind:event="oninput" placeholder="Search client" /></th>
-                        <th><input class="form-control form-control-sm" @bind="surnameSearch" @bind:event="oninput" placeholder="Search surname" /></th>
+                        <th><input class="form-control form-control-sm" @bind="kanaanIdFilter" @bind:event="oninput" @bind:after="UpdateFilters" aria-label="Filter evidence by Kanaan ID" /></th>
+                        <th><input class="form-control form-control-sm" @bind="clientSearch" @bind:event="oninput" @bind:after="UpdateFilters" aria-label="Filter evidence by client" /></th>
+                        <th><input class="form-control form-control-sm" @bind="surnameSearch" @bind:event="oninput" @bind:after="UpdateFilters" aria-label="Filter evidence by surname" /></th>
                         <th></th>
                         <th>
-                            <select class="form-select form-select-sm" @bind="lifecycleFilter">
+                            <select class="form-select form-select-sm" @bind="lifecycleFilter" @bind:after="UpdateFilters" aria-label="Filter evidence by lifecycle">
                                 <option value="">All lifecycle</option>
                                 @foreach (var status in ClientLifecycleStatuses.All.OrderBy(value => value))
                                 {
@@ -105,7 +116,7 @@ else
                         </th>
                         <th colspan="6"></th>
                         <th>
-                            <select class="form-select form-select-sm" @bind="readinessFilter">
+                            <select class="form-select form-select-sm" @bind="readinessFilter" @bind:after="UpdateFilters" aria-label="Filter evidence by readiness">
                                 <option value="">All readiness</option>
                                 <option value="@ReadinessReady">Ready</option>
                                 <option value="@ReadinessNotReady">Not ready</option>
@@ -118,18 +129,21 @@ else
                     @foreach (var client in PagedClients)
                     {
                         <tr>
-                            <td>@client.DisplayName</td>
+                            <td>@Display(client.KanaanId)</td>
+                            <td><a href="@ClientLink(client.ClientId)">@client.DisplayName</a></td>
                             <td>@Display(client.SurnameOrEntityName)</td>
                             <td>@client.ClientCategory</td>
                             <td>@client.LifecycleStatus</td>
                             <td>
                                 @if (canManage)
                                 {
+                                    <details class="evidence-folder-edit"><summary>@Display(PathDisplay.ForWorkstation(client.ClientFolder))</summary>
                                     <div class="client-folder-scan-row">
                                         <input class="form-control form-control-sm" @bind="clientFolderPaths[client.ClientId]" placeholder="Select client folder" />
                                         <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => OpenClientFolderPicker(client.ClientId)">Browse</button>
                                         <button type="button" class="btn btn-outline-primary btn-sm" @onclick="() => SaveClientFolderAsync(client.ClientId)">Save</button>
                                     </div>
+                                    </details>
                                 }
                                 else
                                 {
@@ -142,12 +156,13 @@ else
                             <td>@client.ExceptionCount</td>
                             <td>@client.BlockedCount</td>
                             <td>@(client.IsReadyForRiskAssessment ? "Ready" : "Blocked")</td>
-                            <td class="text-end"><a class="btn btn-outline-secondary btn-sm" href="@($"/clients/{client.ClientId}/evidence")">Open</a></td>
+                            <td class="text-end"><a class="btn btn-outline-secondary btn-sm" href="@ClientLink(client.ClientId)">View evidence</a></td>
                         </tr>
                     }
                 </tbody>
             </table>
         </div>
+        @if (FilteredClients.Count == 0) { <section class="empty-state"><h3>No clients found</h3><p>Adjust or reset the filters.</p></section> }
         @if (ClientPageCount(FilteredClients.Count) > 1)
         {
             <div class="notes-pager" aria-label="Client readiness pages">
@@ -179,10 +194,16 @@ else
     private bool canManage;
     private bool isAdministrator;
     private string? statusMessage;
-    private string? clientSearch;
-    private string? surnameSearch;
-    private string? lifecycleFilter;
-    private string? readinessFilter;
+    private string? loadError;
+    [SupplyParameterFromQuery(Name = "q")] public string? searchText { get; set; }
+    [SupplyParameterFromQuery(Name = "kanaanId")] public string? kanaanIdFilter { get; set; }
+    [SupplyParameterFromQuery(Name = "client")] public string? clientSearch { get; set; }
+    [SupplyParameterFromQuery(Name = "surname")] public string? surnameSearch { get; set; }
+    [SupplyParameterFromQuery(Name = "lifecycle")] public string? lifecycleFilter { get; set; }
+    [SupplyParameterFromQuery(Name = "readiness")] public string? readinessFilter { get; set; }
+    [SupplyParameterFromQuery(Name = "sort")] public string? QuerySort { get; set; }
+    [SupplyParameterFromQuery(Name = "direction")] public string? QueryDirection { get; set; }
+    [SupplyParameterFromQuery(Name = "page")] public string? QueryPage { get; set; }
     private string clientSortColumn = "client";
     private bool isClientSortDescending;
     private int clientPage = 1;
@@ -204,6 +225,10 @@ else
             }
 
             var clients = model.Clients.AsEnumerable();
+            if (!string.IsNullOrWhiteSpace(searchText))
+                clients = clients.Where(client => ContainsSearch(client.DisplayName, searchText) || ContainsSearch(client.SurnameOrEntityName, searchText) || ContainsSearch(client.KanaanId, searchText));
+            if (!string.IsNullOrWhiteSpace(kanaanIdFilter))
+                clients = clients.Where(client => ContainsSearch(client.KanaanId, kanaanIdFilter));
             if (!string.IsNullOrWhiteSpace(clientSearch))
             {
                 clients = clients.Where(client => ContainsSearch(client.DisplayName, clientSearch));
@@ -228,7 +253,9 @@ else
                 clients = clients.Where(client => !client.IsReadyForRiskAssessment);
             }
 
-            clients = clientSortColumn == "surname"
+            clients = clientSortColumn == "kanaanId"
+                ? clients.OrderBy(client => client.KanaanId, StringComparer.OrdinalIgnoreCase).ThenBy(client => client.DisplayName, StringComparer.OrdinalIgnoreCase)
+                : clientSortColumn == "surname"
                 ? clients.OrderBy(client => client.SurnameOrEntityName, StringComparer.CurrentCultureIgnoreCase)
                     .ThenBy(client => client.DisplayName, StringComparer.CurrentCultureIgnoreCase)
                 : clients.OrderBy(client => client.DisplayName, StringComparer.CurrentCultureIgnoreCase)
@@ -262,8 +289,29 @@ else
         currentUser = authState.User.Identity?.Name;
         canManage = authState.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage);
         isAdministrator = authState.User.IsInRole(KcasRoles.Administrator);
-        await LoadAsync();
+        await TryLoadAsync();
     }
+
+    protected override void OnParametersSet()
+    {
+        clientSortColumn = QuerySort is "client" or "surname" or "kanaanId" ? QuerySort : "client";
+        isClientSortDescending = QueryDirection == "desc";
+        clientPage = Math.Max(1, int.TryParse(QueryPage, out var page) ? page : 1);
+    }
+    private async Task TryLoadAsync()
+    {
+        loadError = null;
+        try { await LoadAsync(); }
+        catch { loadError = "Evidence readiness could not be loaded. Retry or contact the administrator."; }
+    }
+    private string ClientLink(int id) => ClientListNavigation.ClientLink(id, "/evidence", Navigation.Uri);
+    private void ResetFilters() => Navigation.NavigateTo("/compliance/client-evidence", replace: true);
+    private void UpdateFilters() => Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(new Dictionary<string, object?>
+    {
+        ["q"] = searchText, ["kanaanId"] = kanaanIdFilter, ["client"] = clientSearch, ["surname"] = surnameSearch,
+        ["lifecycle"] = lifecycleFilter, ["readiness"] = readinessFilter, ["sort"] = clientSortColumn,
+        ["direction"] = isClientSortDescending ? "desc" : "asc", ["page"] = null
+    }), replace: true);
 
     private async Task LoadAsync()
     {
@@ -347,18 +395,16 @@ else
         if (clientSortColumn == column)
         {
             isClientSortDescending = !isClientSortDescending;
-            return;
         }
-
-        clientSortColumn = column;
-        isClientSortDescending = false;
+        else { clientSortColumn = column; isClientSortDescending = false; }
+        UpdateFilters();
     }
 
     private void PreviousClientPage()
     {
         if (clientPage > 1)
         {
-            clientPage--;
+            Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("page", clientPage - 1), replace: true);
         }
     }
 
@@ -366,7 +412,7 @@ else
     {
         if (clientPage < ClientPageCount(clientCount))
         {
-            clientPage++;
+            Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("page", clientPage + 1), replace: true);
         }
     }
 
@@ -380,7 +426,7 @@ else
         Math.Min(clientCount, Math.Min(clientPage, ClientPageCount(clientCount)) * ClientPageSize);
 
     private string SortGlyph(string column) => clientSortColumn == column
-        ? isClientSortDescending ? "Down" : "Up"
+        ? isClientSortDescending ? "\u2193" : "\u2191"
         : "";
 
     private string FolderSelectionReason => string.IsNullOrWhiteSpace(reason)

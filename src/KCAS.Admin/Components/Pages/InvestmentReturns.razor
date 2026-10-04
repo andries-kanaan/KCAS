@@ -14,8 +14,9 @@
             <p>@report.Account.AccountNumber · @report.Account.Administrator · @report.Account.FundName</p>
         }
     </div>
-    <div class="header-actions"><a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}#investments")">Back to investments</a></div>
+    <div class="header-actions"><AuthorizeView Policy="@KcasPermissions.ClientsView"><Authorized><a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}#investments")">Back to investments</a></Authorized></AuthorizeView></div>
 </div>
+<ClientWorkspaceNav ClientId="ClientId" />
 @if (loading)
 {
     <p role="status">Loading investment history...</p>

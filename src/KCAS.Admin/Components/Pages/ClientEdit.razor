@@ -24,6 +24,8 @@
     <a class="btn btn-outline-secondary" href="@(Id is null ? "/clients" : $"/clients/{Id}")">Cancel</a>
 </div>
 
+@if (Id is { } clientId) { <ClientWorkspaceNav ClientId="clientId" KanaanId="model.KanaanId" ClientCategory="model.ClientCategory" /> }
+
 @if (!string.IsNullOrWhiteSpace(statusMessage))
 {
     <div class="alert alert-warning">@statusMessage</div>

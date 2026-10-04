@@ -28,7 +28,7 @@
         <a class="btn btn-outline-primary" href="/compliance/complaints">Complaints register</a>
         <AuthorizeView Policy="@KcasPermissions.ComplianceManage">
             <Authorized>
-                <a class="btn btn-outline-secondary" href="/compliance/organisation">Settings</a>
+                <a class="btn btn-outline-secondary" href="/compliance/programme">Programme and regulatory evidence</a>
             </Authorized>
         </AuthorizeView>
     </div>
@@ -62,7 +62,7 @@ else
             <a class="btn btn-sm btn-outline-primary mt-3" href="/compliance/organisation">Open organisation record</a>
         </article>
         <article class="summary-card">
-            <span>5. Evidence register</span>
+            <span>Evidence register</span>
             <strong>Submitted documents and supporting proof</strong>
             <a class="btn btn-sm btn-outline-primary mt-3" href="/compliance/evidence">Open evidence</a>
         </article>
@@ -92,6 +92,11 @@ else
     </section>
 
     <section class="work-area">
+        <div class="row-actions">
+            <a class="btn btn-outline-primary" href="/compliance/work-register">Monitoring and remediation</a>
+            <a class="btn btn-outline-secondary" href="/compliance/tasks">Task configuration</a>
+            <a class="btn btn-outline-secondary" href="/compliance/programme">Programme and regulatory evidence</a>
+        </div>
         @if (goAml is not null)
         {
             <div class="alert @(goAml.IsTodayComplete ? "alert-success" : "alert-info") mb-0">

@@ -13,35 +13,24 @@
 @inject IAuthorizationService Authorization
 @inject AuthenticationStateProvider AuthenticationStateProvider
 
-<PageTitle>KCAS Admin</PageTitle>
-
-<section class="landing-hero">
-    <div>
-        <p class="eyebrow">Kanaan Client Administration System</p>
-        <h2>Kanaan Client Administration System</h2>
-        <p>Use this workspace as the new KCAS foundation while client records, identity, and compliance workflows move across from the legacy system.</p>
-        <div class="hero-actions">
-            <a class="button-primary" href="clients">Open clients</a>
-            <AuthorizeView>
-                <Authorized>
-                    <a class="button-secondary" href="Account/Manage">Account</a>
-                </Authorized>
-                <NotAuthorized>
-                    <a class="button-secondary" href="Account/Login">Sign in</a>
-                </NotAuthorized>
-            </AuthorizeView>
-        </div>
-    </div>
-</section>
+<PageTitle>Home - KCAS</PageTitle>
 
 <div class="page-header">
     <div>
-        <p class="eyebrow">Workspace status</p>
-        <h1>Today at a glance</h1>
-        <p class="lede">Core services are connected to the MySQL-backed KCAS schema and ready for the next workflow screens.</p>
+        <p class="eyebrow">Kanaan Asset Managers</p>
+        <h1>Home</h1>
+        <p class="text-muted mb-0">Reviews, requests and follow-up.</p>
+    </div>
+    <div class="header-actions">
+        <AuthorizeView Policy="@KcasPermissions.ClientsView"><Authorized><a class="btn btn-primary" href="/clients">Clients</a></Authorized></AuthorizeView>
+        <AuthorizeView Policy="@KcasPermissions.AdviceView"><Authorized><a class="btn btn-outline-primary" href="/advice">Advice register</a></Authorized></AuthorizeView>
+        <AuthorizeView Policy="@KcasPermissions.ComplianceView"><Authorized><a class="btn btn-outline-secondary" href="/compliance/work-register">Compliance worklist</a></Authorized></AuthorizeView>
+        <AuthorizeView><NotAuthorized><a class="btn btn-primary" href="/Account/Login">Sign in</a></NotAuthorized></AuthorizeView>
     </div>
 </div>
 
+@if (canViewClients)
+{
 <section class="metric-grid">
     <div class="metric-card">
         <span class="metric-label">Clients</span>
@@ -51,11 +40,8 @@
         <span class="metric-label">Current clients</span>
         <strong>@currentClientCount</strong>
     </div>
-    <div class="metric-card">
-        <span class="metric-label">Database</span>
-        <strong>@databaseStatus</strong>
-    </div>
 </section>
+}
 
 @if (annualNotificationsCreated > 0)
 {
@@ -125,7 +111,7 @@
         <h2>Client compliance reviews due</h2>
         <p class="text-muted">These reminders are shared with Compliance Administrators and Compliance Approvers.</p>
         <div class="list-group">
-            @foreach (var item in reviewNotifications)
+            @foreach (var item in reviewNotifications.Take(10))
             {
                 <div class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2">
                     <div>
@@ -139,32 +125,20 @@
                 </div>
             }
         </div>
-        <a class="btn btn-outline-secondary mt-3" href="/compliance/work-register">Open compliance worklist</a>
+        <a class="btn btn-outline-secondary mt-3" href="/compliance/work-register">All client review tasks (@reviewNotifications.Count)</a>
     </section>
 }
 
-<section class="work-area">
-    <h2>Foundation areas</h2>
-    <div class="workspace-grid">
-        <div>
-            <h3>Client records</h3>
-            <p>Start from a clean Blazor and MySQL-backed client register before importing and redesigning the Yii1 functionality.</p>
-        </div>
-        <div>
-            <h3>Identity</h3>
-            <p>ASP.NET Core Identity is enabled for user registration, login, account management, and future role-based access control.</p>
-        </div>
-        <div>
-            <h3>Compliance foundation</h3>
-            <p>The first schema keeps personal information explicit so POPIA, FICA, and audit requirements can be added deliberately.</p>
-        </div>
-    </div>
-</section>
+@if (isSignedIn && codexNotifications.Count + adviceNotifications.Count + controlReminders.Count + employeeNotifications.Count + reviewNotifications.Count == 0 && controlReminderError is null && employeeNotificationError is null)
+{
+    <section class="work-area"><h2>Review notifications</h2><p class="text-muted mb-0">No outstanding review notifications for your account.</p></section>
+}
 
 @code {
     private int clientCount;
     private int currentClientCount;
-    private string databaseStatus = "Pending";
+    private bool canViewClients;
+    private bool isSignedIn;
     private IReadOnlyList<ComplianceWorkListItem> reviewNotifications = [];
     private IReadOnlyList<ClientCodexNotification> codexNotifications = [];
     private IReadOnlyList<AdvicePreparationNotification> adviceNotifications = [];
@@ -178,13 +152,15 @@
     protected override async Task OnInitializedAsync()
     {
         var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        isSignedIn = state.User.Identity?.IsAuthenticated == true;
+        canViewClients = (await Authorization.AuthorizeAsync(state.User, null, KcasPermissions.ClientsView)).Succeeded;
         var isAdministrator = state.User.IsInRole(KcasRoles.Administrator);
-        var clients = Db.Clients.Where(client => isAdministrator || !client.ExcludeFromComplianceLists);
-        clientCount = await clients.CountAsync();
-        currentClientCount = await Db.Clients.CountAsync(
-            client => (isAdministrator || !client.ExcludeFromComplianceLists) &&
-                      client.LifecycleStatus == ClientLifecycleStatuses.Current);
-        databaseStatus = "Online";
+        if (canViewClients)
+        {
+            var clients = Db.Clients.Where(client => isAdministrator || !client.ExcludeFromComplianceLists);
+            clientCount = await clients.CountAsync();
+            currentClientCount = await clients.CountAsync(client => client.LifecycleStatus == ClientLifecycleStatuses.Current);
+        }
         if ((await Authorization.AuthorizeAsync(state.User, null, KcasPermissions.EmployeesView)).Succeeded)
         {
             try

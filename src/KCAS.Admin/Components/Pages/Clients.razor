@@ -1,5 +1,6 @@
 @page "/clients"
 @rendermode InteractiveServer
+@implements IDisposable
 @attribute [Authorize(Policy = KcasPermissions.ClientsView)]
 @using KCAS.Admin.Data
 @using KCAS.Admin.Security
@@ -7,6 +8,7 @@
 @inject ClientVisibilityService ClientVisibility
 @inject ComplianceWorkService WorkService
 @inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
 
 <PageTitle>Clients</PageTitle>
 
@@ -25,7 +27,7 @@
 @if (isAdministrator)
 {
     <section class="work-area mb-3">
-        <h2>Client visibility</h2>
+        <details class="client-visibility-controls"><summary>Client visibility (administrator)</summary>
         <div class="d-flex flex-wrap align-items-end gap-2">
             <div>
                 <label class="form-label" for="visibility-action">Bulk action</label>
@@ -51,6 +53,7 @@
         {
             <div class="alert @(visibilityError ? "alert-danger" : "alert-success") mt-3 mb-0">@visibilityMessage</div>
         }
+        </details>
     </section>
 }
 
@@ -84,7 +87,23 @@
     </section>
 }
 
-@if (clients.Count == 0)
+<section class="client-list-toolbar" aria-label="Client filters">
+    <div class="client-list-search">
+        <label class="form-label" for="clients-search">Search clients</label>
+        <input id="clients-search" type="search" class="form-control" placeholder="Kanaan ID, client or contact" @bind="searchText" @bind:event="oninput" @bind:after="UpdateFilters" />
+    </div>
+    <button class="btn btn-outline-secondary" type="button" @onclick="ResetFilters">Reset filters</button>
+    <span class="text-muted" role="status">@(isLoading ? "Loading clients..." : $"Showing {ShowingStart}-{ShowingEnd} of {clients.Count} clients")</span>
+</section>
+@if (loadError is not null)
+{
+    <div class="alert alert-danger" role="alert">@loadError <button type="button" class="btn btn-sm btn-outline-danger" @onclick="RetryAsync">Retry</button></div>
+}
+@if (hasMoreResults)
+{
+    <p class="text-muted">First 500 matches shown. Narrow your search to see the remaining clients.</p>
+}
+@if (!isLoading && loadError is null && clients.Count == 0)
 {
     <section class="empty-state">
         <h2>No clients found</h2>
@@ -149,22 +168,22 @@
             </tr>
             <tr class="filter-row">
                 <th>
-                    <input class="form-control form-control-sm" @bind="kanaanIdFilter" @bind:event="oninput" @bind:after="LoadClientsAsync" aria-label="Filter by Kanaan ID" />
+                    <input class="form-control form-control-sm" @bind="kanaanIdFilter" @bind:event="oninput" @bind:after="UpdateFilters" aria-label="Filter by Kanaan ID" />
                 </th>
                 <th>
-                    <input class="form-control form-control-sm" @bind="nameFilter" @bind:event="oninput" @bind:after="LoadClientsAsync" aria-label="Filter by name" />
+                    <input class="form-control form-control-sm" @bind="nameFilter" @bind:event="oninput" @bind:after="UpdateFilters" aria-label="Filter by name" />
                 </th>
                 <th>
-                    <input class="form-control form-control-sm" @bind="surnameFilter" @bind:event="oninput" @bind:after="LoadClientsAsync" aria-label="Filter by surname" />
+                    <input class="form-control form-control-sm" @bind="surnameFilter" @bind:event="oninput" @bind:after="UpdateFilters" aria-label="Filter by surname" />
                 </th>
                 <th>
-                    <input class="form-control form-control-sm" @bind="emailFilter" @bind:event="oninput" @bind:after="LoadClientsAsync" aria-label="Filter by email" />
+                    <input class="form-control form-control-sm" @bind="emailFilter" @bind:event="oninput" @bind:after="UpdateFilters" aria-label="Filter by email" />
                 </th>
                 <th>
-                    <input class="form-control form-control-sm" @bind="phoneFilter" @bind:event="oninput" @bind:after="LoadClientsAsync" aria-label="Filter by phone" />
+                    <input class="form-control form-control-sm" @bind="phoneFilter" @bind:event="oninput" @bind:after="UpdateFilters" aria-label="Filter by phone" />
                 </th>
                 <th>
-                    <select class="form-select form-select-sm" @bind="statusFilter" @bind:after="LoadClientsAsync" aria-label="Filter by lifecycle status">
+                    <select class="form-select form-select-sm" @bind="statusFilter" @bind:after="UpdateFilters" aria-label="Filter by lifecycle status">
                         <option value="">All lifecycle statuses</option>
                         @foreach (var status in ClientLifecycleStatuses.All)
                         {
@@ -173,7 +192,7 @@
                     </select>
                 </th>
                 <th>
-                    <select class="form-select form-select-sm" @bind="investmentPositionFilter" @bind:after="LoadClientsAsync" aria-label="Filter by investment position">
+                    <select class="form-select form-select-sm" @bind="investmentPositionFilter" @bind:after="UpdateFilters" aria-label="Filter by investment position">
                         <option value="">All investment positions</option>
                         <option value="@ClientInvestmentPositionFilters.Current">Current investments</option>
                         <option value="@ClientInvestmentPositionFilters.NoCurrent">No current investments</option>
@@ -185,12 +204,12 @@
             </tr>
         </thead>
         <tbody>
-            @foreach (var client in clients)
+            @foreach (var client in clients.Skip((CurrentPage - 1) * PageSize).Take(PageSize))
             {
                 <tr>
                     <td>@client.KanaanId</td>
                     <td>
-                        <a href="@($"/clients/{client.Id}")">@client.Name</a>
+                        <a href="@ClientLink(client.Id)">@client.Name</a>
                     </td>
                     <td>@client.Surname</td>
                     <td>@client.PrimaryEmail</td>
@@ -210,17 +229,38 @@
         </tbody>
     </table>
 </div>
+<div class="notes-pager" aria-label="Client pages">
+    <button type="button" class="btn btn-outline-secondary btn-sm" disabled="@(CurrentPage <= 1 || isLoading)" @onclick="() => ChangePage(CurrentPage - 1)">Previous</button>
+    <span>Page @CurrentPage of @PageCount</span>
+    <button type="button" class="btn btn-outline-secondary btn-sm" disabled="@(CurrentPage >= PageCount || isLoading)" @onclick="() => ChangePage(CurrentPage + 1)">Next</button>
+</div>
 
 @code {
-    private string? kanaanIdFilter;
-    private string? nameFilter;
-    private string? surnameFilter;
-    private string? emailFilter;
-    private string? phoneFilter;
-    private string? statusFilter;
-    private string? investmentPositionFilter;
+    [SupplyParameterFromQuery(Name = "q")] public string? searchText { get; set; }
+    [SupplyParameterFromQuery(Name = "kanaanId")] public string? kanaanIdFilter { get; set; }
+    [SupplyParameterFromQuery(Name = "name")] public string? nameFilter { get; set; }
+    [SupplyParameterFromQuery(Name = "surname")] public string? surnameFilter { get; set; }
+    [SupplyParameterFromQuery(Name = "email")] public string? emailFilter { get; set; }
+    [SupplyParameterFromQuery(Name = "phone")] public string? phoneFilter { get; set; }
+    [SupplyParameterFromQuery(Name = "lifecycle")] public string? statusFilter { get; set; }
+    [SupplyParameterFromQuery(Name = "position")] public string? investmentPositionFilter { get; set; }
+    [SupplyParameterFromQuery(Name = "sort")] public string? QuerySort { get; set; }
+    [SupplyParameterFromQuery(Name = "direction")] public string? QueryDirection { get; set; }
+    [SupplyParameterFromQuery(Name = "page")] public string? QueryPage { get; set; }
     private string sortColumn = "currentValue";
     private bool sortDescending = true;
+    private const int PageSize = 50;
+    private int PageCount => Math.Max(1, (clients.Count + PageSize - 1) / PageSize);
+    private int CurrentPage => Math.Clamp(int.TryParse(QueryPage, out var page) ? page : 1, 1, PageCount);
+    private int ShowingStart => clients.Count == 0 ? 0 : (CurrentPage - 1) * PageSize + 1;
+    private int ShowingEnd => Math.Min(CurrentPage * PageSize, clients.Count);
+    private bool isLoading = true;
+    private bool hasMoreResults;
+    private string? loadError;
+    private ClientSearchRequest? loadedRequest;
+    private int loadVersion;
+    private int filterVersion;
+    private bool disposed;
     private List<ClientSearchResult> clients = [];
     private IReadOnlyList<ComplianceWorkListItem> reviewNotifications = [];
     private int annualNotificationsCreated;
@@ -235,7 +275,6 @@
     {
         var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
         isAdministrator = state.User.IsInRole(KcasRoles.Administrator);
-        await LoadClientsAsync();
         var userName = state.User.Identity?.Name;
         if ((state.User.IsInRole(KcasRoles.ComplianceAdministrator) ||
              state.User.IsInRole(KcasRoles.ComplianceApprover)) &&
@@ -247,6 +286,30 @@
                 isAdministrator);
         }
     }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        sortColumn = QuerySort is "kanaanId" or "name" or "surname" or "email" or "phone" or "status" or "investment" or "currentValue" ? QuerySort : "currentValue";
+        sortDescending = QueryDirection == "desc" || (QueryDirection != "asc" && sortColumn == "currentValue");
+        await LoadClientsAsync();
+    }
+
+    private string ClientLink(int id) => ClientListNavigation.ClientLink(id, "", Navigation.Uri);
+    private void ChangePage(int page) { filterVersion++; Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("page", page), replace: true); }
+    private void ResetFilters() { filterVersion++; Navigation.NavigateTo("/clients", replace: true); }
+    private async Task UpdateFilters()
+    {
+        var version = ++filterVersion;
+        await Task.Delay(200);
+        if (disposed || version != filterVersion) return;
+        Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(new Dictionary<string, object?>
+        {
+        ["q"] = searchText, ["kanaanId"] = kanaanIdFilter, ["name"] = nameFilter, ["surname"] = surnameFilter,
+        ["email"] = emailFilter, ["phone"] = phoneFilter, ["lifecycle"] = statusFilter, ["position"] = investmentPositionFilter,
+        ["sort"] = sortColumn, ["direction"] = sortDescending ? "desc" : "asc", ["page"] = null
+        }), replace: true);
+    }
+    private async Task RetryAsync() { loadedRequest = null; await LoadClientsAsync(); }
 
     private async Task SortByAsync(string column)
     {
@@ -260,12 +323,13 @@
             sortDescending = false;
         }
 
-        await LoadClientsAsync();
+        await UpdateFilters();
     }
 
     private async Task LoadClientsAsync()
     {
-        clients = await ClientSearch.SearchAsync(new ClientSearchRequest(
+        var request = new ClientSearchRequest(
+            GlobalSearch: searchText,
             KanaanId: kanaanIdFilter,
             Name: nameFilter,
             Surname: surnameFilter,
@@ -274,8 +338,27 @@
             Status: statusFilter,
             InvestmentPosition: investmentPositionFilter,
             SortColumn: sortColumn,
-            SortDescending: sortDescending),
-            includeExcludedClients: isAdministrator);
+            SortDescending: sortDescending);
+        var version = ++loadVersion;
+        if (loadedRequest == request) { isLoading = false; return; }
+        isLoading = true;
+        loadError = null;
+        try
+        {
+            var results = await ClientSearch.SearchAsync(request, take: 501, includeExcludedClients: isAdministrator);
+            if (version != loadVersion) return;
+            hasMoreResults = results.Count > 500;
+            clients = results.Take(500).ToList();
+            loadedRequest = request;
+        }
+        catch
+        {
+            if (version != loadVersion) return;
+            clients = [];
+            loadedRequest = null;
+            loadError = "Client list could not be loaded. Retry or contact the administrator.";
+        }
+        finally { if (version == loadVersion) isLoading = false; }
     }
 
     private void ClearVisibilityPreview()
@@ -318,6 +401,7 @@
             visibilityError = false;
             visibilityMessage = $"Updated visibility for {changed} client(s).";
             visibilityPreviewCount = null;
+            loadedRequest = null;
             await LoadClientsAsync();
         }
         catch (Exception ex)
@@ -345,7 +429,7 @@
             return string.Empty;
         }
 
-        return sortDescending ? "down" : "up";
+        return sortDescending ? "\u2193" : "\u2191";
     }
 
     private static string LifecycleBadge(string status) => status switch
@@ -360,4 +444,6 @@
 
     private static string Money(decimal? value) =>
         value.HasValue ? $"R {value.Value:N2}" : "—";
+
+    public void Dispose() { disposed = true; filterVersion++; loadVersion++; }
 }

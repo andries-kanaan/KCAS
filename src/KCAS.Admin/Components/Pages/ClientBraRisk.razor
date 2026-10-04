@@ -20,6 +20,7 @@
             @if (model.Report is not null) { <button class="btn btn-outline-secondary" @onclick="PrintAsync">Print report</button> }
         </div>
     </div>
+    <div class="no-print"><ClientWorkspaceNav ClientId="ClientId" KanaanId="model.ClientReview.Client.KanaanId" ClientCategory="model.ClientReview.Client.ClientCategory" /></div>
     <p class="alert alert-info">Proposed BRA-linked client judgements. Formal client rating: <strong>@(model.ClientReview.Assessment?.FinalRating ?? "Not finalised")</strong>, unchanged. This report is not methodology activation or a KI acceptance decision.</p>
     @if (model.Report is not { } report)
     {

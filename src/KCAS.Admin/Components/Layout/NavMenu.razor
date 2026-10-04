@@ -1,213 +1,76 @@
 ﻿@implements IDisposable
-
+@rendermode InteractiveServer
 @inject NavigationManager NavigationManager
+@inject AuthenticationStateProvider Authentication
+@inject IAuthorizationService Authorization
 
 <div class="brand-row">
     <div class="brand-mark" aria-hidden="true">K</div>
-    <div>
-        <a class="navbar-brand" href="">KCAS</a>
-        <p>Navigation</p>
+    <div><a class="navbar-brand" href="/">KCAS</a><p>Kanaan Asset Managers</p></div>
+</div>
+<input id="workspace-menu-toggle" type="checkbox" aria-label="Open navigation" class="navbar-toggler" />
+<div class="nav-scrollable workspace-navigation" onclick="if(event.target.closest('a')) document.getElementById('workspace-menu-toggle').checked = false; if(event.target.closest('summary') &amp;&amp; document.getElementById('sidebar-toggle').checked) { event.preventDefault(); document.getElementById('sidebar-toggle').checked = false; event.target.closest('details').open = true; }">
+    <nav aria-label="Main navigation">
+        <div class="nav-item px-3"><a class="nav-link @(activeHref == "/" ? "active" : null)" href="/" title="Home" aria-current="@(activeHref == "/" ? "page" : null)"><span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span><span>Home</span></a></div>
+        @foreach (var group in groups)
+        {
+            var isCurrentGroup = group.Items.Any(item => item.Href == activeHref);
+            @if (group.Items.Count == 1)
+            {
+                var item = group.Items[0];
+                <div class="nav-item px-3"><a class="nav-link @(isCurrentGroup ? "active" : null)" href="@item.Href" aria-current="@(isCurrentGroup ? "page" : null)" title="@item.Label"><span class="bi @group.Icon" aria-hidden="true"></span><span>@(group.Label == "Advice" ? "Advice" : item.Label)</span></a></div>
+            }
+            else
+            {
+            <details class="nav-group @(isCurrentGroup ? "current-group" : null)" name="workspace-menu" open="@isCurrentGroup" @key="group.Label">
+                <summary title="@group.Label"><span class="bi @group.Icon" aria-hidden="true"></span><span class="nav-group-label">@group.Label</span><span class="nav-group-chevron" aria-hidden="true">&#8250;</span></summary>
+                <div class="nav-group-items">
+                    @foreach (var item in group.Items)
+                    {
+                        <div class="nav-item"><a class="nav-link @(activeHref == item.Href ? "active" : null)" href="@item.Href" aria-current="@(activeHref == item.Href ? "page" : null)">@item.Label</a></div>
+                    }
+                </div>
+            </details>
+            }
+        }
+    </nav>
+    <div class="navigation-account">
+        <AuthorizeView>
+            <Authorized>
+                <div class="nav-item px-3"><a class="nav-link" href="/Account/Manage" title="@context.User.Identity?.Name"><span class="bi bi-person-fill-nav-menu" aria-hidden="true"></span><span class="account-name">@context.User.Identity?.Name</span></a></div>
+                <div class="nav-item px-3"><form action="/Account/Logout" method="post"><AntiforgeryToken /><input type="hidden" name="ReturnUrl" value="@currentUrl" /><button type="submit" class="nav-link"><span class="bi bi-arrow-bar-left-nav-menu" aria-hidden="true"></span>Sign out</button></form></div>
+            </Authorized>
+            <NotAuthorized>
+                <div class="nav-item px-3"><a class="nav-link" href="/Account/Login">Sign in</a></div>
+                <div class="nav-item px-3"><a class="nav-link" href="/Account/Register">Register</a></div>
+            </NotAuthorized>
+        </AuthorizeView>
     </div>
 </div>
 
-<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
-
-<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
-    <nav class="nav flex-column">
-        <div class="nav-section">Workspace</div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="clients">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Clients
-            </NavLink>
-        </div>
-
-        <AuthorizeView Policy="@KcasPermissions.AdviceView">
-            <Authorized>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="advice">
-                        <span class="bi bi-file-earmark-text" aria-hidden="true"></span> Client advice
-                    </NavLink>
-                </div>
-                <AuthorizeView Policy="@KcasPolicies.AdministratorOnly">
-                    <Authorized Context="adviceTransferContext">
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="advice/transfers">
-                                <span class="bi bi-arrow-left-right" aria-hidden="true"></span> Advice transfers
-                            </NavLink>
-                        </div>
-                    </Authorized>
-                </AuthorizeView>
-            </Authorized>
-        </AuthorizeView>
-
-        <AuthorizeView Policy="@KcasPermissions.InvestmentsView">
-            <Authorized>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="investments/summary">
-                        <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Investment Summary (IS)
-                    </NavLink>
-                </div>
-            </Authorized>
-        </AuthorizeView>
-
-        <AuthorizeView Policy="@KcasPermissions.InvestmentsManage">
-            <Authorized>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="investments/reconciliation">
-                        <span class="bi bi-arrow-repeat" aria-hidden="true"></span> Investment reconciliation
-                    </NavLink>
-                </div>
-            </Authorized>
-        </AuthorizeView>
-
-        <AuthorizeView Policy="@KcasPermissions.SecurityManage">
-            <Authorized>
-                <div class="nav-section">Administration</div>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="security">
-                        <span class="bi bi-person-badge-nav-menu" aria-hidden="true"></span> Security
-                    </NavLink>
-                </div>
-            </Authorized>
-        </AuthorizeView>
-
-        <AuthorizeView Policy="@KcasPolicies.AdministratorOnly">
-            <Authorized>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="imports">
-                        <span class="bi bi-arrow-repeat" aria-hidden="true"></span> Legacy imports
-                    </NavLink>
-                </div>
-            </Authorized>
-        </AuthorizeView>
-
-        <AuthorizeView Policy="@KcasPermissions.ComplianceView">
-            <Authorized>
-                <details class="nav-group" open="@ComplianceMenuOpen">
-                    <summary @onclick="OpenComplianceOverview">
-                        <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span>
-                        <span>Compliance</span>
-                        <span class="nav-group-chevron" aria-hidden="true">›</span>
-                    </summary>
-                    <div class="nav-group-items">
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="compliance">Compliance overview</NavLink>
-                        </div>
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="compliance/methodologies">1. Risk methodology</NavLink>
-                        </div>
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="compliance/business-risk">2. Business risk assessment</NavLink>
-                        </div>
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="compliance/rmcp">3. RMCP and controls</NavLink>
-                        </div>
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="compliance/organisation">4. Organisation and governance</NavLink>
-                        </div>
-                        <AuthorizeView Policy="@KcasPermissions.EmployeesView">
-                            <Authorized Context="employeeContext">
-                                <div class="nav-item px-3">
-                                    <NavLink class="nav-link" href="compliance/employees">Employee compliance</NavLink>
-                                </div>
-                            </Authorized>
-                        </AuthorizeView>
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="compliance/references">5. Regulatory references</NavLink>
-                        </div>
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="compliance/evidence">6. Evidence register</NavLink>
-                        </div>
-                        <AuthorizeView Policy="@KcasPermissions.ClientsView">
-                            <Authorized Context="clientReviewContext">
-                                <div class="nav-item px-3">
-                                    <NavLink class="nav-link" href="clients/operational-review">7. Client risk assessments</NavLink>
-                                </div>
-                            </Authorized>
-                        </AuthorizeView>
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="compliance/client-evidence">8. Client evidence readiness</NavLink>
-                        </div>
-                        <div class="nav-item px-3"><NavLink class="nav-link" href="compliance/sanctions">Sanctions coverage</NavLink></div>
-                        <div class="nav-item px-3"><NavLink class="nav-link" href="compliance/complaints">Complaints register</NavLink></div>
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="compliance/tasks">9. Monitoring and tasks</NavLink>
-                        </div>
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="compliance/audit">10. Audit trail</NavLink>
-                        </div>
-                        <AuthorizeView Policy="@KcasPermissions.InspectionsView">
-                            <Authorized Context="inspectionContext">
-                                <div class="nav-item px-3">
-                                    <NavLink class="nav-link" href="compliance/inspections">11. Inspection response</NavLink>
-                                </div>
-                            </Authorized>
-                        </AuthorizeView>
-                    </div>
-                </details>
-            </Authorized>
-        </AuthorizeView>
-
-        <AuthorizeView>
-            <Authorized>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="Account/Manage">
-                        <span class="bi bi-person-fill-nav-menu" aria-hidden="true"></span> @context.User.Identity?.Name
-                    </NavLink>
-                </div>
-                <div class="nav-item px-3">
-                    <form action="Account/Logout" method="post">
-                        <AntiforgeryToken />
-                        <input type="hidden" name="ReturnUrl" value="@currentUrl" />
-                        <button type="submit" class="nav-link">
-                            <span class="bi bi-arrow-bar-left-nav-menu" aria-hidden="true"></span> Logout
-                        </button>
-                    </form>
-                </div>
-            </Authorized>
-            <NotAuthorized>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="Account/Register">
-                        <span class="bi bi-person-nav-menu" aria-hidden="true"></span> Register
-                    </NavLink>
-                </div>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="Account/Login">
-                        <span class="bi bi-person-badge-nav-menu" aria-hidden="true"></span> Login
-                    </NavLink>
-                </div>
-            </NotAuthorized>
-        </AuthorizeView>
-    </nav>
-</div>
-
 @code {
-    private string? currentUrl;
-    private bool ComplianceMenuOpen => currentUrl?.StartsWith("compliance", StringComparison.OrdinalIgnoreCase) == true;
+    private string currentUrl = "";
+    private string? activeHref;
+    private IReadOnlyList<WorkspaceNavigationGroup> groups = [];
 
-    private void OpenComplianceOverview() => NavigationManager.NavigateTo("compliance");
-
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        currentUrl = NavigationManager.ToBaseRelativePath(NavigationManager.Uri);
+        SetLocation(NavigationManager.Uri);
+        var user = (await Authentication.GetAuthenticationStateAsync()).User;
+        var allowed = new HashSet<string>();
+        foreach (var policy in WorkspaceNavigation.Groups.SelectMany(group => group.Items).Select(item => item.Policy).Distinct())
+            if ((await Authorization.AuthorizeAsync(user, null, policy)).Succeeded) allowed.Add(policy);
+        groups = WorkspaceNavigation.VisibleGroups(allowed);
         NavigationManager.LocationChanged += OnLocationChanged;
     }
 
-    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    private void SetLocation(string location)
     {
-        currentUrl = NavigationManager.ToBaseRelativePath(e.Location);
-        StateHasChanged();
+        currentUrl = NavigationManager.ToBaseRelativePath(location);
+        activeHref = WorkspaceNavigation.ActiveHref(currentUrl);
     }
 
-    public void Dispose()
-    {
-        NavigationManager.LocationChanged -= OnLocationChanged;
-    }
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => _ = InvokeAsync(() => { SetLocation(e.Location); StateHasChanged(); });
+    public void Dispose() => NavigationManager.LocationChanged -= OnLocationChanged;
 }
 

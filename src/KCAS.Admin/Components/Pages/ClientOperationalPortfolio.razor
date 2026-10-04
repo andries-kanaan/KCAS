@@ -5,6 +5,7 @@
 @using KCAS.Admin.Security
 @inject ClientOperationalVerificationService VerificationService
 @inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
 
 <PageTitle>Client reviews</PageTitle>
 
@@ -12,7 +13,6 @@
     <div>
         <p class="eyebrow">Compliance readiness</p>
         <h1>Client reviews</h1>
-        <p class="text-muted mb-0">Start or continue each client's unified folder, investment, evidence, screening and risk review.</p>
     </div>
     <div class="header-actions">
         <AuthorizeView Policy="@KcasPolicies.AdministratorOnly">
@@ -32,15 +32,29 @@
 </section>
 
 <section class="work-area">
-    <label class="form-label" for="lifecycle-filter">Lifecycle filter</label>
-    <select id="lifecycle-filter" class="form-select" style="max-width: 22rem" @bind="lifecycleFilter" @bind:after="ApplyFilter">
+    <div class="client-list-toolbar" aria-label="Review filters">
+    <div class="client-list-search">
+        <label class="form-label" for="reviews-search">Search clients</label>
+        <input id="reviews-search" type="search" class="form-control" placeholder="Kanaan ID or client" @bind="searchText" @bind:event="oninput" @bind:after="UpdateFilters" />
+    </div>
+    <div><label class="form-label" for="lifecycle-filter">Lifecycle</label>
+    <select id="lifecycle-filter" class="form-select" @bind="lifecycleFilter" @bind:after="UpdateFilters">
         <option value="">All clients</option>
         @foreach (var status in ClientLifecycleStatuses.All)
         {
             <option value="@status">@status</option>
         }
-    </select>
+    </select></div>
+    <div><label class="form-label" for="review-filter">Review status</label>
+    <select id="review-filter" class="form-select" @bind="reviewFilter" @bind:after="UpdateFilters">
+        <option value="">All reviews</option><option value="completed">Completed</option><option value="incomplete">Incomplete</option><option value="duplicate">Resolved duplicate</option>
+    </select></div>
+    <button class="btn btn-outline-secondary" type="button" @onclick="ResetFilters">Reset filters</button>
+    <span class="text-muted" role="status">@(isLoading ? "Loading reviews..." : $"Showing {ShowingStart}-{ShowingEnd} of {filteredItems.Count} clients")</span>
+    </div>
 </section>
+@if (loadError is not null) { <div class="alert alert-danger" role="alert">@loadError <button type="button" class="btn btn-outline-danger btn-sm" @onclick="LoadPortfolioAsync">Retry</button></div> }
+@if (!isLoading && loadError is null && filteredItems.Count == 0) { <section class="empty-state"><h2>No clients found</h2><p>Adjust or reset the filters.</p></section> }
 
 <div class="table-responsive">
     <table class="table align-middle">
@@ -71,25 +85,25 @@
                     <input class="form-control form-control-sm"
                            @bind="kanaanIdFilter"
                            @bind:event="oninput"
-                           @bind:after="ApplyFilter"
+                           @bind:after="UpdateFilters"
                            aria-label="Filter reviews by Kanaan ID" />
                 </th>
                 <th>
                     <input class="form-control form-control-sm"
                            @bind="clientFilter"
                            @bind:event="oninput"
-                           @bind:after="ApplyFilter"
+                           @bind:after="UpdateFilters"
                            aria-label="Filter reviews by client" />
                 </th>
                 <th colspan="5"></th>
             </tr>
         </thead>
         <tbody>
-            @foreach (var item in filteredItems)
+            @foreach (var item in filteredItems.Skip((CurrentPage - 1) * PageSize).Take(PageSize))
             {
                 <tr>
                     <td>@(item.KanaanId ?? "—")</td>
-                    <td><a href="@($"/clients/{item.ClientId}")">@item.DisplayName</a></td>
+                    <td><a href="@ClientLink(item.ClientId, "")">@item.DisplayName</a></td>
                     <td><span class="@LifecycleBadge(item.LifecycleStatus)">@item.LifecycleStatus</span></td>
                     <td class="text-end">@Money(item.TotalCurrentValueZar)</td>
                     <td>
@@ -115,7 +129,7 @@
                     </td>
                     <td>
                         <div class="btn-group btn-group-sm" role="group" aria-label="@($"{item.DisplayName} actions")">
-                            <a class="btn btn-primary" href="@($"/clients/{item.ClientId}/compliance-review")">@ReviewActionLabel(item)</a>
+                            <a class="btn btn-primary" href="@ClientLink(item.ClientId, "/compliance-review")">@ReviewActionLabel(item)</a>
                             @if (CanTransfer(item))
                             {
                                 <AuthorizeView Policy="@KcasPolicies.AdministratorOnly">
@@ -131,29 +145,79 @@
         </tbody>
     </table>
 </div>
+<div class="notes-pager" aria-label="Review pages">
+    <button type="button" class="btn btn-outline-secondary btn-sm" disabled="@(CurrentPage <= 1 || isLoading)" @onclick="() => ChangePage(CurrentPage - 1)">Previous</button>
+    <span>Page @CurrentPage of @PageCount</span>
+    <button type="button" class="btn btn-outline-secondary btn-sm" disabled="@(CurrentPage >= PageCount || isLoading)" @onclick="() => ChangePage(CurrentPage + 1)">Next</button>
+</div>
 
 @code {
     private List<ClientOperationalPortfolioItem> allItems = [];
     private List<ClientOperationalPortfolioItem> filteredItems = [];
-    private string? kanaanIdFilter;
-    private string? clientFilter;
-    private string? lifecycleFilter;
+    [SupplyParameterFromQuery(Name = "q")] public string? searchText { get; set; }
+    [SupplyParameterFromQuery(Name = "kanaanId")] public string? kanaanIdFilter { get; set; }
+    [SupplyParameterFromQuery(Name = "client")] public string? clientFilter { get; set; }
+    [SupplyParameterFromQuery(Name = "lifecycle")] public string? lifecycleFilter { get; set; }
+    [SupplyParameterFromQuery(Name = "review")] public string? reviewFilter { get; set; }
+    [SupplyParameterFromQuery(Name = "sort")] public string? QuerySort { get; set; }
+    [SupplyParameterFromQuery(Name = "direction")] public string? QueryDirection { get; set; }
+    [SupplyParameterFromQuery(Name = "page")] public string? QueryPage { get; set; }
+    private const int PageSize = 50;
+    private bool isLoading = true;
+    private string? loadError;
+    private int PageCount => Math.Max(1, (filteredItems.Count + PageSize - 1) / PageSize);
+    private int CurrentPage => Math.Clamp(int.TryParse(QueryPage, out var page) ? page : 1, 1, PageCount);
+    private int ShowingStart => filteredItems.Count == 0 ? 0 : (CurrentPage - 1) * PageSize + 1;
+    private int ShowingEnd => Math.Min(CurrentPage * PageSize, filteredItems.Count);
     private string sortColumn = "currentValue";
     private bool sortDescending = true;
 
     protected override async Task OnInitializedAsync()
+        => await LoadPortfolioAsync();
+
+    private async Task LoadPortfolioAsync()
     {
-        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
-        allItems = await VerificationService.LoadPortfolioAsync(
-            includeExcludedClients: state.User.IsInRole(KcasRoles.Administrator));
+        isLoading = true;
+        loadError = null;
+        try
+        {
+            var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            allItems = await VerificationService.LoadPortfolioAsync(includeExcludedClients: state.User.IsInRole(KcasRoles.Administrator));
+            ApplyFilter();
+        }
+        catch { loadError = "Client reviews could not be loaded. Retry or contact the administrator."; }
+        finally { isLoading = false; }
+    }
+
+    protected override void OnParametersSet()
+    {
+        sortColumn = QuerySort is "client" or "kanaanId" or "currentValue" ? QuerySort : "currentValue";
+        sortDescending = QueryDirection == "desc" || (QueryDirection != "asc" && sortColumn == "currentValue");
         ApplyFilter();
     }
+    private string ClientLink(int id, string suffix) => ClientListNavigation.ClientLink(id, suffix, Navigation.Uri);
+    private void ChangePage(int page) => Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("page", page), replace: true);
+    private void ResetFilters() => Navigation.NavigateTo("/clients/operational-review", replace: true);
+    private void UpdateFilters() => Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(new Dictionary<string, object?>
+    {
+        ["q"] = searchText, ["kanaanId"] = kanaanIdFilter, ["client"] = clientFilter, ["lifecycle"] = lifecycleFilter,
+        ["review"] = reviewFilter, ["sort"] = sortColumn, ["direction"] = sortDescending ? "desc" : "asc", ["page"] = null
+    }), replace: true);
 
     private void ApplyFilter()
     {
         IEnumerable<ClientOperationalPortfolioItem> items = string.IsNullOrWhiteSpace(lifecycleFilter)
             ? allItems
             : allItems.Where(item => item.LifecycleStatus == lifecycleFilter);
+        if (!string.IsNullOrWhiteSpace(searchText))
+            items = items.Where(item => item.DisplayName.Contains(searchText.Trim(), StringComparison.OrdinalIgnoreCase) || item.KanaanId?.Contains(searchText.Trim(), StringComparison.OrdinalIgnoreCase) == true);
+        items = reviewFilter switch
+        {
+            "completed" => items.Where(item => item.HasCompletedAssessment),
+            "incomplete" => items.Where(item => !item.HasCompletedAssessment && !item.IsReviewResolved),
+            "duplicate" => items.Where(item => !item.HasCompletedAssessment && item.IsReviewResolved),
+            _ => items
+        };
         if (!string.IsNullOrWhiteSpace(kanaanIdFilter))
         {
             items = items.Where(item => item.KanaanId?.Contains(kanaanIdFilter.Trim(), StringComparison.OrdinalIgnoreCase) == true);
@@ -176,7 +240,7 @@
             sortColumn = column;
             sortDescending = false;
         }
-        ApplyFilter();
+        UpdateFilters();
     }
 
     private IEnumerable<ClientOperationalPortfolioItem> SortItems(IEnumerable<ClientOperationalPortfolioItem> items)
@@ -204,7 +268,7 @@
     private int Count(string status) => allItems.Count(item => item.LifecycleStatus == status);
 
     private string SortIndicator(string column) =>
-        sortColumn == column ? sortDescending ? "down" : "up" : "";
+        sortColumn == column ? sortDescending ? "\u2193" : "\u2191" : "";
 
     private static string Money(decimal? value) =>
         value.HasValue ? $"R {value.Value:N2}" : "—";

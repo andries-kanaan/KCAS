@@ -7,6 +7,8 @@
 @inject ClientOperationsService ClientOperations
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject DocumentPathDisplayService PathDisplay
+@inject NavigationManager Navigation
+@inject IAuthorizationService Authorization
 
 <PageTitle>@(client is null ? "Client" : ClientNameFormatter.FullNameAndSurname(client))</PageTitle>
 
@@ -26,31 +28,34 @@ else
             <p class="text-muted mb-0">Kanaan ID: @(client.KanaanId ?? "Not captured")</p>
         </div>
         <div class="header-actions">
-            <AuthorizeView Policy="@KcasPermissions.AdviceView">
-                <Authorized><a class="btn btn-primary" href="@($"/clients/{Id}/advice")">Advice</a></Authorized>
-            </AuthorizeView>
-            <a class="btn btn-primary" href="@($"/clients/{Id}/compliance-review")">@ComplianceReviewActionLabel</a>
-            <AuthorizeView Policy="@KcasPermissions.RiskAssessmentsView">
-                <Authorized><a class="btn btn-outline-primary" href="@($"/clients/{Id}/onboarding")">Client acceptance</a></Authorized>
-            </AuthorizeView>
-            @if (client.ClientCategory is ClientCategories.Trust or ClientCategories.LegalPerson)
-            {
-                <a class="btn btn-outline-secondary" href="@($"/clients/{Id}/ownership")">Ownership register</a>
-            }
-            <a class="btn btn-outline-secondary" href="@($"/clients/{Id}#investments")">Investments</a>
-            @if (!string.IsNullOrWhiteSpace(client.KanaanId))
-            {
-                <a class="btn btn-outline-secondary" href="@($"/investments/summary?kanaanId={Uri.EscapeDataString(client.KanaanId)}")">Family investments</a>
-            }
-            <a class="btn btn-outline-secondary" href="@($"/clients/{Id}#notes")">Notes</a>
+            <a class="btn btn-primary" href="@ClientPage("/compliance-review")">@ComplianceReviewActionLabel</a>
             <AuthorizeView Policy="@KcasPermissions.ClientsManage">
                 <Authorized>
-                    <a class="btn btn-primary" href="@($"/clients/{Id}/edit")">Edit client</a>
+                    <a class="btn btn-primary" href="@ClientPage("/edit")">Edit client</a>
                 </Authorized>
             </AuthorizeView>
-            <a class="btn btn-outline-secondary" href="/clients">Back to clients</a>
+            <a class="btn btn-outline-secondary" href="@(ClientListNavigation.ReturnPathFromUri(Navigation.Uri) ?? "/clients")">@(ClientListNavigation.ReturnPathFromUri(Navigation.Uri) is null ? "Back to clients" : "Back to results")</a>
         </div>
     </div>
+
+    <ClientWorkspaceNav ClientId="Id" KanaanId="client.KanaanId" ClientCategory="client.ClientCategory" />
+
+    <section class="client-overview-summary" aria-label="Client status summary">
+        <AuthorizeView Policy="@KcasPermissions.InvestmentsView"><Authorized>
+            <div><span>Current investment value</span><strong>@Money(TotalInvestmentCurrentValueZar)</strong>
+            <span class="text-muted">@CurrentInvestmentAccounts.Count current / @HistoricalInvestmentAccounts.Count historical accounts</span>
+            <a href="#investments">View investments</a></div>
+        </Authorized></AuthorizeView>
+        <div><span>Compliance assessment</span><strong>@(hasCompletedComplianceReview ? "Finalised" : hasStartedComplianceReview ? "In progress" : "Not started")</strong>
+        <span class="text-muted">Lifecycle: @client.LifecycleStatus</span><a href="@ClientPage("/compliance-review")">@ComplianceReviewActionLabel</a></div>
+        <AuthorizeView Policy="@KcasPermissions.AdviceView"><Authorized>
+            <div><span>Latest advice</span><strong>@ClientListNavigation.AdviceStatus(latestAdvice?.Status)</strong>
+            @if (latestAdvice is not null) { <span class="text-muted">@latestAdvice.AdviceDate.ToString("yyyy-MM-dd")</span> }
+            <a href="@(latestAdvice is null ? ClientPage("/advice") : ClientListNavigation.WithReturnPath($"/clients/{latestAdvice.ClientId}/advice/{latestAdvice.Id}", ClientListNavigation.ReturnPathFromUri(Navigation.Uri)))">@(latestAdvice is null ? "View advice history" : "View advice case")</a></div>
+        </Authorized></AuthorizeView>
+        <div><span>Next compliance action</span><strong>@(client.LifecycleStatus == ClientLifecycleStatuses.Duplicate ? "View duplicate classification" : pendingClientVerification > 0 ? "Review outstanding verification" : hasCompletedComplianceReview ? "View completed assessment" : ComplianceReviewActionLabel)</strong>
+        <a href="@ClientPage("/compliance-review")">Open compliance review</a></div>
+    </section>
 
     @if (!string.IsNullOrWhiteSpace(statusMessage))
     {
@@ -69,7 +74,7 @@ else
             {
                 <span>(@blockingVerificationCount blocking)</span>
             }.
-            <a href="@($"/clients/{Id}/compliance-review")">Start or continue the compliance review</a>.
+            <a href="@ClientPage("/compliance-review")">@ComplianceReviewActionLabel</a>.
         </div>
     }
 
@@ -1052,6 +1057,9 @@ else
     private int notePage = 1;
     private bool hasStartedComplianceReview;
     private bool hasCompletedComplianceReview;
+    private ClientAdviceCase? latestAdvice;
+    private int pendingClientVerification => client?.VerificationItems.Count(item => item.Status == ClientVerificationStatuses.Pending) ?? 0;
+    private string ClientPage(string suffix) => ClientListNavigation.WithReturnPath($"/clients/{Id}{suffix}", ClientListNavigation.ReturnPathFromUri(Navigation.Uri));
 
     private string ComplianceReviewActionLabel => hasCompletedComplianceReview
         ? "View compliance review"
@@ -1074,6 +1082,7 @@ else
     {
         hasStartedComplianceReview = false;
         hasCompletedComplianceReview = false;
+        latestAdvice = null;
         client = await Db.Clients
             .AsNoTracking()
             .AsSplitQuery()
@@ -1117,6 +1126,15 @@ else
                                          reviewState.HasEvidence ||
                                          reviewState.HasInvestmentReview ||
                                          hasFolderScan;
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            if ((await Authorization.AuthorizeAsync(authState.User, null, KcasPermissions.AdviceView)).Succeeded)
+            {
+                latestAdvice = await Db.ClientAdviceCases.AsNoTracking()
+                    .Where(item => item.ClientId == Id || item.Participants.Any(party => party.ClientId == Id))
+                    .OrderByDescending(item => item.AdviceDate).ThenByDescending(item => item.Id)
+                    .Select(item => new ClientAdviceCase { Id = item.Id, ClientId = item.ClientId, AdviceDate = item.AdviceDate, Status = item.Status })
+                    .FirstOrDefaultAsync();
+            }
         }
         investmentFundReferences = await Db.InvestmentFundReferences
             .AsNoTracking()
