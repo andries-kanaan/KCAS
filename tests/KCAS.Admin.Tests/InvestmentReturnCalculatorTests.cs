@@ -481,6 +481,157 @@ public sealed class InvestmentReturnCalculatorTests
     };
 
     [Fact]
+    public void Established_family_transfer_matches_separately_received_instalments_without_double_counting()
+    {
+        var original = Account();
+        original.Client = new() { Id = 1, KanaanId = "F468", DisplayName = "Personal record" };
+        original.SurrenderDate = Start.AddDays(365);
+        original.Transactions.Add(Tx(11, Start.AddDays(350), withdrawal: 80));
+        original.Transactions.Add(Tx(12, Start.AddDays(365), withdrawal: 30));
+        var next = Account(2, Start.AddDays(375), 80);
+        next.ClientId = 2;
+        next.Client = new() { Id = 2, KanaanId = "F468", DisplayName = "Joint record" };
+        next.Transactions.Add(Tx(21, Start.AddDays(405), contribution: 30));
+        next.Transactions.Add(Tx(22, Start.AddDays(500), contribution: 20));
+        var report = InvestmentReturnCalculator.Build(next, [original, next], [Value(next, 150)], [Transfer(original, next)]);
+        Assert.True(report.ShortTerm.IsAvailable, string.Join("; ", report.ShortTerm.Issues));
+        Assert.True(report.LongTerm.IsAvailable, string.Join("; ", report.LongTerm.Issues));
+        Assert.Equal(Start, report.LongTerm.StartDate);
+        Assert.Equal(30m, report.LongTerm.Gain);
+        Assert.Equal(4, report.LongTerm.CashFlows.Count(x => x.IsInternalTransfer));
+        Assert.Contains(report.LongTerm.CashFlows, x => x.TransactionId == 22 && !x.IsInternalTransfer);
+        Assert.Single(report.FundingHistory);
+        Assert.Contains(report.LongTerm.Notes, x => x.Contains("ownership"));
+    }
+
+    [Fact]
+    public void Family_membership_and_matching_amounts_alone_never_merge_returns()
+    {
+        var original = Account();
+        original.Client = new() { KanaanId = "Family" };
+        original.SurrenderDate = Start.AddDays(365);
+        original.Transactions.Add(Tx(11, original.SurrenderDate.Value, withdrawal: 110));
+        var next = Account(2, original.SurrenderDate.Value, 110);
+        next.ClientId = 2; next.Client = new() { KanaanId = "Family" };
+        var report = InvestmentReturnCalculator.Build(next, [original, next], [Value(next, 132)], [ClosedReview(original)]);
+        Assert.Single(report.History);
+        Assert.Empty(report.FundingHistory);
+        Assert.Equal(next.InvestmentDate, report.LongTerm.StartDate);
+    }
+
+    [Fact]
+    public void Separate_funding_finding_preserves_surrender_review_and_ignores_new_valuations_or_later_topups()
+    {
+        var original = Account();
+        original.SurrenderDate = Start.AddDays(365);
+        original.Transactions.Add(Tx(11, original.SurrenderDate.Value, withdrawal: 110));
+        var next = Account(2, original.SurrenderDate.Value, 110);
+        var connection = new InvestmentFundingConnection { SourceAccountId = original.Id, DestinationAccountId = next.Id,
+            MatchedThroughDate = next.InvestmentDate!.Value, EvidenceReference = "Actual dated transfer", Reason = "Continuation",
+            PerformedBy = "Codex", SourceSnapshot = InvestmentFundingService.Snapshot(original),
+            DestinationSnapshot = InvestmentFundingService.Snapshot(next, next.InvestmentDate) };
+        var review = ClosedReview(original);
+        next.Transactions.Add(Tx(22, Start.AddDays(500), contribution: 20));
+        var report = InvestmentReturnCalculator.Build(next, [original, next], [Value(next, 160)], [review], connections: [connection]);
+        Assert.True(report.LongTerm.IsAvailable, string.Join("; ", report.LongTerm.Issues));
+        Assert.Equal(ClientInvestmentReconciliationOutcomes.HistoricalSurrendered, review.Outcome);
+        Assert.Null(review.RelatedClientInvestmentAccountId);
+        Assert.Equal("Codex", report.FundingHistory.Single().PerformedBy);
+        Assert.Equal(40m, report.LongTerm.Gain);
+        original.Transactions.First().InvestmentAmountZar = 99;
+        var stale = InvestmentReturnCalculator.Build(next, [original, next], [Value(next, 160)], [review], connections: [connection]);
+        Assert.True(stale.ShortTerm.IsAvailable);
+        Assert.False(stale.LongTerm.IsAvailable);
+        Assert.Contains(stale.LongTerm.Issues, x => x.Contains("current reconciliation"));
+    }
+
+    [Fact]
+    public void Staged_receipts_cannot_precede_paid_capital_or_hide_intervening_withdrawals()
+    {
+        var original = Account();
+        original.SurrenderDate = Start.AddDays(365);
+        original.Transactions.Add(Tx(11, Start.AddDays(350), withdrawal: 80));
+        original.Transactions.Add(Tx(12, Start.AddDays(365), withdrawal: 30));
+        var next = Account(2, Start.AddDays(340), 80);
+        next.Transactions.Add(Tx(21, Start.AddDays(405), contribution: 30));
+        Assert.Null(InvestmentReturnCalculator.MatchFundingPayments(
+            InvestmentReturnCalculator.AccountPeriod(original, [original, next], [], [Transfer(original, next)], "ZAR"),
+            InvestmentReturnCalculator.AccountPeriod(next, [original, next], [Value(next, 150)], [], "ZAR"), next.InvestmentDate, original.SurrenderDate));
+        next.InvestmentDate = Start.AddDays(375);
+        next.Transactions.First().TransactionDate = next.InvestmentDate;
+        next.Transactions.Add(Tx(23, Start.AddDays(390), withdrawal: 5));
+        Assert.Null(InvestmentReturnCalculator.MatchFundingPayments(
+            InvestmentReturnCalculator.AccountPeriod(original, [original, next], [], [Transfer(original, next)], "ZAR"),
+            InvestmentReturnCalculator.AccountPeriod(next, [original, next], [Value(next, 150)], [], "ZAR"), next.InvestmentDate, original.SurrenderDate));
+    }
+
+    [Fact]
+    public void Funding_snapshot_is_portable_and_sensitive_to_cash_flows_not_commentary()
+    {
+        var account = Account();
+        var baseline = InvestmentFundingService.Snapshot(account);
+        account.Id = 900; account.ClientId = 901; account.Transactions.First().Id = 902;
+        account.Transactions.First().Description = "Different internal commentary";
+        Assert.Equal(baseline, InvestmentFundingService.Snapshot(account));
+        account.Transactions.First().InvestmentAmountZar += 1;
+        Assert.NotEqual(baseline, InvestmentFundingService.Snapshot(account));
+    }
+
+    [Fact]
+    public void Recorded_staged_receiving_boundary_does_not_capture_future_unrelated_topups()
+    {
+        var original = Account(); original.SurrenderDate = Start.AddDays(365);
+        original.Transactions.Add(Tx(12, Start.AddDays(100), withdrawal: 20));
+        original.Transactions.Add(Tx(13, Start.AddDays(350), withdrawal: 80));
+        original.Transactions.Add(Tx(14, Start.AddDays(365), withdrawal: 30));
+        var next = Account(2, Start.AddDays(375), 80);
+        next.Transactions.Add(Tx(21, Start.AddDays(405), contribution: 30));
+        var through = Start.AddDays(405);
+        var connection = new InvestmentFundingConnection { SourceAccountId = original.Id, DestinationAccountId = next.Id,
+            MatchedThroughDate = through, EvidenceReference = "Dated receiving instalments", SourceSnapshot = InvestmentFundingService.Snapshot(original),
+            DestinationSnapshot = InvestmentFundingService.Snapshot(next, through) };
+        next.Transactions.Add(Tx(22, Start.AddDays(500), contribution: 20));
+        var report = InvestmentReturnCalculator.Build(next, [original, next], [Value(next, 150)], [ClosedReview(original)], connections: [connection]);
+        Assert.True(report.LongTerm.IsAvailable, string.Join("; ", report.LongTerm.Issues));
+        Assert.Contains(report.LongTerm.CashFlows, x => x.TransactionId == 12 && !x.IsInternalTransfer);
+        Assert.Contains(report.LongTerm.CashFlows, x => x.TransactionId == 22 && !x.IsInternalTransfer);
+        Assert.Equal(4, report.LongTerm.CashFlows.Count(x => x.IsInternalTransfer));
+    }
+
+    [Fact]
+    public void Identical_staged_amounts_need_an_evidenced_receiving_boundary_not_an_arbitrary_first_match()
+    {
+        var original = Account(); original.SurrenderDate = Start.AddDays(365);
+        original.Transactions.Add(Tx(12, Start.AddDays(350), withdrawal: 50));
+        original.Transactions.Add(Tx(13, Start.AddDays(365), withdrawal: 50));
+        var next = Account(2, Start.AddDays(375), 50);
+        next.Transactions.Add(Tx(21, Start.AddDays(405), contribution: 50));
+        var previous = InvestmentReturnCalculator.AccountPeriod(original, [original, next], [], [ClosedReview(original)], "ZAR");
+        var current = InvestmentReturnCalculator.AccountPeriod(next, [original, next], [Value(next, 150)], [], "ZAR");
+        Assert.Null(InvestmentReturnCalculator.MatchFundingPayments(previous, current, next.InvestmentDate, original.SurrenderDate));
+        var matched = InvestmentReturnCalculator.MatchFundingPayments(previous, current, next.InvestmentDate, original.SurrenderDate, Start.AddDays(405));
+        Assert.NotNull(matched);
+        Assert.Equal(2, matched.Outgoing.Count); Assert.Equal(2, matched.Incoming.Count);
+    }
+
+    [Fact]
+    public void Duplicate_source_is_not_reintroduced_by_a_separate_funding_finding()
+    {
+        var source = Account(); source.SurrenderDate = Start.AddDays(365);
+        source.Transactions.Add(Tx(12, source.SurrenderDate.Value, withdrawal: 110));
+        var next = Account(2, source.SurrenderDate.Value, 110);
+        var connection = new InvestmentFundingConnection { SourceAccountId = source.Id, DestinationAccountId = next.Id,
+            MatchedThroughDate = next.InvestmentDate!.Value, EvidenceReference = "Source finding", SourceSnapshot = InvestmentFundingService.Snapshot(source),
+            DestinationSnapshot = InvestmentFundingService.Snapshot(next, next.InvestmentDate) };
+        var review = ClosedReview(source); review.Outcome = ClientInvestmentReconciliationOutcomes.WrongClientDuplicate;
+        var report = InvestmentReturnCalculator.Build(next, [source, next], [Value(next, 132)], [review], connections: [connection]);
+        Assert.True(report.ShortTerm.IsAvailable);
+        Assert.False(report.LongTerm.IsAvailable);
+        Assert.Empty(report.FundingHistory);
+        Assert.Contains(report.LongTerm.Issues, x => x.Contains("canonical"));
+    }
+
+    [Fact]
     public void Missing_historical_currency_amount_blocks_currency_return()
     {
         var account = Account();

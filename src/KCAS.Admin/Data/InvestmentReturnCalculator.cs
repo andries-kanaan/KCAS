@@ -23,7 +23,15 @@ public sealed record InvestmentReturnReport(
     ClientInvestmentAccount Account,
     IReadOnlyList<ClientInvestmentAccount> History,
     InvestmentReturnResult ShortTerm,
-    InvestmentReturnResult LongTerm);
+    InvestmentReturnResult LongTerm)
+{
+    public List<InvestmentFundingHistoryEntry> FundingHistory { get; init; } = [];
+}
+
+public sealed record InvestmentFundingMatch(IReadOnlyList<InvestmentReturnCashFlow> Outgoing,
+    IReadOnlyList<InvestmentReturnCashFlow> Incoming);
+public sealed record InvestmentFundingHistoryEntry(int SourceAccountId, int DestinationAccountId,
+    string EvidenceReference, string Reason, string PerformedBy, DateTime RecordedAtUtc, InvestmentFundingMatch Match);
 
 public static class InvestmentReturnCalculator
 {
@@ -33,11 +41,15 @@ public static class InvestmentReturnCalculator
         IReadOnlyList<ClientFundValuation> valuations,
         IReadOnlyList<ClientInvestmentReconciliationReview> reviews,
         string currency = "ZAR",
-        DateOnly? today = null)
+        DateOnly? today = null,
+        IReadOnlyList<InvestmentFundingConnection>? connections = null)
     {
         var asAt = today ?? DateOnly.FromDateTime(DateTime.Today);
         var latestReviews = reviews.GroupBy(x => x.ClientInvestmentAccountId)
             .Select(g => g.OrderByDescending(x => x.ReviewedAtUtc).ThenByDescending(x => x.Id).First()).ToList();
+        var latestConnections = (connections ?? []).GroupBy(x => x.SourceAccountId)
+            .Select(g => g.OrderByDescending(x => x.RecordedAtUtc).ThenByDescending(x => x.Id).First()).ToList();
+        var fundingHistory = new List<InvestmentFundingHistoryEntry>();
         var shortTerm = BuildAccount(account, accounts, valuations, latestReviews, currency, asAt);
         Calculate(shortTerm);
         var longTerm = new InvestmentReturnResult { Currency = currency };
@@ -47,7 +59,13 @@ public static class InvestmentReturnCalculator
         while (true)
         {
             var incoming = latestReviews.Where(x => x.RelatedClientInvestmentAccountId == current.Id &&
-                x.Outcome == ClientInvestmentReconciliationOutcomes.Transferred).ToList();
+                x.Outcome == ClientInvestmentReconciliationOutcomes.Transferred &&
+                !latestConnections.Any(c => c.SourceAccountId == x.ClientInvestmentAccountId)).ToList();
+            foreach (var connection in latestConnections.Where(x => x.DestinationAccountId == current.Id))
+                incoming.Add(new() { ClientInvestmentAccountId = connection.SourceAccountId,
+                    RelatedClientInvestmentAccountId = current.Id, Outcome = ClientInvestmentReconciliationOutcomes.Transferred,
+                    EvidenceReference = connection.EvidenceReference, Reason = connection.Reason,
+                    ReviewedAtUtc = connection.RecordedAtUtc, ReviewedBy = connection.PerformedBy });
             if (incoming.Count == 0) break;
             var next = BuildAccount(current, accounts, valuations, latestReviews, currency, asAt);
             var inceptionLinks = new List<ClientInvestmentReconciliationReview>();
@@ -59,16 +77,26 @@ public static class InvestmentReturnCalculator
                     longTerm.Issues.Add("The transfer history is missing an account or contains a circular link.");
                     continue;
                 }
-                if (source.ClientId != account.ClientId)
+                if (latestReviews.Any(x => x.ClientInvestmentAccountId == source.Id &&
+                    x.Outcome is ClientInvestmentReconciliationOutcomes.DuplicateContinuation or ClientInvestmentReconciliationOutcomes.WrongClientDuplicate))
                 {
-                    longTerm.Issues.Add("The predecessor belongs to another client record; ownership continuity must be confirmed before combining returns.");
+                    longTerm.Issues.Add("The funding source is a duplicate record; establish the connection from the canonical investment.");
+                    continue;
+                }
+                if (source.ClientId != current.ClientId && (string.IsNullOrWhiteSpace(source.Client?.KanaanId) ||
+                    source.Client.KanaanId != current.Client?.KanaanId))
+                {
+                    longTerm.Issues.Add("The predecessor belongs to another client record outside the established family; capital continuity has not been established.");
                     continue;
                 }
                 var sourceValues = ClientInvestmentStatusClassifier.MatchingValuations(source,
                     valuations.Where(x => x.ClientId == source.ClientId)).ToList();
-                if (string.IsNullOrWhiteSpace(candidate.EvidenceReference) || source.SurrenderDate is null ||
-                    candidate.AppliedSurrenderDate != source.SurrenderDate ||
-                    candidate.SnapshotSha256 != InvestmentReconciliationService.CalculateSnapshot(source, sourceValues))
+                var explicitConnection = latestConnections.SingleOrDefault(x => x.SourceAccountId == source.Id);
+                var currentEvidence = explicitConnection is null
+                    ? candidate.AppliedSurrenderDate == source.SurrenderDate && candidate.SnapshotSha256 == InvestmentReconciliationService.CalculateSnapshot(source, sourceValues)
+                    : explicitConnection.SourceSnapshot == InvestmentFundingService.Snapshot(source) &&
+                      explicitConnection.DestinationSnapshot == InvestmentFundingService.Snapshot(current, explicitConnection.MatchedThroughDate);
+                if (string.IsNullOrWhiteSpace(candidate.EvidenceReference) || source.SurrenderDate is null || !currentEvidence)
                 {
                     longTerm.Issues.Add($"Transfer evidence for {source.AccountNumber} needs a current reconciliation review.");
                     continue;
@@ -76,7 +104,9 @@ public static class InvestmentReturnCalculator
                 var sourcePeriod = BuildAccount(source, accounts, valuations, latestReviews, currency, asAt);
                 var finalPaymentDate = sourcePeriod.CashFlows.Where(x => x.Amount > 0 && !x.IsClosingValue)
                     .Select(x => (DateOnly?)x.Date).Max() ?? source.SurrenderDate;
-                if (current.InvestmentDate.HasValue && finalPaymentDate > current.InvestmentDate)
+                var fundingMatch = MatchFundingPayments(sourcePeriod, next, current.InvestmentDate, source.SurrenderDate,
+                    explicitConnection?.MatchedThroughDate);
+                if (current.InvestmentDate.HasValue && finalPaymentDate > current.InvestmentDate && fundingMatch is null)
                 {
                     if (!next.CashFlows.Any(x => x.Amount < 0 && x.Date >= finalPaymentDate))
                         longTerm.Issues.Add($"Later transfer from {source.AccountNumber} has no recorded dated top-up in {current.AccountNumber}.");
@@ -101,16 +131,19 @@ public static class InvestmentReturnCalculator
             }
             var previous = BuildAccount(predecessor, accounts, valuations, latestReviews, currency, asAt);
             longTerm.Issues.AddRange(previous.Issues);
-            var incomingFlows = next.CashFlows.Where(x => !x.IsClosingValue && x.Amount < 0 &&
-                x.Date == current.InvestmentDate).ToList();
-            var outgoing = MatchTerminalPayments(previous, incomingFlows, predecessor.SurrenderDate);
-            if (outgoing.Count == 0)
+            var match = MatchFundingPayments(previous, next, current.InvestmentDate, predecessor.SurrenderDate,
+                latestConnections.SingleOrDefault(x => x.SourceAccountId == predecessor.Id)?.MatchedThroughDate);
+            if (match is null)
             {
                 longTerm.Issues.Add($"Transfer {predecessor.AccountNumber} to {current.AccountNumber} needs uniquely matched paid-out and reinvested amounts/dates (including any fees or retained balance).");
                 break;
             }
-            foreach (var flow in outgoing) MarkInternal(longTerm, flow);
-            foreach (var flow in incomingFlows) MarkInternal(longTerm, flow);
+            foreach (var flow in match.Outgoing) MarkInternal(longTerm, flow);
+            foreach (var flow in match.Incoming) MarkInternal(longTerm, flow);
+            fundingHistory.Insert(0, new(predecessor.Id, current.Id, link.EvidenceReference, link.Reason,
+                link.ReviewedBy, link.ReviewedAtUtc, match));
+            if (predecessor.ClientId != current.ClientId)
+                longTerm.Notes.Add($"Capital history crosses client records: {predecessor.Client?.DisplayName} to {current.Client?.DisplayName}. This follows the invested capital, not one person's unchanged ownership.");
             history.Insert(0, predecessor);
             current = predecessor;
         }
@@ -142,11 +175,54 @@ public static class InvestmentReturnCalculator
                  x.Description?.Contains("oorgedra", StringComparison.OrdinalIgnoreCase) == true)))
             longTerm.Issues.Add("An earlier linked account is recorded, but a reviewed transfer chain has not been established.");
         Calculate(longTerm);
-        return new(account, history, shortTerm, longTerm);
+        return new(account, history, shortTerm, longTerm) { FundingHistory = fundingHistory };
     }
 
     private static void MarkInternal(InvestmentReturnResult result, InvestmentReturnCashFlow flow) =>
         result.CashFlows.Add(flow with { IsInternalTransfer = true });
+
+    internal static InvestmentReturnResult AccountPeriod(ClientInvestmentAccount account,
+        IReadOnlyList<ClientInvestmentAccount> accounts, IReadOnlyList<ClientFundValuation> valuations,
+        IReadOnlyList<ClientInvestmentReconciliationReview> reviews, string currency) => BuildAccount(account, accounts, valuations,
+            reviews.GroupBy(x => x.ClientInvestmentAccountId).Select(g => g.OrderByDescending(x => x.ReviewedAtUtc).ThenByDescending(x => x.Id).First()).ToList(),
+            currency, DateOnly.FromDateTime(DateTime.Today));
+
+    internal static InvestmentFundingMatch? MatchFundingPayments(InvestmentReturnResult previous,
+        InvestmentReturnResult next, DateOnly? inception, DateOnly? surrender, DateOnly? matchedThrough = null)
+    {
+        if (inception is null || surrender is null) return null;
+        var contributions = next.CashFlows.Where(x => !x.IsClosingValue && x.Amount < 0 && (!matchedThrough.HasValue || x.Date <= matchedThrough))
+            .GroupBy(x => x.Date).OrderBy(x => x.Key).ToList();
+        if (contributions.Count == 0 || contributions[0].Key != inception) return null;
+        var initial = contributions[0].ToList();
+        var initialPayments = MatchTerminalPayments(previous, initial, surrender);
+        // Staged receiving capital must match a terminal payout sequence. Do not search arbitrary subsets.
+        var payments = previous.CashFlows.Where(x => !x.IsClosingValue && x.Amount > 0)
+            .GroupBy(x => x.Date).OrderByDescending(x => x.Key).ToList();
+        var matches = new List<InvestmentFundingMatch>();
+        if (initialPayments.Count > 0 && (!matchedThrough.HasValue || initial.Max(x => x.Date) == matchedThrough))
+            matches.Add(new(initialPayments, initial));
+        var outgoing = new List<InvestmentReturnCashFlow>();
+        foreach (var group in payments)
+        {
+            if (group.Key > surrender || previous.CashFlows.Any(x => x.Amount < 0 && x.Date >= group.Key)) break;
+            outgoing.AddRange(group);
+            var incoming = new List<InvestmentReturnCashFlow>();
+            foreach (var receipt in contributions)
+            {
+                incoming.AddRange(receipt);
+                if (-incoming.Sum(x => x.Amount) > outgoing.Sum(x => x.Amount)) break;
+                if (incoming.Count == initial.Count || -incoming.Sum(x => x.Amount) != outgoing.Sum(x => x.Amount)) continue;
+                if (matchedThrough.HasValue && receipt.Key != matchedThrough) continue;
+                // Every receipt must have already been paid out; money in transit is not a client withdrawal.
+                if (incoming.GroupBy(x => x.Date).Any(g => -incoming.Where(x => x.Date <= g.Key).Sum(x => x.Amount) >
+                    outgoing.Where(x => x.Date <= g.Key).Sum(x => x.Amount))) continue;
+                if (next.CashFlows.Any(x => x.Amount > 0 && !x.IsClosingValue && x.Date <= receipt.Key)) continue;
+                matches.Add(new(outgoing.ToList(), incoming.ToList()));
+            }
+        }
+        return matches.Count == 1 ? matches[0] : null;
+    }
 
     private static List<InvestmentReturnCashFlow> MatchTerminalPayments(InvestmentReturnResult previous,
         IReadOnlyList<InvestmentReturnCashFlow> incoming, DateOnly? surrenderDate)

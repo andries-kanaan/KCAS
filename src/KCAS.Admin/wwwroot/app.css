@@ -1399,7 +1399,6 @@ h1:focus {
     justify-content: space-between;
     padding: 0.85rem 1rem;
 }
-
 .server-folder-list {
     border: 1px solid #dbe4ee;
     border-radius: 8px;
@@ -1576,6 +1575,7 @@ h1:focus {
 .client-workspace-nav > a { display: inline-flex; align-items: center; min-height: 40px; padding: .5rem .8rem; color: #4b5661; text-decoration: none; border-bottom: 2px solid transparent; }
 .client-workspace-nav > a:hover, .client-workspace-nav > a:focus-visible { color: #001a70; background: #edf1f5; }
 .client-workspace-nav > a.active { color: #001a70; border-color: #001a70; font-weight: 700; }
+.client-tab-panel { min-width: 0; }
 .workspace-action-menu { position: relative; margin-left: auto; max-width: 100%; }
 .workspace-action-menu > summary { display: flex; gap: .5rem; align-items: center; justify-content: space-between; min-height: 40px; padding: .5rem .8rem; border: 1px solid #c7ced5; border-radius: 6px; cursor: pointer; background: #fff; color: #273643; list-style: none; }
 .workspace-action-menu > summary::-webkit-details-marker { display: none; }

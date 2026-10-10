@@ -13,7 +13,7 @@ public sealed class ClientReviewTransferService(
     IHostEnvironment environment)
 {
     private const string PackageMagic = "KCAS-CLIENT-REVIEW-1";
-    private const int PackageVersion = 5;
+    private const int PackageVersion = 6;
     private const int Pbkdf2Iterations = 300_000;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -458,6 +458,7 @@ public sealed class ClientReviewTransferService(
         if (braReport is not null)
             package.BraRiskReport = ClientBraRiskReportPackage.FromReport(braReport);
         package.Onboarding = await ClientOnboardingTransfer.ExportAsync(db, client, package, cancellationToken);
+        package.FundingConnections = await InvestmentFundingTransfer.ExportAsync(db, client, cancellationToken);
         var plaintext = JsonSerializer.SerializeToUtf8Bytes(package, JsonOptions);
         var contentSha256 = Convert.ToHexString(SHA256.HashData(plaintext)).ToLowerInvariant();
         var encrypted = Encrypt(plaintext, passphrase);
@@ -480,7 +481,7 @@ public sealed class ClientReviewTransferService(
         var conflicts = new List<string>();
         var warnings = new List<string>();
 
-        if (package.FormatVersion is not (2 or 3 or 4 or PackageVersion))
+        if (package.FormatVersion is not (2 or 3 or 4 or 5 or PackageVersion))
         {
             conflicts.Add(
                 $"Package format {package.FormatVersion} is not supported by this KCAS version.");
@@ -762,6 +763,8 @@ public sealed class ClientReviewTransferService(
             existingEvidenceCount = existingHashes.Count(hashes.Contains);
         }
 
+        if (client is not null && conflicts.Count == 0)
+            await InvestmentFundingTransfer.InspectAsync(db, package, warnings, null, cancellationToken);
         return new ClientReviewTransferPreview
         {
             Package = package,
@@ -1299,6 +1302,8 @@ public sealed class ClientReviewTransferService(
             }
         }
 
+        await db.SaveChangesAsync(cancellationToken);
+        await InvestmentFundingTransfer.InspectAsync(db, package, preview.Warnings, user, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         if (package.Assessment is null)
         {
@@ -2512,6 +2517,8 @@ public sealed class ClientReviewTransferService(
 
     private static void ValidatePackageStructure(ClientReviewPackage package, ICollection<string> conflicts)
     {
+        try { InvestmentFundingTransfer.Validate(package); }
+        catch (ValidationException ex) { conflicts.Add(ex.Message); }
         if (package.Onboarding is { } onboarding)
         {
             try { ClientOnboardingTransfer.Validate(onboarding, package); }
@@ -3161,7 +3168,7 @@ public sealed class ClientReviewTransferService(
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
-    private static ClientInvestmentAccount? MatchInvestmentAccount(
+    internal static ClientInvestmentAccount? MatchInvestmentAccount(
         IEnumerable<ClientInvestmentAccount> accounts,
         int? legacyInvestmentAccountId,
         string? accountNumber,
@@ -3286,6 +3293,7 @@ public sealed class ClientReviewPackage
     public List<ClientReviewExceptionPackage> Exceptions { get; set; } = [];
     public List<ClientReviewVerificationPackage> VerificationItems { get; set; } = [];
     public List<ClientReviewInvestmentReconciliationPackage> InvestmentReconciliations { get; set; } = [];
+    public List<InvestmentFundingConnectionPackage> FundingConnections { get; set; } = [];
     public ClientReviewAssessmentPackage? Assessment { get; set; }
     public ClientBraRiskReportPackage? BraRiskReport { get; set; }
     public ClientOnboardingTransferPackage? Onboarding { get; set; }
