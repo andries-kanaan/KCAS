@@ -1,0 +1,94 @@
+@page "/clients/{ClientId:int}/investments/{AccountId:int}/returns/funding"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.InvestmentsView)]
+@implements IAsyncDisposable
+@using KCAS.Admin.Data
+@inject InvestmentFundingService Funding
+@inject InvestmentReturnService Returns
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IJSRuntime JS
+
+<PageTitle>Funding history review</PageTitle>
+<div class="page-header"><div><h1>Funding history review</h1><p>@report?.Account.Client?.DisplayName · @report?.Account.AccountNumber</p></div>
+    <div class="header-actions"><a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/investments/{AccountId}/returns")">Back to returns</a></div></div>
+<ClientWorkspaceNav ClientId="ClientId" />
+@if (error is not null) { <div class="alert alert-warning" role="alert">@error</div> }
+@if (message is not null) { <div class="alert alert-success" role="status">@message</div> }
+@if (report is not null)
+{
+    @if (report.FundingHistory.Count > 0)
+    {
+        <h2>Established connections</h2>
+        <ul>@foreach (var entry in report.FundingHistory)
+        { <li>@report.History.First(x => x.Id == entry.SourceAccountId).AccountNumber → @report.History.First(x => x.Id == entry.DestinationAccountId).AccountNumber · @entry.EvidenceReference · @entry.PerformedBy</li> }</ul>
+    }
+    @if (canReview)
+    {
+        <h2>Record evidenced continuity</h2>
+        <div class="row g-3">
+            <div class="col-md-8"><label class="form-label" for="funding-source">Source investment</label>
+                <select id="funding-source" class="form-select" @bind="sourceId" disabled="@(!interactiveReady || busy)"><option value="0">Select source investment</option>
+                    @foreach (var item in candidates) { <option value="@item.Id">@item.Client.DisplayName (@item.Client.KanaanId) · @item.AccountNumber · @item.FundName · @item.SurrenderDate?.ToString("yyyy-MM-dd")</option> }
+                </select></div>
+            <div class="col-md-8"><label class="form-label" for="funding-evidence">Evidence reference</label><input id="funding-evidence" class="form-control" maxlength="512" @bind="evidence" disabled="@(!interactiveReady || busy)" /></div>
+            <div class="col-md-8"><label class="form-label" for="funding-reason">Capital continuity finding</label><textarea id="funding-reason" class="form-control" rows="3" maxlength="1000" @bind="reason" disabled="@(!interactiveReady || busy)"></textarea></div>
+            <div class="col-md-4"><label class="form-label" for="funding-through">Final receiving date (if evidenced)</label><InputDate id="funding-through" class="form-control" @bind-Value="matchedThrough" disabled="@(!interactiveReady || busy)" /></div>
+        </div>
+        <button class="btn btn-primary mt-3" type="button" disabled="@(!interactiveReady || busy || sourceId == 0)" @onclick="SaveAsync">Save funding connection</button>
+    }
+    <section class="mt-4"><h2>Codex handoff</h2>
+        <textarea id="funding-handoff" class="form-control" rows="10" readonly value="@($"{Handoff}\nIf several receiving sequences match, establish the actual final receiving date from the evidence and pass matchedThrough to RecordAsync. Do not choose a date merely to make the calculation pass.")" @ref="briefElement"></textarea>
+        <button class="btn btn-outline-secondary mt-2" type="button" disabled="@(!interactiveReady)" @onclick="CopyAsync">Copy handoff</button>
+        @if (copyStatus is not null) { <p role="status">@copyStatus</p> }
+    </section>
+}
+
+@code {
+    [Parameter] public int ClientId { get; set; }
+    [Parameter] public int AccountId { get; set; }
+    private InvestmentReturnReport? report;
+    private IReadOnlyList<ClientInvestmentAccount> candidates = [];
+    private System.Security.Claims.ClaimsPrincipal principal = new();
+    private int sourceId;
+    private DateOnly? matchedThrough;
+    private string evidence = "", reason = "";
+    private string? error, message, copyStatus;
+    private bool canReview, busy, interactiveReady;
+    private ElementReference briefElement;
+    private IJSObjectReference? clipboardModule;
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender) return;
+        interactiveReady = true;
+        StateHasChanged();
+    }
+    private string Handoff => report is null ? "" : $"Review funding continuity for {report.Account.Client?.DisplayName}; client {ClientId}; Kanaan ID {report.Account.Client?.KanaanId}; investment {AccountId} / {report.Account.AccountNumber}.\nFolder: {report.Account.Client?.ClientFolder}.\nRead actual statements, transfer correspondence and existing KCAS transactions/reviews; do not scan or overwrite evidence. Identify the specific source account and actual transfer legs. A shared family ID or matching amount alone does not prove continuity. Separate capital history from unchanged personal ownership; do not combine unrelated family investments or fabricate allocations, fees, dates or exchange rates.\nExisting CAR issues: {string.Join("; ", report.LongTerm.Issues.Distinct())}\nSave a supported missing connection through InvestmentFundingService.RecordAsync(clientId: {ClientId}, accountId: {AccountId}, sourceAccountId: actual source ID, evidenceReference: actual references, reason: substantive continuity finding, principal: authorised Compliance principal, performer: \"Codex\"). Existing established links need no extra approval. Cash-flow matching is automatic; genuine allocation gaps remain return-history issues, not compliance blockers. Reload the returns page and report the actual supported period, matched instalments and remaining limitations. Do not change transactions, surrender dates, compliance reviews or client approvals merely to produce a CAR.";
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            principal = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User;
+            canReview = principal.HasClaim(KcasClaimTypes.Permission, KcasPermissions.InvestmentsManage) || principal.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage);
+            report = await Returns.LoadAsync(ClientId, AccountId, principal.IsInRole(KcasRoles.Administrator));
+            if (report is not null) candidates = await Funding.CandidatesAsync(ClientId, AccountId, principal);
+        }
+        catch (Exception ex) { error = ex.Message; }
+    }
+    private async Task SaveAsync()
+    {
+        busy = true; error = message = null;
+        try { await Funding.RecordAsync(ClientId, AccountId, sourceId, evidence, reason, principal, matchedThrough: matchedThrough); message = "Funding connection recorded. Transactions and compliance reviews unchanged."; await OnParametersSetAsync(); }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+    private async Task CopyAsync()
+    {
+        try { clipboardModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./Components/Pages/ClientOnboarding.razor.js"); var copied = await clipboardModule.InvokeAsync<bool>("copyBrief", briefElement); copyStatus = copied ? "Copied to clipboard." : "Clipboard unavailable; select the handoff and copy it."; }
+        catch (JSException) { copyStatus = "Clipboard unavailable; select the handoff and copy it."; }
+    }
+    public async ValueTask DisposeAsync()
+    {
+        if (clipboardModule is null) return;
+        try { await clipboardModule.DisposeAsync(); } catch (JSDisconnectedException) { }
+    }
+}

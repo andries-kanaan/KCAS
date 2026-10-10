@@ -14,7 +14,9 @@
             <p>@report.Account.AccountNumber · @report.Account.Administrator · @report.Account.FundName</p>
         }
     </div>
-    <div class="header-actions"><AuthorizeView Policy="@KcasPermissions.ClientsView"><Authorized><a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}#investments")">Back to investments</a></Authorized></AuthorizeView></div>
+    <div class="header-actions"><AuthorizeView Policy="@KcasPermissions.ClientsView"><Authorized><a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}#investments")">Back to investments</a></Authorized></AuthorizeView>
+        <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/investments/{AccountId}/returns/funding")">Review funding history</a>
+    </div>
 </div>
 <ClientWorkspaceNav ClientId="ClientId" />
 @if (loading)
@@ -49,14 +51,29 @@ else
             }
         </tbody>
     </table></div>
-    <p class="text-muted">Current investment: this account's recorded inception to its closing valuation or payout. Long term: the original investment through reviewed administrator transfers, including later top-ups on their actual dates. Earlier performance of separate top-up source accounts is excluded. With no earlier transfer, both periods are the same. Rates for periods under a year are annualised, not the period's cumulative gain.</p>
+    <p class="text-muted">Current investment: this account's recorded inception to its closing valuation or payout. Capital history: the earliest established funding through supported account transfers, including ownership changes and later top-ups. It is not one person's unchanged ownership history. Earlier performance of separate top-up source accounts is excluded. Rates for periods under a year are annualised.</p>
     <h2>Investment chain</h2>
     <ol>
         @foreach (var account in report.History)
         {
-            <li>@account.AccountNumber · @account.Administrator · @account.FundName · @Date(account.InvestmentDate)</li>
+            <li>@account.Client?.DisplayName (@account.Client?.KanaanId) · @account.AccountNumber · @account.Administrator · @account.FundName · @Date(account.InvestmentDate)</li>
         }
     </ol>
+    @if (report.FundingHistory.Count > 0)
+    {
+        <h2>Matched funding</h2>
+        <div class="table-responsive"><table class="table table-sm">
+            <thead><tr><th>From / to</th><th>Paid out</th><th>Received</th><th>Amount (@currency)</th><th>Evidence / review</th></tr></thead>
+            <tbody>@foreach (var link in report.FundingHistory)
+            {
+                <tr><td>@report.History.First(x => x.Id == link.SourceAccountId).AccountNumber → @report.History.First(x => x.Id == link.DestinationAccountId).AccountNumber</td>
+                    <td>@string.Join(", ", link.Match.Outgoing.Select(x => Date(x.Date)).Distinct())</td>
+                    <td>@string.Join(", ", link.Match.Incoming.Select(x => Date(x.Date)).Distinct())</td>
+                    <td>@link.Match.Outgoing.Sum(x => x.Amount).ToString("N2", CultureInfo.GetCultureInfo("en-ZA"))</td>
+                    <td>@link.EvidenceReference<div class="small">@link.Reason</div><div class="small text-muted">@link.PerformedBy · @link.RecordedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</div></td></tr>
+            }</tbody>
+        </table></div>
+    }
     @foreach (var period in Periods)
     {
         <section class="mt-4">
@@ -100,7 +117,7 @@ else
     private string currency = "ZAR";
     private bool loading = true;
     private IEnumerable<(string Label, InvestmentReturnResult Result)> Periods =>
-        report is null ? [] : new[] { ("Current investment", report.ShortTerm), ("Long term - original inception", report.LongTerm) };
+        report is null ? [] : new[] { ("Current-investment CAR", report.ShortTerm), ("Capital-history CAR", report.LongTerm) };
     protected override async Task OnParametersSetAsync() => await LoadAsync();
     private async Task ChangeCurrencyAsync(ChangeEventArgs e)
     {
