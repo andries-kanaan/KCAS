@@ -884,3 +884,31 @@ Verify those operational records before governing-body approval. Visual
 page-image QA remained unavailable in this Windows session because the
 document renderer runtime and PDF rasterizer were not available; Word's page
 placement and structural checks were completed.
+
+## Management Appointment Preparation: 5 October 2026
+
+The user agreed to prepare the missing Gert Delport MLCO confirmation and
+Andries van Tonder internal compliance/goAML authorisation, with a trustee
+resolution recording backup arrangements and exact document adoption.
+These unsigned DOCX files are under
+`Compliance/FSCA inspections/2026/22Sep2026FeedbackRemediation/04 Management readiness review/Appointments and approval preparation`.
+The existing external FSCA appointment record for Michael Denenga remains
+valid appointment evidence; the practice-name correction is separate.
+
+Latest working RMCP: revision 1.13 management review, dated 5 October 2026.
+BRA revision 1.6 is unchanged. Internal Compliance Function Policy is now
+working version 2.5. The RMCP qualifies the natural-person population by
+reference to the BRA, identifies the unsigned appointment pack and preserves
+the distinction between preparation and actual executed appointment evidence.
+The internal compliance policy distinguishes implemented local acceptance and
+Codex-task controls from live verification and later staff-controlled stages.
+The management cover letter was updated accordingly. Signed originals remain
+untouched; previous cover/policy drafts are retained in the review folder.
+
+No new appointments, permissions, approvals, effective dates or operating
+checks were manufactured. The Trustees must make and sign the actual decisions,
+and complete the resolution's adoption schedule. The detailed preparation and
+QA record is `COMPLETION_2026-10-05_APPOINTMENTS.md` in the review folder.
+All six packages passed structural checks. Gert's one-page letter passed
+Word visual QA; the remaining fresh visual checks could not complete because
+the batch Word renderer stalled and LibreOffice is absent.

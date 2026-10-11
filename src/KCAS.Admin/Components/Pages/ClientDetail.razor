@@ -78,6 +78,9 @@ else
         </div>
     }
 
+    @if (ActiveTab == "overview")
+    {
+    <div class="client-tab-panel" role="tabpanel" aria-label="Overview">
     <section class="detail-grid">
         <article class="detail-panel">
             <h2>Overview</h2>
@@ -539,6 +542,20 @@ else
         }
     </section>
 
+    <section class="detail-panel">
+        <h2>Seed source data</h2>
+        <p class="text-muted">Historical legacy source payload retained for reconciliation and audit comparison.</p>
+        <details>
+            <summary>Show source payload</summary>
+            <pre class="legacy-json">@client.LegacySnapshots.OrderByDescending(snapshot => snapshot.ImportedAtUtc).FirstOrDefault()?.PayloadJson</pre>
+        </details>
+    </section>
+    </div>
+    }
+
+    @if (ActiveTab == "investments")
+    {
+    <div class="client-tab-panel" role="tabpanel" aria-label="Investments">
     <section id="investments" class="detail-panel">
         <div class="section-heading-row">
             <div>
@@ -923,7 +940,12 @@ else
             </details>
         }
     </section>
+    </div>
+    }
 
+    @if (ActiveTab == "notes")
+    {
+    <div class="client-tab-panel" role="tabpanel" aria-label="Notes">
     <section id="notes" class="detail-panel">
         <div class="section-heading-row">
             <div>
@@ -1030,15 +1052,8 @@ else
             }
         }
     </section>
-
-    <section class="detail-panel">
-        <h2>Seed source data</h2>
-        <p class="text-muted">Historical legacy source payload retained for reconciliation and audit comparison.</p>
-        <details>
-            <summary>Show source payload</summary>
-            <pre class="legacy-json">@client.LegacySnapshots.OrderByDescending(snapshot => snapshot.ImportedAtUtc).FirstOrDefault()?.PayloadJson</pre>
-        </details>
-    </section>
+    </div>
+    }
 }
 
 @code {
@@ -1047,6 +1062,9 @@ else
 
     [SupplyParameterFromQuery(Name = "complianceReviewNotification")]
     public string? ComplianceReviewNotification { get; set; }
+
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? Tab { get; set; }
 
     private const int NotePageSize = 10;
     private Client? client;
@@ -1058,6 +1076,12 @@ else
     private bool hasStartedComplianceReview;
     private bool hasCompletedComplianceReview;
     private ClientAdviceCase? latestAdvice;
+    private string ActiveTab => (Tab?.ToLowerInvariant() ?? new Uri(Navigation.Uri).Fragment.TrimStart('#').ToLowerInvariant()) switch
+    {
+        "investments" => "investments",
+        "notes" => "notes",
+        _ => "overview"
+    };
     private int pendingClientVerification => client?.VerificationItems.Count(item => item.Status == ClientVerificationStatuses.Pending) ?? 0;
     private string ClientPage(string suffix) => ClientListNavigation.WithReturnPath($"/clients/{Id}{suffix}", ClientListNavigation.ReturnPathFromUri(Navigation.Uri));
 

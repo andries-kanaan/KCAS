@@ -84,6 +84,7 @@ builder.Services.AddScoped<ClientBraRiskReportService>();
 builder.Services.AddScoped<ClientVisibilityService>();
 builder.Services.AddScoped<InvestmentSummaryService>();
 builder.Services.AddScoped<InvestmentReturnService>();
+builder.Services.AddScoped<InvestmentFundingService>();
 builder.Services.AddScoped<InvestmentReconciliationService>();
 builder.Services.AddScoped<ClientReviewTransferService>();
 builder.Services.AddScoped<ClientDuplicateReviewTransferService>();

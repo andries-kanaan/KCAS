@@ -1,12 +1,12 @@
 @implements IDisposable
 @inject NavigationManager Navigation
 
-<nav class="client-workspace-nav" aria-label="Client workspace">
-    <AuthorizeView Policy="@KcasPermissions.ClientsView"><Authorized><a href="@Href("")" class="@Selected("overview")" aria-current="@Current("overview")">Overview</a></Authorized></AuthorizeView>
-    <AuthorizeView Policy="@KcasPermissions.InvestmentsView"><Authorized Context="investmentContext"><AuthorizeView Policy="@KcasPermissions.ClientsView"><Authorized><a href="@Href("#investments")" class="@Selected("investments")" aria-current="@Current("investments")">Investments</a></Authorized></AuthorizeView></Authorized></AuthorizeView>
-    <AuthorizeView Policy="@KcasPermissions.ClientsView"><Authorized><a href="@Href("/compliance-review")" class="@Selected("compliance")" aria-current="@Current("compliance")">Compliance</a></Authorized></AuthorizeView>
-    <AuthorizeView Policy="@KcasPermissions.AdviceView"><Authorized><a href="@Href("/advice")" class="@Selected("advice")" aria-current="@Current("advice")">Advice</a></Authorized></AuthorizeView>
-    <AuthorizeView Policy="@KcasPermissions.ClientsView"><Authorized><a href="@Href("#notes")" class="@Selected("notes")" aria-current="@Current("notes")">Notes</a></Authorized></AuthorizeView>
+<nav class="client-workspace-nav" aria-label="Client workspace" role="tablist">
+    <AuthorizeView Policy="@KcasPermissions.ClientsView"><Authorized><a href="@Href("?tab=overview")" class="@Selected("overview")" role="tab" aria-selected="@(IsSelected("overview"))" aria-current="@Current("overview")">Overview</a></Authorized></AuthorizeView>
+    <AuthorizeView Policy="@KcasPermissions.InvestmentsView"><Authorized Context="investmentContext"><AuthorizeView Policy="@KcasPermissions.ClientsView"><Authorized><a href="@Href("?tab=investments")" class="@Selected("investments")" role="tab" aria-selected="@(IsSelected("investments"))" aria-current="@Current("investments")">Investments</a></Authorized></AuthorizeView></Authorized></AuthorizeView>
+    <AuthorizeView Policy="@KcasPermissions.ClientsView"><Authorized><a href="@Href("/compliance-review")" class="@Selected("compliance")" role="tab" aria-selected="@(IsSelected("compliance"))" aria-current="@Current("compliance")">Compliance</a></Authorized></AuthorizeView>
+    <AuthorizeView Policy="@KcasPermissions.AdviceView"><Authorized><a href="@Href("/advice")" class="@Selected("advice")" role="tab" aria-selected="@(IsSelected("advice"))" aria-current="@Current("advice")">Advice</a></Authorized></AuthorizeView>
+    <AuthorizeView Policy="@KcasPermissions.ClientsView"><Authorized><a href="@Href("?tab=notes")" class="@Selected("notes")" role="tab" aria-selected="@(IsSelected("notes"))" aria-current="@Current("notes")">Notes</a></Authorized></AuthorizeView>
     @if (ReturnPath is not null)
     {
         <AuthorizeView Policy="@ReturnPolicy"><Authorized><a class="client-list-return" href="@ReturnPath">Back to results</a></Authorized></AuthorizeView>
@@ -41,6 +41,7 @@
     private string ReturnPolicy => ReturnPath?.StartsWith("/compliance/", StringComparison.Ordinal) == true ? KcasPermissions.ComplianceView : KcasPermissions.ClientsView;
     private string Href(string suffix) => ClientListNavigation.WithReturnPath(Root + suffix, ReturnPath);
     private string? Selected(string value) => section == value ? "active" : null;
+    private bool IsSelected(string value) => section == value;
     private string? Current(string value) => section == value ? "page" : null;
 
     protected override void OnInitialized() => Navigation.LocationChanged += LocationChanged;
@@ -49,6 +50,14 @@
     {
         var uri = new Uri(Navigation.Uri);
         var suffix = uri.AbsolutePath.StartsWith(Root + "/", StringComparison.OrdinalIgnoreCase) ? uri.AbsolutePath[(Root.Length + 1)..] : "";
+        var queryTab = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query).TryGetValue("tab", out var tab)
+            ? tab.ToString().ToLowerInvariant()
+            : null;
+        if (string.IsNullOrWhiteSpace(suffix) && (queryTab is "investments" or "notes"))
+        {
+            section = queryTab;
+            return;
+        }
         section = suffix.StartsWith("advice", StringComparison.OrdinalIgnoreCase) ? "advice"
             : suffix.StartsWith("investments", StringComparison.OrdinalIgnoreCase) && !suffix.StartsWith("investments/reconciliation", StringComparison.OrdinalIgnoreCase) ? "investments"
             : suffix is "" or "edit" ? uri.Fragment == "#investments" ? "investments" : uri.Fragment == "#notes" ? "notes" : "overview" : "compliance";

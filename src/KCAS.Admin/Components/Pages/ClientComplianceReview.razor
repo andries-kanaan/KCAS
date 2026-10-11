@@ -153,13 +153,14 @@ else
                 }
             </div>
         }
-        <ServerFolderPicker IsOpen="@folderPickerOpen"
-                            InitialPath="@FolderPickerInitialPath"
-                            Disabled="@(!canManageEvidence || isBusy)"
-                            Title="Choose client folder"
-                            Selected="SelectFolderAsync"
-                            Closed="CloseFolderPicker" />
     </section>
+
+    <ServerFolderPicker IsOpen="@folderPickerOpen"
+                        InitialPath="@FolderPickerInitialPath"
+                        Disabled="@(!canManageEvidence || isBusy)"
+                        Title="Choose client folder"
+                        Selected="SelectFolderAsync"
+                        Closed="CloseFolderPicker" />
 
     <section class="work-area" id="context">
         <p class="eyebrow mb-1">Step 2</p>
@@ -360,14 +361,12 @@ else
 
     private async Task SelectFolderAsync(string path)
     {
+        if (!canManageEvidence || isBusy) return;
         await ExecuteAsync(async () =>
         {
             await EvidenceService.SaveClientEvidenceFolderAsync(
-                ClientId,
-                path,
-                currentUser,
-                "Select client folder for unified compliance review.");
-            statusMessage = "Client folder saved. Linked evidence was not changed.";
+                ClientId, path, currentUser, "Select client folder for unified compliance review.");
+            statusMessage = $"Client folder saved: {PathDisplay.ForWorkstation(path)}. Linked evidence was not changed.";
         });
     }
 

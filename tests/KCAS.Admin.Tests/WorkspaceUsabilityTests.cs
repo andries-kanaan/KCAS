@@ -82,6 +82,20 @@ public sealed class WorkspaceUsabilityTests(KcasWebApplicationFactory factory)
                 Assert.Contains("Next compliance action", overview);
                 Assert.Contains("Not started", overview);
                 Assert.Equal((await authorization.AuthorizeAsync(principal, null, KcasPermissions.AdviceView)).Succeeded, overview.Contains("Latest advice"));
+                Assert.Contains("role=\"tabpanel\" aria-label=\"Overview\"", overview);
+                Assert.DoesNotContain("role=\"tabpanel\" aria-label=\"Investments\"", overview);
+                Assert.DoesNotContain("role=\"tabpanel\" aria-label=\"Notes\"", overview);
+                var notes = await client.GetStringAsync($"/clients/{record.Id}?tab=notes");
+                Assert.Contains("role=\"tabpanel\" aria-label=\"Notes\"", notes);
+                Assert.DoesNotContain("role=\"tabpanel\" aria-label=\"Overview\"", notes);
+                Assert.DoesNotContain("role=\"tabpanel\" aria-label=\"Investments\"", notes);
+                if ((await authorization.AuthorizeAsync(principal, null, KcasPermissions.InvestmentsView)).Succeeded)
+                {
+                    var investments = await client.GetStringAsync($"/clients/{record.Id}?tab=investments");
+                    Assert.Contains("role=\"tabpanel\" aria-label=\"Investments\"", investments);
+                    Assert.DoesNotContain("role=\"tabpanel\" aria-label=\"Overview\"", investments);
+                    Assert.DoesNotContain("role=\"tabpanel\" aria-label=\"Notes\"", investments);
+                }
             }
 
             var home = await client.GetStringAsync("/");
@@ -103,7 +117,7 @@ public sealed class WorkspaceUsabilityTests(KcasWebApplicationFactory factory)
                 var contextLinks = Regex.Match(html, "<nav\\b[^>]*aria-label=\"Client workspace\"[^>]*>(.*?)</nav>", RegexOptions.Singleline).Groups[1].Value;
                 Assert.NotEmpty(contextLinks);
                 Assert.Equal((await authorization.AuthorizeAsync(principal, null, KcasPermissions.ClientsView)).Succeeded,
-                    contextLinks.Contains($"href=\"/clients/{record.Id}\""));
+                    contextLinks.Contains($"href=\"/clients/{record.Id}?tab=overview\""));
                 Assert.Contains(record.DisplayName, html);
                 if (suffix == "/evidence") Assert.Contains("Ownership and control", html);
             }

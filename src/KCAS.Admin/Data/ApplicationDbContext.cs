@@ -43,6 +43,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<ClientInvestmentAccount> ClientInvestmentAccounts => Set<ClientInvestmentAccount>();
     public DbSet<ClientInvestmentTransaction> ClientInvestmentTransactions => Set<ClientInvestmentTransaction>();
     public DbSet<ClientInvestmentReconciliationReview> ClientInvestmentReconciliationReviews => Set<ClientInvestmentReconciliationReview>();
+    public DbSet<InvestmentFundingConnection> InvestmentFundingConnections => Set<InvestmentFundingConnection>();
     public DbSet<ClientFundValuation> ClientFundValuations => Set<ClientFundValuation>();
     public DbSet<InvestmentAdministratorReference> InvestmentAdministratorReferences => Set<InvestmentAdministratorReference>();
     public DbSet<InvestmentFundReference> InvestmentFundReferences => Set<InvestmentFundReference>();
@@ -615,6 +616,15 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.HasIndex(account => account.LegacyClientId);
             entity.HasIndex(account => account.LegacyLinkedAccountId);
             entity.HasIndex(account => account.AccountNumber);
+        });
+
+        builder.Entity<InvestmentFundingConnection>(entity =>
+        {
+            ConfigureDateOnly(entity.Property(item => item.MatchedThroughDate));
+            entity.HasOne(item => item.SourceAccount).WithMany().HasForeignKey(item => item.SourceAccountId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(item => item.DestinationAccount).WithMany().HasForeignKey(item => item.DestinationAccountId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.SourceAccountId, item.RecordedAtUtc });
+            entity.HasIndex(item => item.DestinationAccountId);
         });
 
         builder.Entity<ClientInvestmentReconciliationReview>(entity =>

@@ -20,24 +20,29 @@ public sealed class InvestmentReturnService(ApplicationDbContext db)
             .ToListAsync(cancellationToken);
         var latest = reviews.GroupBy(x => x.ClientInvestmentAccountId)
             .Select(g => g.OrderByDescending(x => x.ReviewedAtUtc).ThenByDescending(x => x.Id).First()).ToList();
+        var connections = await db.InvestmentFundingConnections.AsNoTracking()
+            .Where(x => includeHiddenClients || (!x.SourceAccount.Client.ExcludeFromComplianceLists && !x.DestinationAccount.Client.ExcludeFromComplianceLists))
+            .ToListAsync(cancellationToken);
+        var latestConnections = connections.GroupBy(x => x.SourceAccountId)
+            .Select(g => g.OrderByDescending(x => x.RecordedAtUtc).ThenByDescending(x => x.Id).First()).ToList();
         var ids = new HashSet<int> { accountId };
         while (true)
         {
             var incoming = latest.Where(x => x.RelatedClientInvestmentAccountId.HasValue &&
                 ids.Contains(x.RelatedClientInvestmentAccountId.Value) &&
-                x.Outcome == ClientInvestmentReconciliationOutcomes.Transferred)
-                .Select(x => x.ClientInvestmentAccountId).ToList();
+                x.Outcome == ClientInvestmentReconciliationOutcomes.Transferred && !latestConnections.Any(c => c.SourceAccountId == x.ClientInvestmentAccountId))
+                .Select(x => x.ClientInvestmentAccountId).Concat(latestConnections.Where(x => ids.Contains(x.DestinationAccountId)).Select(x => x.SourceAccountId)).ToList();
             var count = ids.Count;
             ids.UnionWith(incoming);
             if (count == ids.Count) break;
         }
-        var accounts = await db.ClientInvestmentAccounts.AsNoTracking().Include(x => x.Transactions)
+        var accounts = await db.ClientInvestmentAccounts.AsNoTracking().Include(x => x.Client).Include(x => x.Transactions)
             .Where(x => (ids.Contains(x.Id) || x.ClientId == clientId) &&
                 (includeHiddenClients || !x.Client.ExcludeFromComplianceLists)).ToListAsync(cancellationToken);
         var clientIds = accounts.Select(x => x.ClientId).Distinct().ToList();
         var valuations = await db.ClientFundValuations.AsNoTracking().Where(x => clientIds.Contains(x.ClientId))
             .ToListAsync(cancellationToken);
-        var report = InvestmentReturnCalculator.Build(account, accounts, valuations, reviews, currency);
+        var report = InvestmentReturnCalculator.Build(account, accounts, valuations, reviews, currency, connections: connections);
         if (currency != "ZAR")
         {
             var funds = await db.InvestmentFundReferences.AsNoTracking().ToListAsync(cancellationToken);

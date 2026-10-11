@@ -5419,6 +5419,63 @@ namespace KCAS.Admin.Data.Migrations
                     b.ToTable("InvestmentFundReferences");
                 });
 
+            modelBuilder.Entity("KCAS.Admin.Data.InvestmentFundingConnection", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<int>("DestinationAccountId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("DestinationSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<string>("EvidenceReference")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)");
+
+                    b.Property<DateTime>("MatchedThroughDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("PerformedBy")
+                        .IsRequired()
+                        .HasMaxLength(191)
+                        .HasColumnType("varchar(191)");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<DateTime>("RecordedAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("RecordedBy")
+                        .IsRequired()
+                        .HasMaxLength(191)
+                        .HasColumnType("varchar(191)");
+
+                    b.Property<int>("SourceAccountId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SourceSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DestinationAccountId");
+
+                    b.HasIndex("SourceAccountId", "RecordedAtUtc");
+
+                    b.ToTable("InvestmentFundingConnections");
+                });
+
             modelBuilder.Entity("KCAS.Admin.Data.InvestmentProductTypeReference", b =>
                 {
                     b.Property<int>("Id")
@@ -7352,6 +7409,25 @@ namespace KCAS.Admin.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("InspectionCase");
+                });
+
+            modelBuilder.Entity("KCAS.Admin.Data.InvestmentFundingConnection", b =>
+                {
+                    b.HasOne("KCAS.Admin.Data.ClientInvestmentAccount", "DestinationAccount")
+                        .WithMany()
+                        .HasForeignKey("DestinationAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("KCAS.Admin.Data.ClientInvestmentAccount", "SourceAccount")
+                        .WithMany()
+                        .HasForeignKey("SourceAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("DestinationAccount");
+
+                    b.Navigation("SourceAccount");
                 });
 
             modelBuilder.Entity("KCAS.Admin.Data.KycSubClassReference", b =>
