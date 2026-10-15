@@ -109,6 +109,9 @@ public sealed class UserActionService(IDbContextFactory<ApplicationDbContext> fa
 
         if (Can(KcasPermissions.ComplianceView))
         {
+            if (ki && Can(KcasPermissions.ComplianceApprove))
+                foreach (var policy in await db.InsurancePolicies.AsNoTracking().Where(x => x.Status == InsuranceStages.Reviewed && x.Findings == "" && x.ReviewedVersion == x.Version && x.RequestedVersion == null).ToListAsync())
+                    Add($"insurance-accept:{policy.Id}", $"PI cover {policy.PolicyNumber}", "Decide renewal acceptance", $"/compliance/insurance/{policy.Id}");
             var approvals = await db.ComplianceApprovals.AsNoTracking().ToListAsync();
             bool AlreadyApproved(string type, int targetId, string decision = ComplianceStatuses.Approved) => approvals.Any(x =>
                 x.TargetEntityType == type && x.TargetEntityId == targetId && x.Decision == decision && IsMe(x.Approver));
@@ -137,6 +140,7 @@ public sealed class UserActionService(IDbContextFactory<ApplicationDbContext> fa
                 var subject = subjectTasks.FirstOrDefault(x => x.ComplianceTaskId == task.Id);
                 var url = task.TaskType switch
                 {
+                    ComplianceTaskTypes.InsuranceRenewal => $"/compliance/insurance/{task.InsurancePolicyId}",
                     ComplianceTaskTypes.SanctionsCoverage when task.LinkedEntityType == nameof(SanctionsSourceCheck) => "/compliance/sanctions#official-source",
                     ComplianceTaskTypes.SanctionsCoverage when subject is not null => $"/compliance/sanctions/{subject.ClientSanctionsBatchId}/subjects/{subject.Id}",
                     ComplianceTaskTypes.SanctionsCoverage => $"/compliance/sanctions/{task.LinkedEntityId}",
@@ -145,6 +149,7 @@ public sealed class UserActionService(IDbContextFactory<ApplicationDbContext> fa
                 };
                 var action = pending ? "Approve closure" : task.TaskType switch
                 {
+                    ComplianceTaskTypes.InsuranceRenewal => "Review PI renewal",
                     ComplianceTaskTypes.PeriodicReview or ComplianceTaskTypes.TriggerReview => "Complete client compliance review",
                     ComplianceTaskTypes.SanctionsCoverage when task.LinkedEntityType == nameof(SanctionsSourceCheck) => "Refresh official sanctions source",
                     ComplianceTaskTypes.SanctionsCoverage => "Check sanctions coverage",

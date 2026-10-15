@@ -102,6 +102,8 @@ builder.Services.AddSingleton<DocumentPathDisplayService>();
 builder.Services.AddScoped<BusinessRiskAssessmentService>();
 builder.Services.AddScoped<RmcpService>();
 builder.Services.AddScoped<ComplianceWorkService>();
+builder.Services.AddSingleton<InsuranceFiles>();
+builder.Services.AddScoped<InsuranceService>();
 builder.Services.AddScoped<UserActionService>();
 builder.Services.AddScoped<ClientSanctionsCoverageService>();
 builder.Services.AddOptions<SanctionsAutomationOptions>().BindConfiguration(SanctionsAutomationOptions.Section)
@@ -118,6 +120,7 @@ builder.Services.AddScoped<EmployeeTransferService>();
 if (!builder.Environment.IsEnvironment("Testing"))
 {
     builder.Services.AddHostedService<EmployeeReviewReminderJob>();
+    builder.Services.AddHostedService<InsuranceReminderJob>();
     builder.Services.AddHostedService<SanctionsAutomationJob>();
 }
 builder.Services.AddScoped<InspectionService>();
@@ -274,6 +277,23 @@ app.MapGet("/client-evidence/items/{id:int}/file", async Task<IResult> (int id, 
     }
 
     return Results.File(File.OpenRead(resolvedPath), contentType, enableRangeProcessing: true);
+}).RequireAuthorization(KcasPermissions.ComplianceView);
+
+app.MapGet("/compliance/insurance/documents/{id:int}/file", async Task<IResult> (int id, ApplicationDbContext db, InsuranceFiles files, CancellationToken cancellationToken) =>
+{
+    var document = await db.InsuranceDocuments.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
+    if (document is null) return Results.NotFound();
+    try
+    {
+        var path = files.Resolve(document.RelativePath);
+        if (!File.Exists(path)) return Results.NotFound("The mapped PI cover document is missing.");
+        if (await files.FingerprintAsync(document.RelativePath, cancellationToken) != document.Sha256)
+            return Results.Conflict("This file differs from the reviewed document. Refresh the controlled link before use.");
+        var types = new FileExtensionContentTypeProvider();
+        if (!types.TryGetContentType(path, out var contentType)) contentType = "application/octet-stream";
+        return Results.File(File.OpenRead(path), contentType, enableRangeProcessing: true);
+    }
+    catch (System.ComponentModel.DataAnnotations.ValidationException) { return Results.NotFound(); }
 }).RequireAuthorization(KcasPermissions.ComplianceView);
 
 app.MapGet("/compliance/evidence/{id:int}/file", async Task<IResult> (int id, ApplicationDbContext db, CancellationToken cancellationToken) =>

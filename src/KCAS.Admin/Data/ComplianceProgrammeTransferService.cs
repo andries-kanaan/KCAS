@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace KCAS.Admin.Data;
 
-public sealed class ComplianceProgrammeTransferService(
+public sealed partial class ComplianceProgrammeTransferService(
     ApplicationDbContext db,
     IConfiguration configuration,
     IHostEnvironment environment)
@@ -18,7 +18,7 @@ public sealed class ComplianceProgrammeTransferService(
         @"E:\Userdata\Kanaan Trust\Compliance\FSCA inspections\2026\RMCP and Policy Approval\06 Signed final";
 
     private const string PackageMagic = "KCAS-COMPLIANCE-PROGRAMME-1";
-    private const int PackageVersion = 1;
+    private const int PackageVersion = 2;
     private const int Pbkdf2Iterations = 300_000;
     private const int MaximumPackageBytes = 25 * 1024 * 1024;
 
@@ -96,7 +96,8 @@ public sealed class ComplianceProgrammeTransferService(
             BusinessRiskAssessment = FromBra(bra),
             RmcpVersion = FromRmcp(rmcp, rmcpApprovals),
             ControlledDocuments = documents.Select(FromDocument).ToList(),
-            Evidence = evidence.Select(FromEvidence).ToList()
+            Evidence = evidence.Select(FromEvidence).ToList(),
+            InsurancePolicies = await ExportInsuranceAsync(cancellationToken)
         };
 
         var validationMessages = ValidatePackage(package, validatePaths: true);
@@ -142,6 +143,7 @@ public sealed class ComplianceProgrammeTransferService(
         var package = DecryptPackage(encryptedPackage, passphrase, out var contentSha256);
         var conflicts = ValidatePackage(package, validatePaths: true);
         var warnings = new List<string>();
+        await ValidateInsuranceAsync(package.InsurancePolicies, conflicts, cancellationToken);
 
         var alreadyApplied = await db.ComplianceProgrammeTransferRecords.AsNoTracking().AnyAsync(record =>
             record.Direction == ComplianceProgrammeTransferDirections.Incoming &&
@@ -243,6 +245,7 @@ public sealed class ComplianceProgrammeTransferService(
             var rmcp = await UpsertRmcpAsync(package.RmcpVersion, bra, user, cancellationToken);
             var documentCount = await UpsertDocumentsAsync(package.ControlledDocuments, user, cancellationToken);
             var evidenceCount = await UpsertEvidenceAsync(package.Evidence, bra.Id, rmcp.Id, user, cancellationToken);
+            await ImportInsuranceAsync(package.InsurancePolicies, user, cancellationToken);
 
             var record = NewRecord(package, ComplianceProgrammeTransferDirections.Incoming,
                 ComplianceProgrammeTransferStatuses.Applied, preview.ContentSha256, incomingFileName, incomingPath);
@@ -606,7 +609,7 @@ public sealed class ComplianceProgrammeTransferService(
     private List<string> ValidatePackage(ComplianceProgrammeTransferPackage package, bool validatePaths)
     {
         var conflicts = new List<string>();
-        if (package.FormatVersion != PackageVersion)
+        if (package.FormatVersion is not (1 or PackageVersion))
         {
             conflicts.Add($"Package format {package.FormatVersion} is not supported by this KCAS version.");
         }
@@ -984,6 +987,7 @@ public sealed class ComplianceProgrammeTransferPackage
     public RmcpVersionPackage RmcpVersion { get; set; } = new();
     public List<ControlledDocumentPackage> ControlledDocuments { get; set; } = [];
     public List<ComplianceEvidencePackage> Evidence { get; set; } = [];
+    public List<InsurancePolicy>? InsurancePolicies { get; set; }
 
     public IEnumerable<string?> AllLocations()
     {

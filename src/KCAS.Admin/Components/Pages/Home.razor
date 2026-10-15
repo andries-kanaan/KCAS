@@ -4,6 +4,7 @@
 @using KCAS.Admin.Security
 @inject ApplicationDbContext Db
 @inject ComplianceWorkService WorkService
+@inject InsuranceService Insurance
 @inject EmployeeComplianceService Employees
 @inject ClientOnboardingService Onboarding
 @inject ClientAdvicePreparationService AdvicePreparation
@@ -69,6 +70,18 @@
             <div class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2">
                 <div class="text-break" style="min-width: 0; max-width: 100%"><strong>@item.ClientName</strong><div class="small">Case @item.CaseId - requested by @item.RequestedBy - @item.RequestedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</div></div>
                 <a class="btn btn-sm btn-primary" href="@($"/clients/{item.ClientId}/advice/{item.CaseId}/preparation")">Open advice handoff</a>
+            </div>
+        }
+    </div></section>
+}
+@if (insuranceNotifications.Count > 0)
+{
+    <section class="work-area"><h2>PI cover renewal</h2><div class="list-group">
+        @foreach (var item in insuranceNotifications)
+        {
+            <div class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <div><strong>@item.PolicyNumber (@item.StartDate.Year)</strong><div>Expires: @item.EndDate.ToString("yyyy-MM-dd") · @(item.RequestedVersion != null ? "Awaiting Codex review" : InsuranceStages.Display(item.Status))</div></div>
+                <a class="btn btn-sm btn-outline-primary" href="@($"/compliance/insurance/{item.Id}")">Review renewal</a>
             </div>
         }
     </div></section>
@@ -147,6 +160,7 @@
     private int employeeNotificationsCreated;
     private string? employeeNotificationError;
     private List<ComplianceControlReminder> controlReminders = [];
+    private List<InsurancePolicy> insuranceNotifications = [];
     private string? controlReminderError;
 
     protected override async Task OnInitializedAsync()
@@ -177,6 +191,7 @@
         {
             try
             {
+                insuranceNotifications = await Insurance.NotificationsAsync(state.User);
                 if (await Sanctions.ReminderAsync(state.User) is { } sanctions) controlReminders.Add(sanctions);
                 if (await SanctionsAutomation.ReminderAsync(state.User) is { } source) controlReminders.Add(source);
                 if (await Complaints.ReminderAsync(state.User) is { } complaints) controlReminders.Add(complaints);

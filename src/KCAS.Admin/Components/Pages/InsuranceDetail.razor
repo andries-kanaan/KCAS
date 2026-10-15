@@ -1,0 +1,105 @@
+@page "/compliance/insurance/{Id:int}"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
+@using KCAS.Admin.Data
+@inject InsuranceService Insurance
+@inject AuthenticationStateProvider Authentication
+@inject IJSRuntime JS
+
+<PageTitle>PI cover - KCAS</PageTitle>
+<div class="page-header"><h1>PI cover</h1><div class="header-actions"><a class="btn btn-outline-secondary" href="/compliance/insurance">All policy years</a>
+@if (row is not null && canManage && row.Status is not (InsuranceStages.Accepted or InsuranceStages.Confirmed)) { <a class="btn btn-outline-primary" href="@($"/compliance/insurance/{Id}/edit")">Update terms</a> }
+</div></div>
+@if (error is not null) { <div class="alert alert-danger">@error</div> }
+@if (message is not null) { <div class="alert alert-success">@message</div> }
+@if (row is not null)
+{
+    <section class="work-area"><h2>@row.InsuredName</h2>
+        <dl class="detail-list"><dt>Policy</dt><dd>@row.PolicyNumber · @row.Insurer</dd><dt>Status</dt><dd>@InsuranceStages.Display(row.Status)</dd>
+            <dt>Period</dt><dd>@row.StartDate.ToString("yyyy-MM-dd") to @row.EndDate.ToString("yyyy-MM-dd")</dd>
+            <dt>Retroactive date</dt><dd>@row.RetroactiveDate?.ToString("yyyy-MM-dd")</dd><dt>Broker</dt><dd>@row.Broker · @row.BrokerContact</dd>
+            <dt>Principal address</dt><dd>@row.PrincipalAddress</dd><dt>Business</dt><dd>@row.BusinessDescription</dd>
+            <dt>Annual premium incl. VAT</dt><dd>@Money(row.PremiumExVat + row.Vat) (@Money(row.PremiumExVat) + @Money(row.Vat) VAT)</dd>
+            <dt>Payment</dt><dd>@row.PaymentFrequency · Recorded monthly instalment: @(row.MonthlyInstalment is null ? "Not recorded" : Money(row.MonthlyInstalment.Value))</dd>
+            <dt>Limit</dt><dd>@Money(row.Limit) · @(row.CombinedLimit ? "Combined across sections" : "Per section")</dd><dt>Excess</dt><dd>@Money(row.Excess)</dd>
+            <dt>Responsible owner</dt><dd>@row.Owner</dd><dt>Reminders</dt><dd>@row.ReminderDays / @row.FollowUpDays / @row.UrgentDays days before expiry</dd>
+        </dl>
+        @if (row.EndDate < row.StartDate) { <div class="alert alert-danger">The quoted expiry precedes inception. Correct the terms before acceptance.</div> }
+        <h3>Cover and extensions</h3><p class="text-break" style="white-space:pre-wrap">@row.CoverSummary</p>
+        <h3>Exclusions and conditions</h3><p class="text-break" style="white-space:pre-wrap">@row.Exclusions</p>
+        @if (!string.IsNullOrWhiteSpace(row.Findings)) { <div class="alert alert-warning"><strong>Outstanding findings</strong><div style="white-space:pre-wrap">@row.Findings</div></div> }
+    </section>
+    <section class="work-area"><h2>Documents</h2><div class="table-responsive"><table class="table"><thead><tr><th>Type</th><th>Document</th><th>Date</th><th>File</th></tr></thead><tbody>
+        @foreach (var doc in row.Documents.OrderBy(x => x.Kind))
+        {
+            <tr><td>@doc.Kind</td><td>@doc.Title<div class="small text-break">@doc.RelativePath</div></td><td>@doc.DocumentDate?.ToString("yyyy-MM-dd")</td><td><a href="@($"/compliance/insurance/documents/{doc.Id}/file")" target="_blank" rel="noopener">Open</a></td></tr>
+        }
+    </tbody></table></div>
+    @if (canManage && row.Status is not (InsuranceStages.Accepted or InsuranceStages.Confirmed))
+    {
+        <button class="btn btn-outline-primary" @onclick="() => showLink = !showLink">Link / refresh document</button>
+        @if (showLink)
+        {
+            <div class="row g-3 mt-1">
+                <label class="col-md-6">Title<input class="form-control" @bind="title" /></label>
+                <label class="col-md-3">Type<select class="form-select" @bind="kind">@foreach (var k in InsuranceStages.DocumentKinds) { <option>@k</option> }</select></label>
+                <label class="col-md-3">Document date<input class="form-control" type="date" @bind="documentDate" /></label>
+                <label class="col-12">File path<input class="form-control" @bind="path" /></label>
+                <label class="col-12">Link reason<input class="form-control" @bind="linkReason" /></label>
+                <div><button class="btn btn-primary" disabled="@busy" @onclick="Link">Save document link</button></div>
+            </div>
+        }
+    }
+    </section>
+    @if (canManage && row.Status is not (InsuranceStages.Accepted or InsuranceStages.Confirmed))
+    {
+        <section class="work-area"><h2>Codex renewal review</h2>
+            <button class="btn btn-outline-primary" disabled="@busy" @onclick="Request">Request Codex renewal review</button>
+            @if (row.RequestedVersion != null) { <p class="mt-2">Awaiting Codex review · In-app reminder; no email sent.</p> }
+            @if (handoff is not null) { <div class="mt-3"><button class="btn btn-outline-secondary" @onclick="Copy">Copy handoff</button><pre class="mt-2 text-break" style="white-space:pre-wrap">@handoff</pre></div> }
+        </section>
+    }
+    @if (canManage || canAccept)
+    {
+        <section class="work-area"><h2>Record renewal action</h2>
+            <div class="row g-3">
+                <label class="col-md-6">Action<select class="form-select" @bind="action"><option value="">Select action</option>
+                    @foreach (var stage in InsuranceStages.All.Skip(1)) { if (stage == InsuranceStages.Accepted ? canAccept : canManage) { <option value="@stage">@InsuranceStages.Display(stage)</option> } }
+                </select></label>
+                <label class="col-md-6">Actual event date<input class="form-control" type="date" @bind="eventDate" /></label>
+                <label class="col-12">Supporting file path<input class="form-control" @bind="eventPath" /></label>
+                <label class="col-12">Summary / decision<textarea class="form-control" rows="3" @bind="summary"></textarea></label>
+                <div><button class="btn btn-primary" disabled="@(busy || string.IsNullOrWhiteSpace(action))" @onclick="Advance">Record action</button></div>
+            </div>
+        </section>
+    }
+    <section class="work-area"><h2>History</h2><div class="table-responsive"><table class="table"><thead><tr><th>Event</th><th>Occurred</th><th>Performer</th><th>Recorded by / time</th><th>Summary</th></tr></thead><tbody>
+        @foreach (var e in row.Events.OrderByDescending(x => x.RecordedAtUtc))
+        {
+            <tr><td>@InsuranceStages.Display(e.Action)</td><td>@e.OccurredOn.ToString("yyyy-MM-dd")</td><td>@e.Performer</td><td>@e.RecordedBy<div>@e.RecordedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</div></td><td class="text-break" style="white-space:pre-wrap">@e.Summary</td></tr>
+        }
+    </tbody></table></div></section>
+}
+@code {
+    [Parameter] public int Id { get; set; }
+    private InsurancePolicy? row;
+    private System.Security.Claims.ClaimsPrincipal principal = new();
+    private bool canManage, canAccept, busy, showLink;
+    private string? error, message, handoff;
+    private string title = "", kind = "Quotation", path = "Compliance/PI Cover/", linkReason = "", action = "", summary = "", eventPath = "Compliance/PI Cover/";
+    private DateOnly? documentDate;
+    private DateOnly eventDate = DateOnly.FromDateTime(DateTime.Today);
+    protected override async Task OnParametersSetAsync()
+    {
+        principal = (await Authentication.GetAuthenticationStateAsync()).User;
+        canManage = principal.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage);
+        await Run(async () => { await Reload(); canAccept = await Insurance.CanAcceptAsync(principal); });
+    }
+    private async Task Reload() => row = await Insurance.LoadAsync(Id, principal);
+    private async Task Link() => await Run(async () => { await Insurance.LinkAsync(Id, row!.Version, title, kind, path, documentDate, linkReason, principal); showLink = false; handoff = null; await Reload(); message = "Document link saved; fingerprint refreshed and previous review invalidated."; });
+    private async Task Request() => await Run(async () => { handoff = await Insurance.RequestCodexAsync(Id, row!.Version, principal); await Reload(); message = "Codex review requested; in-app renewal reminder recorded."; });
+    private async Task Advance() => await Run(async () => { await Insurance.AdvanceAsync(Id, row!.Version, action, eventDate, summary, eventPath, principal); await Reload(); handoff = null; message = "Renewal action recorded."; });
+    private async Task Copy() => await Run(async () => { await JS.InvokeVoidAsync("navigator.clipboard.writeText", handoff); message = "Handoff copied."; });
+    private async Task Run(Func<Task> work) { busy = true; error = null; message = null; try { await work(); } catch (Exception ex) { error = ex.Message; } finally { busy = false; } }
+    private static string Money(decimal value) => "R " + value.ToString("N2");
+}

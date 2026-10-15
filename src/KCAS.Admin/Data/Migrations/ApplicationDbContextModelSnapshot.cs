@@ -4084,6 +4084,9 @@ namespace KCAS.Admin.Data.Migrations
                     b.Property<string>("EvidenceSummary")
                         .HasColumnType("longtext");
 
+                    b.Property<int?>("InsurancePolicyId")
+                        .HasColumnType("int");
+
                     b.Property<int?>("LinkedEntityId")
                         .HasColumnType("int");
 
@@ -4140,6 +4143,9 @@ namespace KCAS.Admin.Data.Migrations
                     b.HasIndex("ClientId");
 
                     b.HasIndex("ClientRiskAssessmentId");
+
+                    b.HasIndex("InsurancePolicyId")
+                        .IsUnique();
 
                     b.HasIndex("RmcpControlId");
 
@@ -5300,6 +5306,249 @@ namespace KCAS.Admin.Data.Migrations
                     b.HasIndex("InspectionCaseId", "Status", "DueDate");
 
                     b.ToTable("InspectionRequestItems");
+                });
+
+            modelBuilder.Entity("KCAS.Admin.Data.InsuranceDocument", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("DocumentDate")
+                        .HasColumnType("date");
+
+                    b.Property<int>("InsurancePolicyId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<string>("RelativePath")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("varchar(2000)");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(240)
+                        .HasColumnType("varchar(240)");
+
+                    b.Property<Guid>("TransferKey")
+                        .HasColumnType("char(36)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InsurancePolicyId");
+
+                    b.HasIndex("TransferKey")
+                        .IsUnique();
+
+                    b.ToTable("InsuranceDocuments");
+                });
+
+            modelBuilder.Entity("KCAS.Admin.Data.InsuranceEvent", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<Guid?>("DocumentKey")
+                        .HasColumnType("char(36)");
+
+                    b.Property<int>("InsurancePolicyId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("OccurredOn")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Performer")
+                        .IsRequired()
+                        .HasMaxLength(191)
+                        .HasColumnType("varchar(191)");
+
+                    b.Property<DateTime>("RecordedAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("RecordedBy")
+                        .IsRequired()
+                        .HasMaxLength(191)
+                        .HasColumnType("varchar(191)");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<Guid>("TransferKey")
+                        .HasColumnType("char(36)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InsurancePolicyId");
+
+                    b.HasIndex("TransferKey")
+                        .IsUnique();
+
+                    b.ToTable("InsuranceEvents");
+                });
+
+            modelBuilder.Entity("KCAS.Admin.Data.InsurancePolicy", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<string>("Broker")
+                        .IsRequired()
+                        .HasMaxLength(240)
+                        .HasColumnType("varchar(240)");
+
+                    b.Property<string>("BrokerContact")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<string>("BusinessDescription")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("varchar(2000)");
+
+                    b.Property<bool>("CombinedLimit")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<string>("CoverSummary")
+                        .IsRequired()
+                        .HasMaxLength(8000)
+                        .HasColumnType("longtext");
+
+                    b.Property<DateTime>("EndDate")
+                        .HasColumnType("date");
+
+                    b.Property<decimal>("Excess")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("Exclusions")
+                        .IsRequired()
+                        .HasMaxLength(8000)
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("Findings")
+                        .IsRequired()
+                        .HasMaxLength(8000)
+                        .HasColumnType("longtext");
+
+                    b.Property<int>("FollowUpDays")
+                        .HasColumnType("int");
+
+                    b.Property<string>("InsuredName")
+                        .IsRequired()
+                        .HasMaxLength(240)
+                        .HasColumnType("varchar(240)");
+
+                    b.Property<string>("Insurer")
+                        .IsRequired()
+                        .HasMaxLength(240)
+                        .HasColumnType("varchar(240)");
+
+                    b.Property<decimal>("Limit")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal?>("MonthlyInstalment")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("Owner")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<string>("PaymentFrequency")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<string>("PolicyNumber")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("varchar(120)");
+
+                    b.Property<decimal>("PremiumExVat")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("PrincipalAddress")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<int>("ReminderDays")
+                        .HasColumnType("int");
+
+                    b.Property<string>("RequestedVersion")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<DateTime?>("RetroactiveDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("ReviewedVersion")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<DateTime>("StartDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<Guid>("TransferKey")
+                        .HasColumnType("char(36)");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(191)
+                        .HasColumnType("varchar(191)");
+
+                    b.Property<int>("UrgentDays")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("Vat")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("Version")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TransferKey")
+                        .IsUnique();
+
+                    b.HasIndex("PolicyNumber", "StartDate")
+                        .IsUnique();
+
+                    b.ToTable("InsurancePolicies");
                 });
 
             modelBuilder.Entity("KCAS.Admin.Data.InvestmentAdministratorReference", b =>
@@ -7250,6 +7499,11 @@ namespace KCAS.Admin.Data.Migrations
                         .HasForeignKey("ClientRiskAssessmentId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("KCAS.Admin.Data.InsurancePolicy", null)
+                        .WithMany()
+                        .HasForeignKey("InsurancePolicyId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("KCAS.Admin.Data.RmcpControl", "RmcpControl")
                         .WithMany()
                         .HasForeignKey("RmcpControlId")
@@ -7409,6 +7663,24 @@ namespace KCAS.Admin.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("InspectionCase");
+                });
+
+            modelBuilder.Entity("KCAS.Admin.Data.InsuranceDocument", b =>
+                {
+                    b.HasOne("KCAS.Admin.Data.InsurancePolicy", null)
+                        .WithMany("Documents")
+                        .HasForeignKey("InsurancePolicyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("KCAS.Admin.Data.InsuranceEvent", b =>
+                {
+                    b.HasOne("KCAS.Admin.Data.InsurancePolicy", null)
+                        .WithMany("Events")
+                        .HasForeignKey("InsurancePolicyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("KCAS.Admin.Data.InvestmentFundingConnection", b =>
@@ -7754,6 +8026,13 @@ namespace KCAS.Admin.Data.Migrations
                     b.Navigation("Items");
 
                     b.Navigation("ReadinessChecks");
+                });
+
+            modelBuilder.Entity("KCAS.Admin.Data.InsurancePolicy", b =>
+                {
+                    b.Navigation("Documents");
+
+                    b.Navigation("Events");
                 });
 
             modelBuilder.Entity("KCAS.Admin.Data.KycMainClassReference", b =>

@@ -1,0 +1,37 @@
+@page "/compliance/insurance"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
+@using KCAS.Admin.Data
+@inject InsuranceService Insurance
+@inject AuthenticationStateProvider Authentication
+
+<PageTitle>PI cover - KCAS</PageTitle>
+<div class="page-header"><div><h1>PI cover</h1></div><div class="header-actions">
+    <a class="btn btn-outline-secondary" href="/compliance/organisation">Organisation and governance</a>
+    <AuthorizeView Policy="@KcasPermissions.ComplianceManage"><Authorized><a class="btn btn-primary" href="/compliance/insurance/new">Add policy year</a></Authorized></AuthorizeView>
+</div></div>
+@if (error is not null) { <div class="alert alert-danger">@error</div> }
+else if (rows is null) { <p>Loading policies...</p> }
+else if (rows.Count == 0) { <p>No policy years recorded.</p> }
+else
+{
+    <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Policy</th><th>Period</th><th>Status</th><th>Annual premium incl. VAT</th><th>Limit</th><th>Excess</th><th>Documents</th><th></th></tr></thead><tbody>
+    @foreach (var row in rows)
+    {
+        <tr><td><strong>@row.PolicyNumber</strong><div>@row.Insurer</div></td><td>@row.StartDate.ToString("yyyy-MM-dd") to @row.EndDate.ToString("yyyy-MM-dd")
+            @if (row.EndDate < row.StartDate) { <div class="text-danger">Insurance period needs correction</div> }
+            else if (row.EndDate < DateOnly.FromDateTime(DateTime.Today)) { <div class="text-muted">Period ended</div> }
+        </td><td>@InsuranceStages.Display(row.Status)</td><td>@Money(row.PremiumExVat + row.Vat)</td><td>@Money(row.Limit)<div class="small">@(row.CombinedLimit ? "Combined" : "Per section")</div></td><td>@Money(row.Excess)</td><td>@row.Documents.Count</td><td><a href="@($"/compliance/insurance/{row.Id}")">View</a></td></tr>
+    }
+    </tbody></table></div>
+}
+@code {
+    private List<InsurancePolicy>? rows;
+    private string? error;
+    protected override async Task OnInitializedAsync()
+    {
+        try { rows = await Insurance.ListAsync((await Authentication.GetAuthenticationStateAsync()).User); }
+        catch (Exception ex) { error = ex.Message; }
+    }
+    private static string Money(decimal amount) => "R " + amount.ToString("N2");
+}

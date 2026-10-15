@@ -120,7 +120,7 @@ public sealed class ComplianceWorkService(ApplicationDbContext db)
         RequireReason(reason);
         var user = RequireUser(userName);
         var type = Allowed(model.TaskType, ComplianceTaskTypes.All, "task type");
-        if (type is ComplianceTaskTypes.SanctionsCoverage or ComplianceTaskTypes.Complaint or ComplianceTaskTypes.AdvicePreparation)
+        if (type is ComplianceTaskTypes.InsuranceRenewal or ComplianceTaskTypes.SanctionsCoverage or ComplianceTaskTypes.Complaint or ComplianceTaskTypes.AdvicePreparation)
             throw new ValidationException("Record this work through sanctions coverage, the complaints register or advice preparation.");
         ComplianceTask task;
         string action;
@@ -375,8 +375,8 @@ public sealed class ComplianceWorkService(ApplicationDbContext db)
     }
     private static void RequireGeneralTask(ComplianceTask task)
     {
-        if (task.TaskType is ComplianceTaskTypes.SanctionsCoverage or ComplianceTaskTypes.Complaint or ComplianceTaskTypes.AdvicePreparation)
-            throw new ValidationException("Use the controlled sanctions coverage, complaint or advice preparation case; a generic task action cannot resolve its evidence requirements.");
+        if (task.TaskType is ComplianceTaskTypes.InsuranceRenewal or ComplianceTaskTypes.SanctionsCoverage or ComplianceTaskTypes.Complaint or ComplianceTaskTypes.AdvicePreparation)
+            throw new ValidationException("Use the controlled PI renewal, sanctions coverage, complaint or advice preparation case; a generic task action cannot resolve its evidence requirements.");
     }
 
     private async Task<List<ComplianceApproval>> LoadClosureApprovalsAsync(int id)

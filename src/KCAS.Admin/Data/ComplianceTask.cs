@@ -3,6 +3,7 @@ namespace KCAS.Admin.Data;
 public sealed class ComplianceTask
 {
     public int Id { get; set; }
+    public int? InsurancePolicyId { get; set; }
     public string TaskType { get; set; } = ComplianceTaskTypes.Remediation;
     public string Title { get; set; } = "";
     public string? Description { get; set; }
@@ -39,6 +40,7 @@ public sealed class ComplianceTask
 
 public static class ComplianceTaskTypes
 {
+    public const string InsuranceRenewal = "InsuranceRenewal";
     public const string AdvicePreparation = "AdvicePreparation";
     public const string SanctionsCoverage = "SanctionsCoverage";
     public const string Complaint = "Complaint";
@@ -57,7 +59,7 @@ public static class ComplianceTaskTypes
 
     public static readonly IReadOnlyList<string> All =
     [
-        AdvicePreparation, CodexReview, PeriodicReview, TriggerReview, Edd, ScreeningEscalation, UnusualActivityReview,
+        InsuranceRenewal, AdvicePreparation, CodexReview, PeriodicReview, TriggerReview, Edd, ScreeningEscalation, UnusualActivityReview,
         ControlTest, TreatmentAction, Finding, Training, Exception, Remediation, SanctionsCoverage, Complaint
     ];
 
@@ -65,6 +67,7 @@ public static class ComplianceTaskTypes
 
     public static string Display(string value) => value switch
     {
+        InsuranceRenewal => "PI cover renewal",
         AdvicePreparation => "Codex advice preparation",
         CodexReview => "Codex client review",
         PeriodicReview => "Periodic client review",

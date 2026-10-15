@@ -1,6 +1,8 @@
 using KCAS.Admin.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 
 namespace KCAS.Admin.Tests;
 
@@ -12,7 +14,17 @@ public sealed class ComplianceProgrammeTransferServiceTests(KcasWebApplicationFa
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        var transfers = scope.ServiceProvider.GetRequiredService<ComplianceProgrammeTransferService>();
+        var fileRoot = Path.Combine(Path.GetTempPath(), "kcas-programme-pi-" + Guid.NewGuid().ToString("N"));
+        var sourceFiles = InsuranceServiceTests.Files(Path.Combine(fileRoot, "source"));
+        var liveFiles = InsuranceServiceTests.Files(Path.Combine(fileRoot, "live"));
+        var environment = scope.ServiceProvider.GetRequiredService<IHostEnvironment>();
+        ComplianceProgrammeTransferService Transfer(InsuranceFiles files) => new(db,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> {
+                ["Insurance:ComplianceRoot"] = files.Root,
+                ["ComplianceProgrammeTransfers:StorageRoot"] = Path.Combine(fileRoot, "packages") }).Build(), environment);
+        var transfers = Transfer(sourceFiles);
+        var policy = InsuranceServiceTests.Policy();
+        var piPath = "Compliance/PI Cover/2030/quote.pdf";
         string? outgoingPath = null;
         string? incomingPath = null;
 
@@ -144,6 +156,12 @@ public sealed class ComplianceProgrammeTransferServiceTests(KcasWebApplicationFa
             });
             await db.SaveChangesAsync();
 
+            Directory.CreateDirectory(Path.GetDirectoryName(sourceFiles.Resolve(piPath))!);
+            await File.WriteAllTextAsync(sourceFiles.Resolve(piPath), "Synthetic PI evidence shared with live");
+            policy.Documents.Add(new() { Title = "Synthetic quotation", RelativePath = piPath,
+                Sha256 = await sourceFiles.FingerprintAsync(piPath) });
+            db.InsurancePolicies.Add(policy);
+            await db.SaveChangesAsync();
             const string passphrase = "programme-transfer-test";
             var exported = await transfers.ExportAsync(passphrase, "exporter@example.test",
                 "Transfer signed programme bundle.");
@@ -170,9 +188,19 @@ public sealed class ComplianceProgrammeTransferServiceTests(KcasWebApplicationFa
                 .ToListAsync());
             db.RmcpVersions.Remove(rmcp);
             db.BusinessRiskAssessments.Remove(bra);
+            db.InsurancePolicies.Remove(policy);
             await db.SaveChangesAsync();
             db.ChangeTracker.Clear();
 
+            transfers = Transfer(liveFiles);
+            var missing = await transfers.PreviewAsync(encrypted, passphrase);
+            Assert.False(missing.CanApply);
+            Assert.Contains(missing.Conflicts, x => x.Contains("PI policy"));
+            Directory.CreateDirectory(Path.GetDirectoryName(liveFiles.Resolve(piPath))!);
+            await File.WriteAllTextAsync(liveFiles.Resolve(piPath), "Incorrect live copy");
+            Assert.False((await transfers.PreviewAsync(encrypted, passphrase)).CanApply);
+            File.Copy(sourceFiles.Resolve(piPath), liveFiles.Resolve(piPath), true);
+            Assert.True((await transfers.PreviewAsync(encrypted, passphrase)).CanApply);
             var imported = await transfers.ApplyAsync(encrypted, passphrase, "importer@example.test",
                 "Approved programme import.");
             incomingPath = imported.StoragePath;
@@ -192,6 +220,10 @@ public sealed class ComplianceProgrammeTransferServiceTests(KcasWebApplicationFa
             Assert.StartsWith(ComplianceProgrammeTransferService.DefaultLiveSignedFinalRoot,
                 liveEvidence.Location, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(imported.BusinessRiskAssessmentId, liveEvidence.LinkedEntityId);
+            var livePolicy = await db.InsurancePolicies.AsNoTracking().Include(x => x.Documents).SingleAsync(x => x.TransferKey == policy.TransferKey);
+            Assert.Equal(policy.Version, livePolicy.Version);
+            Assert.Equal(piPath, Assert.Single(livePolicy.Documents).RelativePath);
+            Assert.Equal(await sourceFiles.FingerprintAsync(piPath), await liveFiles.FingerprintAsync(livePolicy.Documents.Single().RelativePath));
 
             var duplicate = await transfers.PreviewAsync(encrypted, passphrase);
             Assert.True(duplicate.AlreadyApplied);
@@ -203,6 +235,11 @@ public sealed class ComplianceProgrammeTransferServiceTests(KcasWebApplicationFa
         {
             DeleteFile(outgoingPath);
             DeleteFile(incomingPath);
+            db.ChangeTracker.Clear();
+            await db.ComplianceTasks.Where(x => x.TaskType == ComplianceTaskTypes.InsuranceRenewal &&
+                db.InsurancePolicies.Any(p => p.Id == x.InsurancePolicyId && p.TransferKey == policy.TransferKey)).ExecuteDeleteAsync();
+            await db.InsurancePolicies.Where(x => x.TransferKey == policy.TransferKey).ExecuteDeleteAsync();
+            if (Directory.Exists(fileRoot)) Directory.Delete(fileRoot, true);
         }
     }
 
