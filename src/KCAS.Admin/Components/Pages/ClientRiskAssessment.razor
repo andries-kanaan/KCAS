@@ -206,7 +206,7 @@ else
                 </dl>
                 @if (model.Assessment.Status == ClientRiskAssessmentStatuses.PendingKiApproval)
                 {
-                    <div class="alert alert-warning">
+                    <div id="ki-approval" class="alert alert-warning">
                         This High, EDD or override assessment requires one authorised KI approval.
                         The other KI remains available as the backup or conflict alternative.
                     </div>

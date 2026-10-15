@@ -209,7 +209,7 @@ public sealed class ClientOnboardingService(IDbContextFactory<ApplicationDbConte
         await transaction.CommitAsync();
     }
 
-    internal static async Task<ClientOnboardingModel> BuildAsync(ApplicationDbContext db, int clientId, ClientRiskAssessment? assessmentOverride = null, bool tracked = true)
+    internal static async Task<ClientOnboardingModel> BuildAsync(ApplicationDbContext db, int clientId, ClientRiskAssessment? assessmentOverride = null, bool tracked = true, bool ensureDefaultRequirements = true)
     {
         var clients = db.Clients.Include(x => x.PersonalProfile).Include(x => x.Addresses).Include(x => x.ContactPoints)
             .Include(x => x.RelatedParties).ThenInclude(x => x.Roles).Include(x => x.EntityProfile)
@@ -218,7 +218,7 @@ public sealed class ClientOnboardingService(IDbContextFactory<ApplicationDbConte
             ?? throw new KeyNotFoundException("Client not found.");
         var profiles = db.ClientOnboardingProfiles.AsQueryable();
         var profile = await (tracked ? profiles : profiles.AsNoTracking()).SingleOrDefaultAsync(x => x.ClientId == clientId);
-        var evidence = await new ClientEvidenceReadinessService(db).LoadClientReadinessAsync(clientId);
+        var evidence = await new ClientEvidenceReadinessService(db).LoadClientReadinessAsync(clientId, ensureDefaultRequirements);
         var assessments = db.ClientRiskAssessments.Include(x => x.Responses).ThenInclude(x => x.SelectedOption)
             .Include(x => x.MethodologyVersion).ThenInclude(x => x!.Factors)
             .Include(x => x.Approvals).Where(x => x.ClientId == clientId && x.Status != ClientRiskAssessmentStatuses.Superseded)

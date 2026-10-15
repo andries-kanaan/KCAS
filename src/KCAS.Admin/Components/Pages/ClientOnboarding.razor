@@ -81,7 +81,7 @@
     {
         <section class="work-area">
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-                <h2 class="mb-0">Codex handoff</h2>
+                <h2 id="codex-handoff" class="mb-0">Codex handoff</h2>
                 <button class="btn btn-outline-secondary" type="button" title="Copy Codex handoff to clipboard" disabled="@copying" @onclick="CopyBriefAsync">Copy brief</button>
             </div>
             <p>@request.Status · Requested: @request.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</p>
@@ -110,7 +110,7 @@
     @if (model.CanDecide && model.Client.RequiresClientAcceptance && !model.IsAccepted)
     {
         <section class="work-area">
-            <h2>Key Individual decision</h2>
+            <h2 id="ki-decision">Key Individual decision</h2>
             <label class="form-label" for="acceptanceDecision">Decision</label>
             <select id="acceptanceDecision" class="form-select" @bind="decision"><option value="Accepted">Accept</option><option value="ReturnForClarification">Return for clarification</option><option value="Declined">Decline</option></select>
             <label class="form-label mt-2" for="decisionReason">Decision reasons and conditions</label><textarea id="decisionReason" class="form-control" rows="3" @bind="decisionReason"></textarea>

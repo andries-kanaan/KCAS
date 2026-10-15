@@ -216,7 +216,7 @@ else
     <section class="work-area"><h2>6. Approval, issue and signed record</h2>
         @if (model.Status == ClientAdviceStatuses.ReadyForReview)
         {
-            <AuthorizeView Policy="@KcasPermissions.AdviceReview"><Authorized><div class="row g-2"><div class="col"><input class="form-control" placeholder="Review decision reason" @bind="decisionReason" /></div><div class="col-auto"><button type="button" class="btn btn-primary" @onclick="ApproveAsync">Approve for issue</button></div><div class="col-auto"><button type="button" class="btn btn-outline-secondary" @onclick="ReturnAsync">Return</button></div></div></Authorized></AuthorizeView>
+            <AuthorizeView Policy="@KcasPermissions.AdviceReview"><Authorized><div id="independent-review" class="row g-2"><div class="col"><input class="form-control" placeholder="Review decision reason" @bind="decisionReason" /></div><div class="col-auto"><button type="button" class="btn btn-primary" @onclick="ApproveAsync">Approve for issue</button></div><div class="col-auto"><button type="button" class="btn btn-outline-secondary" @onclick="ReturnAsync">Return</button></div></div></Authorized></AuthorizeView>
         }
         else if (model.Status == ClientAdviceStatuses.ApprovedForIssue)
         {

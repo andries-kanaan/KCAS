@@ -23,7 +23,9 @@
                 <p class="top-kicker">Kanaan Client Administration System</p>
                 <span class="workspace-title">KCAS workspace</span>
             </div>
-            <AuthorizeView><Authorized><a class="account-link" href="/Account/Manage">Account</a></Authorized><NotAuthorized><a class="account-link" href="/Account/Login">Sign in</a></NotAuthorized></AuthorizeView>
+            <div class="top-account-actions">
+                <AuthorizeView><Authorized><ActionBell @rendermode="InteractiveServer" /><a class="account-link" href="/Account/Manage">Account</a></Authorized><NotAuthorized><a class="account-link" href="/Account/Login">Sign in</a></NotAuthorized></AuthorizeView>
+            </div>
         </div>
 
         <article class="content-shell">

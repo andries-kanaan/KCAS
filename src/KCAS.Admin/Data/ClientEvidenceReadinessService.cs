@@ -194,9 +194,9 @@ public sealed partial class ClientEvidenceReadinessService(ApplicationDbContext 
         };
     }
 
-    public async Task<ClientEvidenceReadinessModel> LoadClientReadinessAsync(int clientId)
+    public async Task<ClientEvidenceReadinessModel> LoadClientReadinessAsync(int clientId, bool ensureDefaultRequirements = true)
     {
-        await EnsureDefaultRequirementsAsync();
+        if (ensureDefaultRequirements) await EnsureDefaultRequirementsAsync();
 
         var client = await db.Clients
             .AsNoTracking()

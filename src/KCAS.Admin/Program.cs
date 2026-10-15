@@ -102,6 +102,7 @@ builder.Services.AddSingleton<DocumentPathDisplayService>();
 builder.Services.AddScoped<BusinessRiskAssessmentService>();
 builder.Services.AddScoped<RmcpService>();
 builder.Services.AddScoped<ComplianceWorkService>();
+builder.Services.AddScoped<UserActionService>();
 builder.Services.AddScoped<ClientSanctionsCoverageService>();
 builder.Services.AddOptions<SanctionsAutomationOptions>().BindConfiguration(SanctionsAutomationOptions.Section)
     .Validate(o => o.PollIntervalMinutes is >= 1 and <= 1440 && o.MaximumSourceAgeHours is >= 1 and <= 168 &&
