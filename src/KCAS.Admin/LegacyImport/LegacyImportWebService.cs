@@ -1351,6 +1351,11 @@ public sealed class LegacyImportWebService(
 
     internal static async Task DeleteComplianceOperationalDataAsync(ApplicationDbContext db, CancellationToken cancellationToken)
     {
+        // Acceptance snapshots and handoffs depend on the operational evidence/tasks being reset.
+        await db.Database.ExecuteSqlRawAsync("DELETE FROM `ClientAcceptanceDecisions`;", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("DELETE FROM `ClientCodexReviewRequests`;", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("DELETE FROM `ClientOnboardingProfiles`;", cancellationToken);
+        await db.Database.ExecuteSqlRawAsync("DELETE FROM `ClientBraRiskReports`;", cancellationToken);
         await db.Database.ExecuteSqlRawAsync("DELETE FROM `ClientEvidenceItems`;", cancellationToken);
         await db.Database.ExecuteSqlRawAsync("DELETE FROM `ClientEvidenceExceptions`;", cancellationToken);
         await db.Database.ExecuteSqlRawAsync("DELETE FROM `ClientEvidenceScanFiles`;", cancellationToken);

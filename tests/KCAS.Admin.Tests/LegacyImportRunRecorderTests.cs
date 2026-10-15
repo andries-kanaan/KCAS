@@ -135,13 +135,31 @@ public sealed class LegacyImportRunRecorderTests(KcasWebApplicationFactory facto
             ApprovedBy = "tester",
             ReviewDate = DateOnly.FromDateTime(DateTime.Today)
         });
-        db.ComplianceTasks.Add(new ComplianceTask
+        var task = new ComplianceTask
         {
             Title = "Review legacy evidence",
             Status = ComplianceStatuses.Draft,
+            Client = client,
             LinkedEntityType = nameof(Client),
             LinkedEntityId = client.Id
+        };
+        db.ComplianceTasks.Add(task);
+        db.ClientCodexReviewRequests.Add(new ClientCodexReviewRequest
+        {
+            Client = client,
+            Task = task,
+            Brief = "Synthetic baseline-reset handoff",
+            MaterialHash = new string('b', 64)
         });
+        db.ClientOnboardingProfiles.Add(new ClientOnboardingProfile { Client = client, RequestedService = "Synthetic service" });
+        db.ClientAcceptanceDecisions.Add(new ClientAcceptanceDecision
+        {
+            Client = client,
+            Decision = "ReturnForClarification",
+            Reason = "Synthetic baseline-reset decision",
+            ContentHash = new string('c', 64)
+        });
+        db.ClientBraRiskReports.Add(new ClientBraRiskReport { Client = client });
         db.ComplianceEvidence.Add(new ComplianceEvidence
         {
             EvidenceType = "Screening",
@@ -180,6 +198,10 @@ public sealed class LegacyImportRunRecorderTests(KcasWebApplicationFactory facto
         Assert.Equal(0, await db.ComplianceEvidence.CountAsync());
         Assert.Equal(0, await db.ComplianceApprovals.CountAsync());
         Assert.Equal(0, await db.ComplianceAuditEvents.CountAsync());
+        Assert.False(await db.ClientCodexReviewRequests.AnyAsync(item => item.ClientId == client.Id));
+        Assert.False(await db.ClientOnboardingProfiles.AnyAsync(item => item.ClientId == client.Id));
+        Assert.False(await db.ClientAcceptanceDecisions.AnyAsync(item => item.ClientId == client.Id));
+        Assert.False(await db.ClientBraRiskReports.AnyAsync(item => item.ClientId == client.Id));
         Assert.True(await db.ClientEvidenceRequirements.AnyAsync(item => item.Id == requirementId));
         Assert.True(await db.ClientEvidenceScanRoots.AnyAsync(item => item.Id == rootId));
 
