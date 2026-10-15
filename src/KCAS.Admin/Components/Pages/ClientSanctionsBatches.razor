@@ -14,7 +14,7 @@
 @if (status is not null)
 {
     <section class="work-area">
-        <h2>Official-list automation</h2>
+        <h2 id="official-source">Official-list automation</h2>
         <dl class="employee-details"><dt>Refresh:</dt><dd>@(status.Enabled ? $"Every {status.IntervalMinutes} minutes while KCAS is running" : "Disabled")</dd>
             <dt>Last attempt:</dt><dd>@(status.LatestCheck is null ? "Not yet recorded" : $"{LocalTime(status.LatestCheck.CompletedAtUtc)} - {status.LatestCheck.Outcome}")</dd>
             <dt>Last valid retrieval:</dt><dd>@(status.LastSuccessfulCheck is null ? "None" : LocalTime(status.LastSuccessfulCheck.CompletedAtUtc))</dd></dl>

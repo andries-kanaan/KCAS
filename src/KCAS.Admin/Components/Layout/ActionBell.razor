@@ -1,0 +1,97 @@
+@implements IAsyncDisposable
+@using KCAS.Admin.Data
+@inject UserActionService Actions
+@inject AuthenticationStateProvider Authentication
+@inject NavigationManager Navigation
+@inject ILogger<ActionBell> Logger
+
+<details class="action-bell workspace-action-menu">
+    <summary title="@Label" aria-label="@Label" @onclick="RefreshAsync">
+        <img src="/images/bell.svg" alt="" width="22" height="22" />
+        <span class="action-bell-count" aria-hidden="true">@(error ? "!" : loaded ? items.Count.ToString() : "...")</span>
+    </summary>
+    <div class="action-bell-list workspace-action-list" aria-label="Outstanding actions" aria-busy="@(loading ? "true" : "false")">
+        @if (error)
+        {
+            <p role="status">Actions unavailable.</p>
+            <button type="button" @onclick="RefreshAsync">Retry</button>
+        }
+        else if (!loaded)
+        {
+            <p role="status">Loading actions...</p>
+        }
+        else if (items.Count == 0)
+        {
+            <p role="status">No outstanding actions.</p>
+        }
+        else
+        {
+            @foreach (var item in items)
+            {
+                <a href="@item.Url" title="@($"{item.Subject}: {item.Action}")" @key="item.Key"><strong>@item.Subject</strong><span>@item.Action</span></a>
+            }
+        }
+    </div>
+</details>
+
+@code {
+    private IReadOnlyList<UserActionItem> items = [];
+    private readonly CancellationTokenSource stopping = new();
+    private Task? refreshLoop;
+    private bool loaded, loading, error, disposed;
+    private string Label => error ? "Outstanding actions unavailable" : !loaded ? "Loading outstanding actions" : $"{items.Count} outstanding actions";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        Navigation.LocationChanged += LocationChanged;
+        Authentication.AuthenticationStateChanged += AuthenticationChanged;
+        await RefreshAsync();
+        refreshLoop = RefreshPeriodicallyAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (loading || disposed) return;
+        loading = true;
+        try
+        {
+            items = await Actions.LoadAsync((await Authentication.GetAuthenticationStateAsync()).User);
+            error = false;
+            loaded = true;
+        }
+        catch (Exception ex)
+        {
+            items = [];
+            error = true;
+            Logger.LogError(ex, "Outstanding actions could not be loaded.");
+        }
+        finally { loading = false; }
+        if (!disposed) StateHasChanged();
+    }
+
+    private async Task RefreshPeriodicallyAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(60));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(stopping.Token))
+                await InvokeAsync(RefreshAsync);
+        }
+        catch (OperationCanceledException) when (stopping.IsCancellationRequested) { }
+    }
+
+    private void LocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs args)
+        => _ = InvokeAsync(RefreshAsync);
+    private void AuthenticationChanged(Task<AuthenticationState> state) => _ = InvokeAsync(RefreshAsync);
+
+    public async ValueTask DisposeAsync()
+    {
+        disposed = true;
+        Navigation.LocationChanged -= LocationChanged;
+        Authentication.AuthenticationStateChanged -= AuthenticationChanged;
+        await stopping.CancelAsync();
+        if (refreshLoop is not null) await refreshLoop;
+        stopping.Dispose();
+    }
+}

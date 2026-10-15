@@ -71,7 +71,7 @@ else
                     <tbody>
                         @foreach (var item in model.Methodologies)
                         {
-                            <tr>
+                            <tr id="@($"methodology-{item.Id}")">
                                 <td>@item.Name</td><td>@Display(item.VersionLabel)</td><td>@item.Status</td>
                                 <td class="text-end">
                                     <a class="btn btn-sm btn-outline-secondary" href="@($"/compliance/methodologies/{item.Id}/review")">Review</a>

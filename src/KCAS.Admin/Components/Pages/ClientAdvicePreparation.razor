@@ -26,7 +26,7 @@
     @if (model.Task is { } task && model.Request is { } request)
     {
         <section class="work-area">
-            <div class="section-heading-row"><h2>Codex handoff</h2><button class="btn btn-outline-secondary" type="button" disabled="@busy" title="Copy advice preparation handoff" @onclick="CopyAsync">Copy handoff</button></div>
+            <div class="section-heading-row"><h2 id="codex-handoff">Codex handoff</h2><button class="btn btn-outline-secondary" type="button" disabled="@busy" title="Copy advice preparation handoff" @onclick="CopyAsync">Copy handoff</button></div>
             <dl class="row">
                 <dt class="col-sm-3">Preparation</dt><dd class="col-sm-9">@(task.Status == ComplianceStatuses.Closed ? "Findings recorded" : "Awaiting Codex preparation")</dd>
                 <dt class="col-sm-3">Requested by</dt><dd class="col-sm-9 text-break">@request.RequestedBy - @request.RequestedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</dd>
