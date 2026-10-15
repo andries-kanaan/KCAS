@@ -7,6 +7,9 @@ namespace KCAS.Admin.Data;
 
 public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : IdentityDbContext<ApplicationUser, IdentityRole, string>(options)
 {
+    public DbSet<InsurancePolicy> InsurancePolicies => Set<InsurancePolicy>();
+    public DbSet<InsuranceDocument> InsuranceDocuments => Set<InsuranceDocument>();
+    public DbSet<InsuranceEvent> InsuranceEvents => Set<InsuranceEvent>();
     public DbSet<SanctionsSourceSnapshot> SanctionsSourceSnapshots => Set<SanctionsSourceSnapshot>();
     public DbSet<SanctionsSourceCheck> SanctionsSourceChecks => Set<SanctionsSourceCheck>();
     public DbSet<SanctionsAutomatedResult> SanctionsAutomatedResults => Set<SanctionsAutomatedResult>();
@@ -111,6 +114,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
+        InsuranceModel.Configure(builder);
         SanctionsAutomationModel.Configure(builder);
         ComplianceCoverageAndComplaintsModel.Configure(builder);
         EmployeeComplianceModel.Configure(builder);

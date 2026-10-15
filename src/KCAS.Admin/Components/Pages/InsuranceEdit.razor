@@ -1,0 +1,69 @@
+@page "/compliance/insurance/new"
+@page "/compliance/insurance/{Id:int}/edit"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.ComplianceManage)]
+@using KCAS.Admin.Data
+@inject InsuranceService Insurance
+@inject AuthenticationStateProvider Authentication
+@inject NavigationManager Navigation
+
+<PageTitle>Update PI cover - KCAS</PageTitle>
+<div class="page-header"><h1>@(Id == null ? "Add policy year" : "Update policy terms")</h1><a class="btn btn-outline-secondary" href="@(Id is null ? "/compliance/insurance" : $"/compliance/insurance/{Id}")">Cancel</a></div>
+@if (error is not null) { <div class="alert alert-danger">@error</div> }
+@if (model is not null)
+{
+    <EditForm Model="model" OnValidSubmit="Save" FormName="insurance-terms">
+        <DataAnnotationsValidator /><ValidationSummary />
+        <section class="work-area"><h2>Insured and insurer</h2><div class="row g-3">
+            <label class="col-md-6">Insured name<InputText class="form-control" @bind-Value="model.InsuredName" /></label>
+            <label class="col-md-6">Policy number<InputText class="form-control" @bind-Value="model.PolicyNumber" /></label>
+            <label class="col-md-6">Insurer<InputText class="form-control" @bind-Value="model.Insurer" /></label>
+            <label class="col-md-6">Broker<InputText class="form-control" @bind-Value="model.Broker" /></label>
+            <label class="col-md-6">Broker contact<InputText class="form-control" @bind-Value="model.BrokerContact" /></label>
+            <label class="col-md-6">Principal address<InputText class="form-control" @bind-Value="model.PrincipalAddress" /></label>
+            <label class="col-12">Business description<InputTextArea class="form-control" @bind-Value="model.BusinessDescription" /></label>
+        </div></section>
+        <section class="work-area"><h2>Cover and premium</h2><div class="row g-3">
+            <label class="col-md-4">Start date<InputDate class="form-control" @bind-Value="model.StartDate" /></label>
+            <label class="col-md-4">Expiry date<InputDate class="form-control" @bind-Value="model.EndDate" /></label>
+            <label class="col-md-4">Retroactive date<InputDate class="form-control" @bind-Value="model.RetroactiveDate" /></label>
+            <label class="col-md-4">Limit (ZAR)<InputNumber class="form-control" @bind-Value="model.Limit" /></label>
+            <label class="col-md-4">Excess (ZAR)<InputNumber class="form-control" @bind-Value="model.Excess" /></label>
+            <label class="col-md-4 d-flex align-items-center gap-2"><InputCheckbox @bind-Value="model.CombinedLimit" /> Combined limit across sections</label>
+            <label class="col-md-4">Premium excluding VAT<InputNumber class="form-control" @bind-Value="model.PremiumExVat" /></label>
+            <label class="col-md-4">VAT<InputNumber class="form-control" @bind-Value="model.Vat" /></label>
+            <label class="col-md-4">Confirmed monthly instalment<InputNumber class="form-control" @bind-Value="model.MonthlyInstalment" /></label>
+            <label class="col-md-4">Payment arrangement<InputSelect class="form-select" @bind-Value="model.PaymentFrequency"><option>Unconfirmed</option><option>Annual</option><option>Monthly</option></InputSelect></label>
+            <label class="col-12">Cover and extensions<InputTextArea class="form-control" rows="3" @bind-Value="model.CoverSummary" /></label>
+            <label class="col-12">Important exclusions and conditions<InputTextArea class="form-control" rows="3" @bind-Value="model.Exclusions" /></label>
+            <label class="col-12">Outstanding findings<InputTextArea class="form-control" rows="3" @bind-Value="model.Findings" /></label>
+        </div></section>
+        <section class="work-area"><h2>Renewal reminders</h2><div class="row g-3">
+            <label class="col-md-6">Responsible owner<InputText class="form-control" @bind-Value="model.Owner" /></label>
+            <label class="col-md-2">First (days before expiry)<InputNumber class="form-control" @bind-Value="model.ReminderDays" /></label>
+            <label class="col-md-2">Follow-up (days)<InputNumber class="form-control" @bind-Value="model.FollowUpDays" /></label>
+            <label class="col-md-2">Urgent (days)<InputNumber class="form-control" @bind-Value="model.UrgentDays" /></label>
+            <label class="col-12">Change reason<textarea class="form-control" @bind="reason"></textarea></label>
+        </div></section>
+        <button class="btn btn-primary" disabled="@busy" type="submit">Save terms</button>
+    </EditForm>
+}
+@code {
+    [Parameter] public int? Id { get; set; }
+    private InsurancePolicy? model;
+    private string? error;
+    private string reason = "";
+    private bool busy;
+    protected override async Task OnParametersSetAsync()
+    {
+        try { model = Id is null ? new() : await Insurance.LoadAsync(Id.Value, (await Authentication.GetAuthenticationStateAsync()).User); }
+        catch (Exception ex) { error = ex.Message; }
+    }
+    private async Task Save()
+    {
+        busy = true; error = null;
+        try { var id = await Insurance.SaveAsync(model!, reason, (await Authentication.GetAuthenticationStateAsync()).User); Navigation.NavigateTo($"/compliance/insurance/{id}"); }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+}

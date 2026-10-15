@@ -24,6 +24,7 @@ public static class WorkspaceNavigation
             new("Sanctions coverage", "/compliance/sanctions", KcasPermissions.ComplianceView),
             new("Complaints register", "/compliance/complaints", KcasPermissions.ComplianceView),
             new("Employee compliance", "/compliance/employees", KcasPermissions.EmployeesView),
+            new("PI cover", "/compliance/insurance", KcasPermissions.ComplianceView),
             new("Programme and regulatory evidence", "/compliance/programme", KcasPermissions.ComplianceView),
             new("Inspection response", "/compliance/inspections", KcasPermissions.InspectionsView)]),
         new("Administration", "bi-person-badge-nav-menu", [

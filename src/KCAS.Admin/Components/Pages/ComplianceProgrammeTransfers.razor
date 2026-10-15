@@ -11,7 +11,7 @@
 <div class="page-header">
     <div>
         <p class="eyebrow">Controlled programme transfer</p>
-        <h1>RMCP and BRA transfer</h1>
+        <h1>Programme transfer</h1>
         <p class="lede">Move the current signed-final RMCP, BRA, supporting documents, and evidence records from laptop KCAS to live.</p>
     </div>
     <a class="btn btn-outline-secondary" href="/compliance/programme">Compliance programme</a>
@@ -31,7 +31,7 @@
 <section class="detail-grid">
     <article class="detail-panel form-panel">
         <h2>1. Export current programme bundle</h2>
-        <p class="text-muted">Exports the active BRA, the active linked RMCP, and signed-final document/evidence records under the approved local folder.</p>
+        <p class="text-muted">Exports the active BRA, linked RMCP, signed-final evidence and PI cover records. PI files remain in the mapped Compliance/PI Cover folder.</p>
         <label>Export reason <textarea class="form-control" @bind="exportReason"></textarea></label>
         <label>
             Package passphrase
@@ -92,6 +92,11 @@
                     <dt>Controls</dt><dd>@preview.Package.RmcpVersion.Controls.Count</dd>
                     <dt>Documents</dt><dd>@preview.Package.ControlledDocuments.Count</dd>
                     <dt>Evidence</dt><dd>@preview.Package.Evidence.Count</dd>
+                    <dt>PI policy years</dt><dd>@(preview.Package.InsurancePolicies?.Count ?? 0)</dd>
+                    @if (preview.Package.InsurancePolicies is { Count: > 0 })
+                    {
+                        <dt>PI document checks</dt><dd>Mapped files and SHA-256 fingerprints must match before applying.</dd>
+                    }
                     <dt>Live folder</dt><dd><code>@preview.MappedLiveRoot</code></dd>
                     <dt>Package</dt><dd><code>@preview.Package.PackageId</code></dd>
                 </dl>

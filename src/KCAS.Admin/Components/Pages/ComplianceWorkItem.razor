@@ -25,6 +25,10 @@
 }
 else
 {
+    @if (model.Task.InsurancePolicyId is int policyId)
+    {
+        <div class="alert alert-info"><a href="@($"/compliance/insurance/{policyId}")">Open PI renewal</a></div>
+    }
     <section class="work-area">
         <h2>Controlled action reason</h2>
         <input class="form-control" @bind="reason" placeholder="Required for every change or decision" />
@@ -54,7 +58,7 @@ else
             Control: @(model.Task.RmcpControl?.Code ?? "-")
         </p>
         @if (CanEdit) { <button class="btn btn-primary mt-3" @onclick="SaveAsync">Save changes</button> }
-        @if (canManage && model.Task.Status is not (ComplianceStatuses.Closed or ComplianceStatuses.Withdrawn))
+        @if (canManage && model.Task.InsurancePolicyId is null && model.Task.Status is not (ComplianceStatuses.Closed or ComplianceStatuses.Withdrawn))
         {
             <button class="btn btn-outline-danger mt-3 ms-2" @onclick="EscalateAsync">Escalate to High</button>
         }
@@ -104,8 +108,8 @@ else
     private string? message;
     private bool canManage;
     private bool canApprove;
-    private bool CanEdit => canManage && model?.Task.Status is ComplianceStatuses.Draft or ComplianceWorkStatuses.Open or ComplianceWorkStatuses.InProgress;
-    private bool CanRequestClosure => canManage && model?.Task.Status is not (ComplianceStatuses.Closed or ComplianceStatuses.Withdrawn or ComplianceWorkStatuses.PendingClosure);
+    private bool CanEdit => model?.Task.InsurancePolicyId is null && canManage && model?.Task.Status is ComplianceStatuses.Draft or ComplianceWorkStatuses.Open or ComplianceWorkStatuses.InProgress;
+    private bool CanRequestClosure => model?.Task.InsurancePolicyId is null && canManage && model?.Task.Status is not (ComplianceStatuses.Closed or ComplianceStatuses.Withdrawn or ComplianceWorkStatuses.PendingClosure);
 
     protected override async Task OnParametersSetAsync()
     {
