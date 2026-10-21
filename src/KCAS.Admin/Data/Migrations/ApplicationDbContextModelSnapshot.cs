@@ -6135,6 +6135,226 @@ namespace KCAS.Admin.Data.Migrations
                     b.ToTable("MarketReferenceValues");
                 });
 
+            modelBuilder.Entity("KCAS.Admin.Data.PerformanceFeeClaim", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("ApprovedAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("ApprovedBy")
+                        .HasMaxLength(191)
+                        .HasColumnType("varchar(191)");
+
+                    b.Property<DateTime>("From")
+                        .HasColumnType("date");
+
+                    b.Property<string>("InputJson")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<decimal>("Paid")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("PerformanceFeeProfileId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Performer")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<DateTime>("PreparedAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("PreparedBy")
+                        .IsRequired()
+                        .HasMaxLength(191)
+                        .HasColumnType("varchar(191)");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("varchar(40)");
+
+                    b.Property<string>("ResultJson")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<DateTime>("To")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Version")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Reference")
+                        .IsUnique();
+
+                    b.HasIndex("PerformanceFeeProfileId", "From", "To");
+
+                    b.ToTable("PerformanceFeeClaims");
+                });
+
+            modelBuilder.Entity("KCAS.Admin.Data.PerformanceFeeEvent", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<decimal?>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int?>("ClaimId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("OccurredOn")
+                        .HasColumnType("date");
+
+                    b.Property<int>("PerformanceFeeProfileId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Performer")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<DateTime>("RecordedAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("RecordedBy")
+                        .IsRequired()
+                        .HasMaxLength(191)
+                        .HasColumnType("varchar(191)");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PerformanceFeeProfileId");
+
+                    b.ToTable("PerformanceFeeEvents");
+                });
+
+            modelBuilder.Entity("KCAS.Admin.Data.PerformanceFeeProfile", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<string>("CheckpointJson")
+                        .HasColumnType("longtext");
+
+                    b.Property<int>("ClientInvestmentAccountId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("CodexRequestVersion")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<DateTime?>("InceptionDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime?>("NextReviewDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("PreparationJson")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("StatementReviewJson")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(191)
+                        .HasColumnType("varchar(191)");
+
+                    b.Property<string>("Version")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClientInvestmentAccountId")
+                        .IsUnique();
+
+                    b.ToTable("PerformanceFeeProfiles");
+                });
+
+            modelBuilder.Entity("KCAS.Admin.Data.PerformanceFeeStatement", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<byte[]>("Content")
+                        .IsRequired()
+                        .HasColumnType("longblob");
+
+                    b.Property<string>("DocumentJson")
+                        .IsRequired()
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.Property<DateTime>("ImportedAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("ImportedBy")
+                        .IsRequired()
+                        .HasMaxLength(191)
+                        .HasColumnType("varchar(191)");
+
+                    b.Property<int>("PerformanceFeeProfileId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PerformanceFeeProfileId", "Sha256")
+                        .IsUnique();
+
+                    b.ToTable("PerformanceFeeStatements");
+                });
+
             modelBuilder.Entity("KCAS.Admin.Data.RiskBand", b =>
                 {
                     b.Property<int>("Id")
@@ -7735,6 +7955,44 @@ namespace KCAS.Admin.Data.Migrations
                     b.Navigation("LegacyImportRun");
                 });
 
+            modelBuilder.Entity("KCAS.Admin.Data.PerformanceFeeClaim", b =>
+                {
+                    b.HasOne("KCAS.Admin.Data.PerformanceFeeProfile", null)
+                        .WithMany("Claims")
+                        .HasForeignKey("PerformanceFeeProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("KCAS.Admin.Data.PerformanceFeeEvent", b =>
+                {
+                    b.HasOne("KCAS.Admin.Data.PerformanceFeeProfile", null)
+                        .WithMany("Events")
+                        .HasForeignKey("PerformanceFeeProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("KCAS.Admin.Data.PerformanceFeeProfile", b =>
+                {
+                    b.HasOne("KCAS.Admin.Data.ClientInvestmentAccount", "Account")
+                        .WithMany()
+                        .HasForeignKey("ClientInvestmentAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Account");
+                });
+
+            modelBuilder.Entity("KCAS.Admin.Data.PerformanceFeeStatement", b =>
+                {
+                    b.HasOne("KCAS.Admin.Data.PerformanceFeeProfile", null)
+                        .WithMany()
+                        .HasForeignKey("PerformanceFeeProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("KCAS.Admin.Data.RiskBand", b =>
                 {
                     b.HasOne("KCAS.Admin.Data.RiskMethodologyVersion", "MethodologyVersion")
@@ -8048,6 +8306,13 @@ namespace KCAS.Admin.Data.Migrations
             modelBuilder.Entity("KCAS.Admin.Data.LegacyImportRun", b =>
                 {
                     b.Navigation("Rows");
+                });
+
+            modelBuilder.Entity("KCAS.Admin.Data.PerformanceFeeProfile", b =>
+                {
+                    b.Navigation("Claims");
+
+                    b.Navigation("Events");
                 });
 
             modelBuilder.Entity("KCAS.Admin.Data.RiskFactorDefinition", b =>

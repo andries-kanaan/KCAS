@@ -34,7 +34,7 @@ else
         </div>
     </div>
 
-    <ClientWorkspaceNav ClientId="ClientId" KanaanId="model.KanaanId" />
+    <ClientWorkspaceNav ClientId="ClientId" KanaanId="@model.KanaanId" />
 
     @if (!string.IsNullOrWhiteSpace(message)) { <div class="alert @(error ? "alert-danger" : "alert-success")">@message</div> }
     @if (preparation?.Task is { } preparationTask)

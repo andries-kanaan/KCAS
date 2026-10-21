@@ -16,6 +16,7 @@ public static class WorkspaceNavigation
             new("Client risk register", "/compliance/client-risk", KcasPermissions.RiskAssessmentsView)]),
         new("Investments", "bi-list-nested-nav-menu", [
             new("Investment summary", "/investments/summary", KcasPermissions.InvestmentsView),
+            new("Annual PDF claims", "/investments/performance-fees", KcasPolicies.PerformanceFeesView),
             new("Reconciliation", "/investments/reconciliation", KcasPermissions.InvestmentsManage)]),
         new("Advice", "bi-list-nested-nav-menu", [new("Advice register", "/advice", KcasPermissions.AdviceView)]),
         new("Compliance", "bi-person-badge-nav-menu", [

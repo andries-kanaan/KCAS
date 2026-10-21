@@ -1,0 +1,22 @@
+@using KCAS.Admin.Data
+<details class="my-2">
+    <summary>Statement coverage: @History.Status</summary>
+    <dl class="row mt-2">
+        <dt class="col-sm-5">First funding evidenced</dt><dd class="col-sm-7">@(History.FirstFundingDate?.ToString("yyyy-MM-dd") ?? "Not established")</dd>
+        <dt class="col-sm-5">Account beginning covered</dt><dd class="col-sm-7">@(History.BeginningCovered ? "Yes" : "Not yet established")</dd>
+    </dl>
+    @if (History.FeeScopeBeginningCovered && !History.BeginningCovered)
+    {
+        <p>The earlier account balance is outside the supported fee wraps. Their first allocations are supplied; the mandate and separate fee-period basis still require review before claiming.</p>
+        <ul>@foreach (var entry in History.FeeScopeEntries) { <li>@entry.Wrap: @entry.Date.ToString("yyyy-MM-dd") · R @entry.Amount.ToString("N2")</li> }</ul>
+    }
+    @if (History.Periods.Count > 0)
+    {
+        <div class="table-responsive"><table class="table table-sm"><thead><tr><th>From</th><th>To</th><th>Opening R</th><th>Closing R</th></tr></thead><tbody>
+        @foreach (var period in History.Periods)
+        { <tr><td>@period.From.ToString("yyyy-MM-dd")</td><td>@period.To?.ToString("yyyy-MM-dd")</td><td>@period.OpeningValue.ToString("N2")</td><td>@period.ClosingValue?.ToString("N2")</td></tr> }
+        </tbody></table></div>
+    }
+    @foreach (var issue in History.Issues) { <p class="text-danger mb-1">@issue</p> }
+</details>
+@code { [Parameter, EditorRequired] public FeeStatementHistory History { get; set; } = new(); }

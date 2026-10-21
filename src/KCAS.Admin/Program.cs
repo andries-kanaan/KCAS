@@ -58,6 +58,10 @@ builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy(KcasPolicies.AdministratorOnly, policy =>
         policy.RequireRole(KcasRoles.Administrator));
+    options.AddPolicy(KcasPolicies.PerformanceFeesView, policy => policy.RequireAuthenticatedUser().RequireAssertion(context =>
+        context.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.InvestmentsView) ||
+        context.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage) &&
+        (context.User.IsInRole(KcasRoles.ComplianceAdministrator) || context.User.IsInRole(KcasRoles.ComplianceApprover))));
     foreach (var permission in KcasPermissions.All)
     {
         options.AddPolicy(permission, policy =>
@@ -85,6 +89,8 @@ builder.Services.AddScoped<ClientVisibilityService>();
 builder.Services.AddScoped<InvestmentSummaryService>();
 builder.Services.AddScoped<InvestmentReturnService>();
 builder.Services.AddScoped<InvestmentFundingService>();
+builder.Services.AddScoped<PerformanceFeeService>();
+builder.Services.AddScoped<PerformanceFeeExports>();
 builder.Services.AddScoped<InvestmentReconciliationService>();
 builder.Services.AddScoped<ClientReviewTransferService>();
 builder.Services.AddScoped<ClientDuplicateReviewTransferService>();
@@ -361,6 +367,62 @@ app.MapGet("/compliance/programme-transfers/{packageId}/download", async Task<IR
         "application/vnd.kcas.compliance-programme",
         package.FileName);
 }).RequireAuthorization(KcasPolicies.AdministratorOnly);
+
+app.MapGet("/investments/performance-fees/{profileId:int}/claims/{claimId:int}/preview.pdf", async Task<IResult> (
+    int profileId, int claimId, HttpContext context, PerformanceFeeExports exports) =>
+{
+    try { return Results.File(await exports.PreviewAsync(profileId, claimId, context.User), "application/pdf", $"KCAS-PDF-draft-{claimId}.pdf"); }
+    catch (UnauthorizedAccessException) { return Results.Forbid(); }
+    catch (InvalidOperationException) { return Results.NotFound(); }
+}).RequireAuthorization(KcasPolicies.PerformanceFeesView);
+
+app.MapGet("/investments/performance-fees/{profileId:int}/statements/{statementId:int}/original.xlsx", async Task<IResult> (
+    int profileId, int statementId, HttpContext context, PerformanceFeeService service) =>
+{
+    try { var file = await service.DownloadStatementAsync(profileId, statementId, context.User); return Results.File(file.Content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", file.FileName); }
+    catch (UnauthorizedAccessException) { return Results.Forbid(); }
+    catch (InvalidOperationException) { return Results.NotFound(); }
+}).RequireAuthorization(KcasPolicies.PerformanceFeesView);
+
+app.MapGet("/investments/performance-fees/client-preview.zip", async Task<IResult> (
+    int profileId, string ids, HttpContext context, PerformanceFeeExports exports) =>
+{
+    var parts = ids.Split(',', StringSplitOptions.RemoveEmptyEntries);
+    if (parts.Length is 0 or > 200 || parts.Any(x => !int.TryParse(x, out var id) || id <= 0)) return Results.BadRequest("Select valid client drafts.");
+    try { return Results.File(await exports.ClientPreviewAsync(profileId, parts.Select(int.Parse).ToArray(), context.User), "application/zip", $"KCAS-client-PDF-review-DRAFT-{DateTime.Today:yyyy-MM-dd}.zip"); }
+    catch (UnauthorizedAccessException) { return Results.Forbid(); }
+    catch (System.ComponentModel.DataAnnotations.ValidationException ex) { return Results.BadRequest(ex.Message); }
+}).RequireAuthorization(KcasPolicies.PerformanceFeesView);
+
+app.MapGet("/investments/performance-fees/client-summary.pdf", async Task<IResult> (
+    int profileId, string ids, bool? draft, HttpContext context, PerformanceFeeExports exports) =>
+{
+    var parts = ids.Split(',', StringSplitOptions.RemoveEmptyEntries);
+    if (parts.Length is 0 or > 200 || parts.Any(x => !int.TryParse(x, out var id) || id <= 0)) return Results.BadRequest("Select valid client calculations.");
+    try { return Results.File(await exports.ClientSummaryAsync(profileId, parts.Select(int.Parse).ToArray(), context.User, draft ?? true), "application/pdf", $"KCAS-client-PDF-summary-{(draft ?? true ? "DRAFT-" : "")}{DateTime.Today:yyyy-MM-dd}.pdf"); }
+    catch (UnauthorizedAccessException) { return Results.Forbid(); }
+    catch (System.ComponentModel.DataAnnotations.ValidationException ex) { return Results.BadRequest(ex.Message); }
+}).RequireAuthorization(KcasPolicies.PerformanceFeesView);
+
+app.MapGet("/investments/performance-fees/client-report.zip", async Task<IResult> (
+    int profileId, string ids, HttpContext context, PerformanceFeeExports exports) =>
+{
+    var parts = ids.Split(',', StringSplitOptions.RemoveEmptyEntries);
+    if (parts.Length is 0 or > 200 || parts.Any(x => !int.TryParse(x, out var id) || id <= 0)) return Results.BadRequest("Select valid client reviews.");
+    try { return Results.File(await exports.ClientReportAsync(profileId, parts.Select(int.Parse).ToArray(), context.User), "application/zip", $"KCAS-client-PDF-review-{DateTime.Today:yyyy-MM-dd}.zip"); }
+    catch (UnauthorizedAccessException) { return Results.Forbid(); }
+    catch (System.ComponentModel.DataAnnotations.ValidationException ex) { return Results.BadRequest(ex.Message); }
+}).RequireAuthorization(KcasPermissions.InvestmentsManage);
+
+app.MapGet("/investments/performance-fees/submission.zip", async Task<IResult> (
+    string ids, HttpContext context, PerformanceFeeExports exports) =>
+{
+    var parts = ids.Split(',', StringSplitOptions.RemoveEmptyEntries);
+    if (parts.Length is 0 or > 200 || parts.Any(x => !int.TryParse(x, out var id) || id <= 0)) return Results.BadRequest("Select valid approved claims.");
+    try { return Results.File(await exports.PackageAsync(parts.Select(int.Parse).ToArray(), context.User), "application/zip", $"KCAS-PDF-claims-{DateTime.Today:yyyy-MM-dd}.zip"); }
+    catch (UnauthorizedAccessException) { return Results.Forbid(); }
+    catch (System.ComponentModel.DataAnnotations.ValidationException ex) { return Results.BadRequest(ex.Message); }
+}).RequireAuthorization(KcasPermissions.InvestmentsManage);
 
 app.MapGet("/investments/summary.csv", async Task<IResult> (
     HttpContext context,

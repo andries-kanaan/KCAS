@@ -194,6 +194,9 @@ public sealed class ComplianceService(ApplicationDbContext db)
         RequireValue(model.Code, "Reference code is required.");
         RequireValue(model.Name, "Reference name is required.");
         var category = Normalize(model.Category)!;
+        if (category.Equals(PerformanceFeeService.FeePolicyCategory, StringComparison.OrdinalIgnoreCase) || model.Id is { } policyId &&
+            await db.ComplianceReferenceValues.AnyAsync(x => x.Id == policyId && x.Category == PerformanceFeeService.FeePolicyCategory))
+            throw new InvalidOperationException("Use Annual PDF claims > Convention and VAT; generic reference editing cannot create, alter or bypass KI adoption of fee settings.");
         var code = Normalize(model.Code)!;
         var duplicate = await db.ComplianceReferenceValues.AnyAsync(reference =>
             reference.Id != model.Id &&

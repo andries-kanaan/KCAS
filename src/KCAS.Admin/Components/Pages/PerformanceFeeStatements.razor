@@ -1,0 +1,101 @@
+@page "/investments/performance-fees/{Id:int}/statements"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPolicies.PerformanceFeesView)]
+@using KCAS.Admin.Data
+@using Microsoft.AspNetCore.Components.Forms
+@inject PerformanceFeeService Fees
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>Administrator statements</PageTitle>
+<div class="performance-fee-workspace">
+<div class="page-header"><div><h1>Administrator statements</h1><p>@profile?.Account.Client.DisplayName · @profile?.Account.AccountNumber</p></div><a class="btn btn-outline-secondary" href="@($"/investments/performance-fees/{Id}")">Back to PDF claim</a></div>
+<a class="btn btn-primary mb-3" href="@($"/investments/performance-fees/{Id}/client-review")"><i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> Upload / review all client accounts</a>
+@if (error is not null) { <div class="alert alert-warning" role="alert">@error</div> }
+@if (message is not null) { <div class="alert alert-success" role="status">@message</div> }
+@if (profile is not null)
+{
+    @if (canPrepare)
+    {
+        <div class="mb-4"><label for="statement-file" class="form-label">Original AIMS / Glacier Excel statement</label><InputFile id="statement-file" class="form-control" OnChange="SelectFile" accept=".xlsx" disabled="@(!ready || busy)" /></div>
+    }
+    <FeeEarlierHistoryAlert Notices="EarlierHistory" UploadTarget="@(canPrepare ? "#statement-file" : null)" />
+    @if (preview is not null)
+    {
+        <section class="mb-4 border-bottom pb-3"><h2>Import preview</h2><p>@preview.Document.FileName · account @preview.Account · @preview.Document.Rows.Count(x => x.Account == preview.Account) source rows</p>
+        @if (preview.OtherAccounts.Length > 0) { <p class="text-muted">Other accounts in this file: @string.Join(", ", preview.OtherAccounts). Only @preview.Account is included in this profile.</p> }
+        <p>@preview.Ledger.DuplicateRows overlapping rows excluded from the combined history.</p>
+        <WrapPreview Ledger="preview.Ledger" />
+        @if (preview.AlreadyImported) { <p>This exact workbook is already preserved.</p> }
+        else { <button type="button" class="btn btn-primary" @onclick="Import" disabled="@(!ready || busy)"><i class="bi bi-database-add" aria-hidden="true"></i> Import statement history</button> }
+        </section>
+    }
+    <h2>Preserved source files</h2>
+    @if (receipts.Count == 0) { <p>No administrator statements imported for this account.</p> }
+    else
+    {
+        <div class="table-responsive"><table class="table"><thead><tr><th>Statement</th><th>Imported by</th><th>Recorded UTC</th></tr></thead><tbody>
+        @foreach (var file in receipts) { <tr><td><a href="@($"/investments/performance-fees/{file.OwnerProfileId}/statements/{file.Id}/original.xlsx")">@file.FileName</a><details><summary>SHA256</summary><code class="text-break">@file.Sha256</code></details></td><td>@file.ImportedBy</td><td>@file.ImportedAtUtc.ToString("yyyy-MM-dd HH:mm")</td></tr> }
+        </tbody></table></div>
+        <h2>Combined history and reconciliation</h2>
+        <WrapPreview Ledger="ledger" />
+        @if (canPrepare) { <button type="button" class="btn btn-primary mb-4" disabled="@(!ready || busy)" @onclick="Prepare"><i class="bi bi-calculator" aria-hidden="true"></i> Prepare draft from statements</button> }
+        <h2>Source transactions</h2>
+        <div class="d-flex gap-3 flex-wrap mb-3"><label>Wrap<select class="form-select" @bind="wrapFilter" @bind:after="ResetPage"><option value="">All wraps</option>@foreach (var wrap in ledger.Wraps) { <option value="@wrap.Code">@wrap.Code</option> }</select></label>
+        <label>Classification<select class="form-select" @bind="kindFilter" @bind:after="ResetPage"><option value="">All transactions</option>@foreach (var kind in FeeStatementKinds.Reviewable) { <option>@kind</option> }<option>Opening</option><option>Closing</option></select></label></div>
+        <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Date</th><th>Wrap / holding</th><th>Administrator description</th><th>Classification</th><th>Amount (R)</th><th>Units</th><th>Source / review</th></tr></thead><tbody>
+        @foreach (var row in Filtered.Skip(page * 30).Take(30))
+        {
+            <tr><td>@row.Date.ToString("yyyy-MM-dd")</td><td>@row.Wrap<br /><small>@row.Holding</small></td><td>@row.Detail</td><td>@row.Kind</td><td class="text-end">@row.Amount.ToString("N2")</td><td class="text-end">@row.UnitBalance.ToString("N4")</td><td><small>@row.Source</small>
+            @if (canPrepare && row.Kind is not ("Opening" or "Closing")) { <button class="btn btn-sm btn-outline-secondary d-block mt-1" type="button" @onclick="() => StartReview(row)">Review classification</button> }</td></tr>
+        }
+        </tbody></table></div>
+        <div class="d-flex gap-3 align-items-center"><button class="btn btn-outline-secondary" type="button" disabled="@(page == 0)" @onclick="() => page--" title="Previous page" aria-label="Previous page"><i class="bi bi-chevron-left"></i></button><span>@(page * 30 + 1)-@Math.Min((page + 1) * 30, Filtered.Count) of @Filtered.Count</span><button class="btn btn-outline-secondary" type="button" disabled="@((page + 1) * 30 >= Filtered.Count)" @onclick="() => page++" title="Next page" aria-label="Next page"><i class="bi bi-chevron-right"></i></button></div>
+    }
+    @if (reviewRow is not null)
+    {
+        <section class="border-top pt-3 mt-4"><h2>Review transaction classification</h2><p>@reviewRow.Date.ToString("yyyy-MM-dd") · @reviewRow.Holding · @reviewRow.Detail · R @reviewRow.Amount.ToString("N2")</p>
+        <label class="form-label">Classification<select class="form-select" @bind="reviewKind">@foreach (var kind in FeeStatementKinds.Reviewable) { <option>@kind</option> }</select></label>
+        <label class="d-block mb-3">Evidence and reason<textarea class="form-control" rows="3" maxlength="2000" @bind="reviewReason"></textarea></label>
+        <button class="btn btn-primary" type="button" disabled="@(!ready || busy || string.IsNullOrWhiteSpace(reviewReason))" @onclick="SaveReview">Record review</button> <button class="btn btn-outline-secondary" type="button" @onclick="() => reviewRow = null">Cancel</button></section>
+    }
+}
+
+</div>
+
+@code {
+    [Parameter] public int Id { get; set; }
+    private PerformanceFeeProfile? profile;
+    private System.Security.Claims.ClaimsPrincipal principal = new();
+    private List<FeeStatementReceipt> receipts = [];
+    private FeeStatementLedger ledger = new();
+    private FeeStatementPreview? preview;
+    private byte[] content = [];
+    private string fileName = "", reviewKind = "", reviewReason = "", wrapFilter = "", kindFilter = "";
+    private string? error, message;
+    private bool canPrepare, ready, busy;
+    private int page;
+    private FeeStatementRow? reviewRow;
+    private FeeEarlierHistoryNotice[] EarlierHistory => profile is not null &&
+        FeeEarlierHistoryNotice.From(profile.Account.AccountNumber ?? "", preview?.Ledger ?? ledger, profile) is { } notice ? [notice] : [];
+    private List<FeeStatementRow> Filtered => ledger.Rows.Where(x => (wrapFilter == "" || x.Wrap == wrapFilter) && (kindFilter == "" || x.Kind == kindFilter)).ToList();
+    protected override void OnAfterRender(bool firstRender) { if (firstRender) { ready = true; StateHasChanged(); } }
+    protected override async Task OnParametersSetAsync()
+    {
+        try { principal = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User; canPrepare = principal.HasClaim(KcasClaimTypes.Permission, KcasPermissions.InvestmentsManage) || principal.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage); await Reload(); }
+        catch (Exception ex) { error = ex.Message; }
+    }
+    private async Task Reload() { profile = await Fees.LoadAsync(Id, principal); (receipts, ledger) = await Fees.StatementsAsync(Id, principal); }
+    private void ResetPage() => page = 0;
+    private async Task SelectFile(InputFileChangeEventArgs args)
+    {
+        busy = true; error = message = null; preview = null; content = [];
+        try { using var buffer = new MemoryStream(); await args.File.OpenReadStream(PerformanceFeeStatementReader.MaximumBytes).CopyToAsync(buffer); content = buffer.ToArray(); fileName = args.File.Name; preview = await Fees.PreviewStatementAsync(Id, content, fileName, principal); }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+    private async Task Import() { busy = true; error = null; try { await Fees.ImportStatementAsync(Id, profile!.Version, content, fileName, principal); await Reload(); preview = null; content = []; message = "Statement preserved. Existing investments, valuations and compliance records were not changed."; } catch (Exception ex) { error = ex.Message; } finally { busy = false; } }
+    private async Task Prepare() { busy = true; error = null; try { await Fees.PrepareStatementsAsync(Id, profile!.Version, principal); Navigation.NavigateTo($"/investments/performance-fees/{Id}/prepare"); } catch (Exception ex) { error = ex.Message; } finally { busy = false; } }
+    private void StartReview(FeeStatementRow row) { reviewRow = row; reviewKind = row.Kind; reviewReason = ""; }
+    private async Task SaveReview() { busy = true; error = null; try { await Fees.ReviewStatementRowAsync(Id, profile!.Version, reviewRow!.Key, reviewKind, reviewReason, principal); reviewRow = null; await Reload(); preview = null; message = "Classification review recorded. Rebuild the draft to use the updated history."; } catch (Exception ex) { error = ex.Message; } finally { busy = false; } }
+}

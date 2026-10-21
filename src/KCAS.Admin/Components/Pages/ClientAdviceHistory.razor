@@ -19,7 +19,7 @@ else
         <div class="header-actions"><AuthorizeView Policy="@KcasPermissions.ClientsView"><Authorized><a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}")">Back to client</a></Authorized></AuthorizeView></div>
     </div>
 
-    <ClientWorkspaceNav ClientId="ClientId" KanaanId="model.KanaanId" />
+    <ClientWorkspaceNav ClientId="ClientId" KanaanId="@model.KanaanId" />
 
     <AuthorizeView Policy="@KcasPermissions.AdvicePrepare">
         <Authorized>
