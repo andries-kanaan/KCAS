@@ -1,0 +1,318 @@
+@page "/investments/performance-fees/{Id:int}/client-review"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPolicies.PerformanceFeesView)]
+@implements IAsyncDisposable
+@using KCAS.Admin.Data
+@using Microsoft.AspNetCore.Components.Forms
+@inject PerformanceFeeService Fees
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Client PDF review</PageTitle>
+<div class="performance-fee-workspace">
+<div class="page-header"><div><h1>Client PDF review</h1><p>@workspace?.Client.DisplayName · Kanaan ID @workspace?.Client.KanaanId</p></div>
+<div class="header-actions"><a class="btn btn-outline-secondary" href="@($"/investments/performance-fees/{Id}")">Account claim</a>
+@if (workspace is not null) { <a class="btn btn-outline-secondary" href="@($"/clients/{workspace.Client.Id}?tab=investments")">Client investments</a> }</div></div>
+@if (error is not null) { <div class="alert alert-warning" role="alert">@error</div> }
+@if (message is not null) { <div class="alert alert-success" role="status">@message</div> }
+@if (workspace is null && error is null) { <p role="status">Loading client statements...</p> }
+else if (workspace is not null)
+{
+    <section class="fee-client-summary" aria-labelledby="fee-approval-heading">
+        <div class="fee-summary-heading"><h2 id="fee-approval-heading">Approval summary</h2>
+        @if (canPrepare) { <label class="form-check"><input class="form-check-input" type="checkbox" @bind="manualSelection" disabled="@busy" /><span class="form-check-label">Select accounts</span></label> }</div>
+        <h3>@(ReadySummary.Length > 0 ? $"Ready for KI approval: {ReadySummary.Length} account(s)" : ApprovedSummary.Length > 0 ? $"Approved: {ApprovedSummary.Length} account(s)" : "No accounts ready for approval")</h3>
+        <dl class="fee-summary-totals">
+            <div><dt>PDF excluding VAT</dt><dd>@Money(DecisionSummary.Sum(x => x.FeeExVat ?? 0))</dd></div>
+            <div><dt>VAT</dt><dd>@Money(DecisionSummary.Sum(x => x.Vat ?? 0))</dd></div>
+            <div><dt>Total including VAT</dt><dd>@Money(DecisionSummary.Sum(x => x.Total ?? 0))</dd></div>
+        </dl>
+        <div class="table-responsive"><table class="table align-middle fee-summary-table"><thead><tr>@if (manualSelection) { <th>Select</th> }<th>Account</th><th>Period</th><th>Status</th><th class="text-end">PDF excl. VAT</th><th class="text-end">VAT</th><th class="text-end">Total</th><th>Details</th></tr></thead><tbody>
+        @foreach (var row in SummaryRows)
+        {
+            var account = workspace.Accounts.Single(x => x.Number == row.Account);
+            <tr>@if (manualSelection) { <td>@if (row.AccountId is { } accountId && account.PreparationHold is null) { <input class="form-check-input" type="checkbox" aria-label="@($"Select account {row.Account}")" checked="@selected.Contains(accountId)" disabled="@busy" @onchange="e => Choose(accountId, (bool)(e.Value ?? false))" /> }</td> }
+                <td>@row.Account</td><td class="fee-summary-period">@row.From?.ToString("yyyy-MM-dd")<br />@row.To?.ToString("yyyy-MM-dd")</td>
+                <td>@row.Status</td><td class="text-end">@Money(row.FeeExVat)</td><td class="text-end">@Money(row.Vat)</td><td class="text-end">@Money(row.Total)</td>
+                <td>@if (row.ProfileId is { } profileId) { <a href="@($"/investments/performance-fees/{profileId}")" aria-label="@($"Calculation for {row.Account}")">Calculation</a> }</td></tr>
+        }
+        @if (SummaryRows.Length == 0) { <tr><td colspan="@(manualSelection ? 9 : 8)">No statement accounts prepared.</td></tr> }
+        </tbody></table></div>
+        @if (ChosenSummary.Any(x => !x.ReadyForApproval && !x.Approved))
+        { <p class="text-muted">@ChosenSummary.Count(x => !x.ReadyForApproval && !x.Approved) account(s) are outside the totals above. Their review status remains outstanding.</p> }
+        @if (canApprove && ApprovalClaims.Length > 0)
+        {
+            <div class="fee-summary-approval"><label class="form-label" for="fee-approval-reason">KI approval reason</label>
+            <textarea id="fee-approval-reason" class="form-control mb-2" maxlength="2000" rows="2" @bind="approvalReason" disabled="@busy"></textarea>
+            <button type="button" class="btn btn-primary" disabled="@(!ready || busy || uploads.Count > 0 || string.IsNullOrWhiteSpace(approvalReason))" @onclick="Approve"><i class="bi bi-check2-circle" aria-hidden="true"></i> Approve ready calculations (@ApprovalClaims.Length)</button></div>
+        }
+        else if (ApprovalClaims.Length > 0) { <p role="status">Awaiting approval by an authorised Key Individual.</p> }
+    </section>
+    @if (uploads.Count == 0 && (ReviewClaims.Length > 0 || ApprovedDownloadClaims.Length > 0))
+    {
+        <section class="fee-summary-downloads" aria-labelledby="fee-download-heading"><h2 id="fee-download-heading">Downloads</h2>
+        @if (ReviewClaims.Length > 0)
+        { <div class="fee-download-row"><h3>Draft review</h3><div class="fee-download-actions">
+            <a class="btn btn-outline-secondary" href="@($"/investments/performance-fees/client-summary.pdf?profileId={Id}&ids={string.Join(',', ReviewClaims)}&draft=true")"><i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> Summary PDF</a>
+            <a class="btn btn-outline-secondary" href="@($"/investments/performance-fees/client-preview.zip?profileId={Id}&ids={string.Join(',', ReviewClaims)}")"><i class="bi bi-file-earmark-zip" aria-hidden="true"></i> Detailed review package</a>
+        </div></div> }
+        @if (ApprovedDownloadClaims.Length > 0 && canManage)
+        { <div class="fee-download-row"><h3>@(SubmissionClaims.Length > 0 ? $"Approved claims ({ApprovedDownloadClaims.Length})" : $"Approved reviews ({ApprovedDownloadClaims.Length})")</h3><div class="fee-download-actions">
+            <a class="btn btn-outline-primary" href="@($"/investments/performance-fees/client-summary.pdf?profileId={Id}&ids={string.Join(',', ApprovedDownloadClaims)}&draft=false")"><i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> Summary PDF</a>
+            <a class="btn btn-outline-primary" href="@(SubmissionClaims.Length > 0 ? $"/investments/performance-fees/submission.zip?ids={string.Join(',', SubmissionClaims)}" : $"/investments/performance-fees/client-report.zip?profileId={Id}&ids={string.Join(',', ApprovedReviews)}")"><i class="bi bi-file-earmark-zip" aria-hidden="true"></i> @(SubmissionClaims.Length > 0 ? "Detailed submission package" : "Detailed review package")</a>
+        </div></div> }
+        </section>
+    }
+    <details id="fee-review-details" class="fee-review-details" open="@(showPreparation || uploads.Count > 0 || workspace.Sources.Count == 0)">
+    <summary>Detailed calculations and preparation</summary>
+    <div class="pt-3">
+    <div class="d-flex flex-wrap gap-2 mb-3"><a class="btn btn-outline-secondary" href="/investments/performance-fees/benchmarks">PDF benchmark data</a><a class="btn btn-outline-secondary" href="/investments/performance-fees/convention">Convention and VAT</a></div>
+    <FeeEarlierHistoryAlert Notices="EarlierHistory" UploadTarget="@(canPrepare ? "#client-statements" : null)" />
+    @if (sharedPolicy is not null)
+    {
+        <section class="mb-4"><h2>Shared convention and VAT</h2>
+        <p>@(sharedPolicy.ApprovedAtUtc is null ? "Calculation convention proposed - KI adoption outstanding." : $"Convention adopted by {sharedPolicy.ApprovedBy}.") VAT: @sharedPolicy.VatPercent.ToString("0.####")% on the fee.</p>
+        @if (canPrepare)
+        {
+            <details><summary>Apply to matching signed mandates</summary>
+            <label class="d-block my-2">Applicability evidence / reason<textarea class="form-control" rows="2" maxlength="4000" @bind="policyReason"></textarea></label>
+            <button class="btn btn-outline-primary" type="button" disabled="@(!ready || busy || uploads.Count > 0 || string.IsNullOrWhiteSpace(policyReason))" @onclick="ApplyPolicy">Apply shared convention and VAT</button></details>
+        }</section>
+    }
+    @if (canPrepare)
+    {
+        <section class="mb-4"><h2>Administrator statements</h2>
+        <label for="client-statements" class="form-label">Original AIMS / Glacier Excel statement(s)</label>
+        <InputFile id="client-statements" class="form-control" OnChange="SelectFiles" multiple accept=".xlsx" disabled="@(!ready || busy)" />
+        @if (uploads.Count > 0)
+        {
+            <ul class="mt-2">@foreach (var file in uploads) { <li>@file.FileName</li> }</ul>
+            <button class="btn btn-primary" type="button" disabled="@(!ready || busy)" @onclick="Import"><i class="bi bi-database-add" aria-hidden="true"></i> Import statement files (@uploads.Count)</button>
+            <button class="btn btn-outline-secondary" type="button" disabled="@busy" @onclick="CancelPreview">Cancel preview</button>
+        }</section>
+    }
+    @if (workspace.Sources.Count > 0)
+    {
+        <details class="mb-4"><summary>Preserved originals (@workspace.Sources.Count)</summary>
+        <div class="table-responsive"><table class="table"><thead><tr><th>Statement</th><th>SHA256</th><th>Imported by / UTC</th></tr></thead><tbody>
+        @foreach (var source in workspace.Sources)
+        { <tr><td><a href="@($"/investments/performance-fees/{source.ProfileId}/statements/{source.Receipt.Id}/original.xlsx")">@source.Receipt.FileName</a></td><td><code class="text-break">@source.Receipt.Sha256</code></td><td>@source.Receipt.ImportedBy<br />@source.Receipt.ImportedAtUtc.ToString("yyyy-MM-dd HH:mm") UTC</td></tr> }
+        </tbody></table></div></details>
+    }
+    @if (canPrepare && workspace.Accounts.Any(x => x.Profile != null && FeeJson.Read<FeePreparation>(x.Profile.PreparationJson).Wraps.Any(w => w.Input.FeePercent != null)))
+    {
+        <details class="mb-4"><summary>Reuse evidenced mandate terms across this client's accounts</summary>
+        <label class="d-block mt-2">Mandate source account<select class="form-select" @bind="coverageProfileId" @bind:after="LoadCoverage"><option value="0">Select recorded mandate</option>
+        @foreach (var item in workspace.Accounts.Where(x => x.Profile != null && FeeJson.Read<FeePreparation>(x.Profile.PreparationJson).Wraps.Any(w => w.Input.FeePercent != null)))
+        { <option value="@item.Profile!.Id">@item.Number</option> }</select></label>
+        @if (coverageProfileId != 0)
+        {
+            <div class="d-flex flex-wrap gap-3 my-3">@foreach (var item in workspace.Accounts.Where(x => x.Account != null && x.Exclusion == null))
+            { <label class="form-check"><input class="form-check-input" type="checkbox" checked="@coverageAccounts.Contains(item.Account!.Id)" @onchange="e => ChooseCoverage(item.Account!.Id, (bool)(e.Value ?? false))" /><span class="form-check-label">@item.Number</span></label> }</div>
+            <label class="d-block">Actual signed mandate coverage / amendment reference<textarea class="form-control" rows="2" maxlength="4000" @bind="coverageReference"></textarea></label>
+            <button class="btn btn-outline-primary mt-2" type="button" disabled="@(busy || !ready || uploads.Count > 0 || coverageAccounts.Count > 0 && string.IsNullOrWhiteSpace(coverageReference))" @onclick="SaveCoverage"><i class="bi bi-save" aria-hidden="true"></i> Save mandate coverage</button>
+        }
+        </details>
+    }
+    <h2>@(uploads.Count > 0 ? "Import preview — accounts" : "Accounts and calculations")</h2>
+    @if (uploads.Count == 0 && workspace.Accounts.Any(x => x.RequiresStatementRebuild))
+    { <p class="alert alert-warning" role="status">Statement summaries or history have changed. Prepare the accounts again before using the previous drafts.</p> }
+    <div class="table-responsive"><table class="table align-middle"><thead><tr>@if (manualSelection) { <th>Select</th> }<th>Account</th><th>Statement period</th><th>Closing ZAR</th><th>Reconciliation / fee status</th><th>Review</th></tr></thead><tbody>
+    @foreach (var item in workspace.Accounts)
+    {
+        var claim = item.Profile?.Claims.MaxBy(x => x.Id);
+        var result = claim is null ? null : FeeJson.Read<FeeCalculationResult>(claim.ResultJson);
+        <tr>@if (manualSelection) { <td>@if (item.Account is not null && item.PreparationHold is null && canPrepare)
+        { <input class="form-check-input" type="checkbox" aria-label="@($"Select account {item.Number}")" checked="@selected.Contains(item.Account.Id)" disabled="@busy" @onchange="e => Choose(item.Account.Id, (bool)(e.Value ?? false))" /> }</td> }
+        <td>@item.Number<br /><small>@item.Account?.FundName</small></td><td class="text-nowrap">@item.Ledger.Rows.Min(x => x.Date).ToString("yyyy-MM-dd")<br />@item.Ledger.Rows.Max(x => x.Date).ToString("yyyy-MM-dd")</td>
+        <td class="text-end">@item.Ledger.Wraps.Sum(x => x.ClosingValue).ToString("N2")</td><td>
+        @if (item.PreparationHold is not null) { <span>@item.PreparationHold</span> }
+        @if (item.RequiresStatementRebuild) { <span>Previous draft requires statement refresh</span> }
+        else if (claim is not null && result is not null) { <span>@claim.Status · @FeeResultDescription.Describe(result) @(result.IsReady ? $"· R {result.Total:N2}" : "")</span> }
+        else if (item.PreparationHold is null) { <span>Included in automatic review · fee terms checked before any claim</span> }
+        @if (!item.RequiresStatementRebuild && result?.Wraps.Count > 0) { <ul class="mb-0">@foreach (var wrap in result.Wraps) { <li>@wrap.Code: @FeeResultDescription.Describe(wrap.Result) @(wrap.Result.IsReady ? $"(R {wrap.Result.Total:N2})" : wrap.Result.HasCalculation ? $"(draft R {wrap.Result.FeeExVat:N2} excl. VAT; {(wrap.Result.HasVatCalculation ? $"R {wrap.Result.Total:N2} incl. VAT" : "VAT not confirmed")})" : "")</li> }</ul> }
+        <FeeStatementCoverage History="item.Ledger.History" />
+        <br /><small>@item.Ledger.Rows.Count source rows · @item.Ledger.DuplicateRows overlapping rows excluded</small>
+        @if (item.Ledger.Issues.Count > 0) { <ul>@foreach (var issue in item.Ledger.Issues) { <li>@issue</li> }</ul> }
+        @foreach (var wrap in item.Ledger.Wraps.Where(x => x.Issues.Count > 0)) { <details><summary>@wrap.Code reconciliation issues (@wrap.Issues.Count)</summary><ul>@foreach (var issue in wrap.Issues) { <li>@issue</li> }</ul></details> }
+        </td><td>@if (item.Profile is not null)
+        { <a href="@($"/investments/performance-fees/{item.Profile.Id}/prepare")">Fee setup / evidence</a><br /><a href="@($"/investments/performance-fees/{item.Profile.Id}")">Account calculation</a>
+            @if (claim is not null && !item.RequiresStatementRebuild) { <br /><a href="@($"/investments/performance-fees/{item.Profile.Id}/claims/{claim.Id}/preview.pdf")">Draft PDF</a> }
+        }</td></tr>
+    }
+    @if (workspace.Accounts.Count == 0) { <tr><td colspan="6">No administrator statements imported for this client.</td></tr> }
+    </tbody></table></div>
+    @if (workspace.Transfers.Count > 0)
+    {
+        <h2>Matched account transfers</h2>
+        <div class="table-responsive"><table class="table"><thead><tr><th>Continuity confirmed</th><th>Date</th><th>From</th><th>To</th><th>Amount ZAR</th><th>Source value before ZAR</th></tr></thead><tbody>
+        @foreach (var transfer in workspace.Transfers)
+        { <tr><td><input type="checkbox" class="form-check-input" disabled="@(!canPrepare || busy)" aria-label="@($"Confirm mandate continuity for {transfer.FromAccount} to {transfer.ToAccount} {transfer.FromWrap}")" checked="@transfers.Contains(transfer.Key)" @onchange="e => ChooseTransfer(transfer.Key, (bool)(e.Value ?? false))" /></td>
+        <td>@transfer.Date.ToString("yyyy-MM-dd")</td><td>@transfer.FromAccount / @transfer.FromWrap</td><td>@transfer.ToAccount / @transfer.ToWrap</td><td class="text-end">@transfer.Amount.ToString("N2")</td><td class="text-end">@(transfer.BeforeValue?.ToString("N2") ?? "Evidence needed")</td></tr> }
+        </tbody></table></div>
+        @if (canPrepare) { <label class="d-block mb-3">Mandate continuity evidence for confirmed transfers<textarea class="form-control" rows="2" maxlength="2000" @bind="transferReason"></textarea></label> }
+    }
+    @if (workspace.CapitalRouting.Traces.Count > 0)
+    {
+        <h2>Staged capital and settlement trace</h2>
+        <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Account / scope</th><th>Dates</th><th class="text-end">Capital ZAR</th><th>Statement finding</th></tr></thead><tbody>
+        @foreach (var trace in workspace.CapitalRouting.Traces)
+        { <tr><td>@trace.Account / @trace.Wrap</td><td class="text-nowrap">@trace.From.ToString("yyyy-MM-dd")<br />@trace.To.ToString("yyyy-MM-dd")</td><td class="text-end">@trace.Amount.ToString("N2")</td><td>@trace.Status<details><summary>Original statement rows</summary>@trace.Reference</details></td></tr> }
+        </tbody></table></div>
+        @foreach (var route in workspace.CapitalRouting.Routes.Where(r => r.Targets.All(t => r.Sources.All(s => s.Wrap == t.Wrap))))
+        {
+            <div class="border-top py-2"><label><input class="form-check-input me-2" type="checkbox" disabled="@(!canPrepare || busy)" checked="@transfers.Contains(route.Key)" @onchange="e => ChooseTransfer(route.Key, (bool)(e.Value ?? false))" />
+                Documentary continuity: @string.Join(", ", route.Sources.Select(x => x.Account + "/" + x.Wrap).Distinct()) → @string.Join(", ", route.Targets.Select(x => x.Account + "/" + x.Wrap).Distinct())</label></div>
+        }
+        @if (canPrepare && workspace.CapitalRouting.Routes.Any(r => r.Targets.All(t => r.Sources.All(s => s.Wrap == t.Wrap))) && workspace.Transfers.Count == 0)
+        { <label class="d-block mb-3">Mandate and transfer evidence reference<textarea class="form-control" rows="2" maxlength="2000" @bind="transferReason"></textarea></label> }
+    }
+    @if (canPrepare && workspace.Accounts.Any(x => x.PreparationHold == null))
+    {
+        <button class="btn btn-primary my-3" type="button" disabled="@(!ready || busy || uploads.Count > 0 || (manualSelection && selected.Count == 0) || (transfers.Count > 0 && string.IsNullOrWhiteSpace(transferReason)))" @onclick="Prepare"><i class="bi bi-calculator" aria-hidden="true"></i> @(busy ? "Preparing calculations..." : manualSelection ? $"Prepare selected accounts ({selected.Count})" : "Prepare all accounts")</button>
+    }
+    @if (selected.Count > 0)
+    {
+        <section class="mt-4"><h2>Calculation and approval requirements</h2>
+        @foreach (var item in workspace.Accounts.Where(x => x.Account != null && selected.Contains(x.Account.Id)))
+        {
+            var claim = item.Profile?.Claims.MaxBy(x => x.Id);
+            var issues = claim is null ? new List<string>() : FeeJson.Read<FeeCalculationResult>(claim.ResultJson).Issues;
+            @if (issues.Count > 0)
+            { var calculation = FeeJson.Read<FeeCalculationResult>(claim!.ResultJson);
+              <details class="mb-3"><summary>@item.Number — @issues.Distinct().Count() outstanding item(s)</summary>
+                @if (calculation.CalculationIssues.Count > 0) { <h3>Calculation inputs</h3><ul>@foreach (var issue in calculation.CalculationIssues.Distinct()) { <li>@issue</li> }</ul> }
+                @if (issues.Except(calculation.CalculationIssues).Any()) { <h3>Review before approval</h3><ul>@foreach (var issue in issues.Except(calculation.CalculationIssues)) { <li>@issue</li> }</ul> }
+              </details>
+                @if (canPrepare) { <button class="btn btn-outline-secondary mb-3" type="button" disabled="@(!ready || busy || uploads.Count > 0)" @onclick="() => Request(item.Profile!.Id)"><i class="bi bi-robot" aria-hidden="true"></i> Resolve @item.Number gaps with Codex</button> }
+            }
+            @if (item.Profile is not null)
+            {
+                @foreach (var point in FeeJson.Read<FeePreparation>(item.Profile.PreparationJson).ReviewPoints)
+                {
+                    <section class="border-top py-3"><h3>@item.Number · Fee disclosure review</h3><p>@point.Detail</p>
+                    @if (point.Resolved) { <p>Resolved by @point.ResolvedBy · @point.ResolvedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm"): @point.ResolutionReference</p> }
+                    else if (canApprove)
+                    {
+                        var key = $"{item.Profile.Id}:{point.Key}";
+                        <label class="d-block mb-2">Actual reconciliation evidence and conclusion<textarea class="form-control" rows="3" maxlength="4000" value="@resolutions.GetValueOrDefault(key)" @onchange="e => resolutions[key] = e.Value?.ToString() ?? string.Empty"></textarea></label>
+                        <button class="btn btn-outline-primary" type="button" disabled="@(!ready || busy || uploads.Count > 0 || string.IsNullOrWhiteSpace(resolutions.GetValueOrDefault(key)))" @onclick="() => ResolvePoint(item.Profile.Id, point.Key, key)">Record KI reconciliation</button>
+                    }
+                    else { <p>Awaiting an authorised KI's evidenced reconciliation.</p> }
+                    </section>
+                }
+            }
+        }
+        @if (handoff is not null) { <textarea class="form-control mb-2" rows="10" readonly @ref="handoffElement" value="@handoff"></textarea><button class="btn btn-outline-secondary" type="button" @onclick="Copy"><i class="bi bi-clipboard" aria-hidden="true"></i> Copy handoff</button><span role="status">@copyMessage</span> }
+        </section>
+    }
+    </div></details>
+}
+</div>
+
+@code {
+    [Parameter] public int Id { get; set; }
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+    private FeeClientWorkspace? workspace;
+    private string savedVersion = "", transferReason = "", approvalReason = "";
+    private string? error, message, handoff, copyMessage;
+    private bool ready, busy, canPrepare, canManage, canApprove, manualSelection, showPreparation;
+    private System.Security.Claims.ClaimsPrincipal principal = new();
+    private readonly HashSet<int> selected = [];
+    private readonly HashSet<string> transfers = [];
+    private int coverageProfileId;
+    private string coverageReference = "";
+    private FeeSharedPolicy? sharedPolicy;
+    private string policyReason = "";
+    private readonly Dictionary<string, string> resolutions = [];
+    private readonly HashSet<int> coverageAccounts = [];
+    private List<FeeStatementUpload> uploads = [];
+    private ElementReference handoffElement;
+    private IJSObjectReference? clipboard;
+    private FeeEarlierHistoryNotice[] EarlierHistory => workspace?.Accounts
+        .Select(x => FeeEarlierHistoryNotice.From(x.Number, x.Ledger, x.Profile)).OfType<FeeEarlierHistoryNotice>().ToArray() ?? [];
+    private FeeReviewSummaryLine[] SummaryRows => workspace?.Accounts.Select(x => FeeReviewSummaryLine.Create(x, x.Profile?.Claims.MaxBy(c => c.Id))).ToArray() ?? [];
+    private FeeReviewSummaryLine[] ChosenSummary => SummaryRows.Where(x => !manualSelection || x.AccountId is { } id && selected.Contains(id)).ToArray();
+    private FeeReviewSummaryLine[] ReadySummary => ChosenSummary.Where(x => x.ReadyForApproval).ToArray();
+    private FeeReviewSummaryLine[] ApprovedSummary => ChosenSummary.Where(x => x.Approved).ToArray();
+    private FeeReviewSummaryLine[] DecisionSummary => ReadySummary.Length > 0 ? ReadySummary : ApprovedSummary;
+    private static string Money(decimal? value) => value is { } amount ? "R " + amount.ToString("N2", System.Globalization.CultureInfo.InvariantCulture) : "Pending";
+    private IEnumerable<PerformanceFeeClaim> SelectedClaims => workspace?.Accounts.Where(x => x.Account != null && (!manualSelection || selected.Contains(x.Account.Id)) && x.Profile != null).Select(x => x.Profile!.Claims.MaxBy(c => c.Id)).OfType<PerformanceFeeClaim>() ?? [];
+    private int[] ReviewClaims => workspace?.Accounts.Any(x => x.RequiresStatementRebuild && (!manualSelection || selected.Contains(x.Account!.Id))) == true ? [] : SelectedClaims.Select(x => x.Id).ToArray();
+    private int[] SubmissionClaims => SelectedClaims.Where(x => x.ApprovedAtUtc != null && FeeClaimStages.Exportable(x.Status)).Select(x => x.Id).ToArray();
+    private int[] ApprovedReviews => SelectedClaims.Where(x => x.ApprovedAtUtc != null && (x.Status == FeeClaimStages.NoFee || FeeClaimStages.Exportable(x.Status))).Select(x => x.Id).ToArray();
+    private int[] ApprovalClaims => ReadySummary.Select(x => x.ClaimId!.Value).ToArray();
+    private int[] ApprovedDownloadClaims => canManage ? SubmissionClaims.Length > 0 ? SubmissionClaims : ApprovedReviews : [];
+    protected override void OnAfterRender(bool firstRender) { if (firstRender) { ready = true; StateHasChanged(); } }
+    protected override async Task OnParametersSetAsync()
+    {
+        try { principal = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User; canManage = principal.HasClaim(KcasClaimTypes.Permission, KcasPermissions.InvestmentsManage); canPrepare = canManage || principal.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage); canApprove = await Fees.CanApproveAsync(principal); await Reload(true); }
+        catch (Exception ex) { error = ex.Message; }
+    }
+    private async Task Reload(bool reset = false)
+    {
+        sharedPolicy = await Fees.SharedPolicyAsync(principal);
+        workspace = await Fees.ClientWorkspaceAsync(Id, principal); savedVersion = workspace.Version;
+        if (reset) { selected.Clear(); foreach (var item in workspace.Accounts.Where(x => x.PreparationHold == null && x.Account != null)) selected.Add(item.Account!.Id); }
+        transfers.Clear(); transferReason = ""; handoff = null;
+    }
+    private void Choose(int id, bool value) { if (value) selected.Add(id); else selected.Remove(id); }
+    private void ChooseTransfer(string key, bool value) { if (value) transfers.Add(key); else transfers.Remove(key); }
+    private void ChooseCoverage(int id, bool value) { if (value) coverageAccounts.Add(id); else coverageAccounts.Remove(id); }
+    private void LoadCoverage() { coverageAccounts.Clear(); var p = workspace?.Accounts.Select(x => x.Profile).FirstOrDefault(x => x?.Id == coverageProfileId); if (p is null) return; var input = FeeJson.Read<FeePreparation>(p.PreparationJson); foreach (var id in input.MandateAccountIds) coverageAccounts.Add(id); coverageReference = input.MandateCoverageReference; }
+    private async Task SaveCoverage() { busy = true; error = null; try { var p = workspace!.Accounts.Select(x => x.Profile).Single(x => x?.Id == coverageProfileId)!; await Fees.SaveMandateCoverageAsync(p.Id, p.Version, coverageAccounts.ToArray(), coverageReference, principal); await Reload(); message = "Mandate coverage recorded. Prepare all accounts to reuse the applicable terms; existing conflicting terms and protected capital are not overwritten."; } catch (Exception ex) { error = ex.Message; } finally { busy = false; } }
+    private async Task SelectFiles(InputFileChangeEventArgs args)
+    {
+        busy = true; error = message = null; uploads = []; showPreparation = true;
+        try
+        {
+            foreach (var file in args.GetMultipleFiles(6)) { using var data = new MemoryStream(); await file.OpenReadStream(PerformanceFeeStatementReader.MaximumBytes).CopyToAsync(data); uploads.Add(new(file.Name, data.ToArray())); if (uploads.Sum(x => (long)x.Content.Length) > 60L * 1024 * 1024) throw new System.ComponentModel.DataAnnotations.ValidationException("Statement files exceed 60 MB combined."); }
+            workspace = await Fees.ClientWorkspaceAsync(Id, principal, uploads);
+            selected.Clear(); foreach (var item in workspace.Accounts.Where(x => x.PreparationHold == null && x.Account != null)) selected.Add(item.Account!.Id);
+        }
+        catch (Exception ex) { uploads.Clear(); error = ex.Message; await Reload(true); }
+        finally { busy = false; }
+    }
+    private async Task CancelPreview() { uploads.Clear(); await Reload(true); }
+    private async Task Import() { busy = true; error = null; try { await Fees.ImportClientStatementsAsync(Id, savedVersion, uploads, principal); uploads.Clear(); await Reload(true); message = "Statement files preserved. Account histories combined; overlapping rows counted once. No investment or compliance records changed."; } catch (Exception ex) { error = ex.Message; } finally { busy = false; } }
+    private async Task Prepare()
+    {
+        busy = true; error = message = null;
+        try
+        {
+            var previous = workspace!.Accounts.Where(x => x.Profile != null).SelectMany(x => x.Profile!.Claims).ToDictionary(x => x.Id, x => x.Version);
+            var ids = manualSelection
+                ? await Fees.PrepareClientStatementsAsync(Id, savedVersion, selected.ToArray(), transfers.ToArray(), transferReason, principal)
+                : await Fees.PrepareAllClientStatementsAsync(Id, savedVersion, transfers.ToArray(), transferReason, principal);
+            await Reload();
+            showPreparation = false;
+            var claims = workspace!.Accounts.Where(x => x.Profile != null).SelectMany(x => x.Profile!.Claims.Where(c => ids.Contains(c.Id))).ToList();
+            if (claims.All(x => previous.GetValueOrDefault(x.Id) == x.Version))
+                message = $"No calculation inputs changed. Showing {ids.Count} existing account draft(s) below; no recalculation or new preparation record. Outstanding requirements still apply.";
+            else
+            {
+                var results = claims.Select(x => FeeJson.Read<FeeCalculationResult>(x.ResultJson)).ToList();
+                message = $"Saved {ids.Count} account draft(s): {results.Count(x => x.IsReady)} ready for KI review, {results.Count(x => x.HasCalculation && !x.IsReady)} calculated with approval requirements, {results.Count(x => !x.CanShowCalculation)} with incomplete calculation inputs. Separate wrap results and explanations are listed below.";
+            }
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+    private async Task Approve() { busy = true; error = null; try { await Fees.ApproveClientClaimsAsync(Id, savedVersion, ApprovalClaims, approvalReason, principal); await Reload(); approvalReason = ""; message = "Reviewed calculations approved. Zero-fee protections retained; positive claims await administrator submission."; } catch (Exception ex) { error = ex.Message; } finally { busy = false; } }
+    private async Task ApplyPolicy()
+    {
+        busy = true; error = null;
+        try { await Fees.UseSharedPolicyForClientAsync(Id, savedVersion, policyReason, principal); await Reload(); policyReason = ""; message = "Shared settings selected for matching signed mandates. Prepare all accounts to refresh the connected calculations. Disclosure discrepancies and KI claim approval remain separate."; }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+    private async Task ResolvePoint(int profileId, string pointKey, string formKey)
+    {
+        busy = true; error = null;
+        try { var profile = workspace!.Accounts.Single(x => x.Profile?.Id == profileId).Profile!; await Fees.ResolveFeeReviewPointAsync(profileId, profile.Version, pointKey, resolutions[formKey], principal); await Reload(); resolutions.Remove(formKey); message = "KI reconciliation recorded. Refresh connected calculations before claim approval."; }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+    private async Task Request(int id) { busy = true; error = null; try { var profile = await Fees.LoadAsync(id, principal); var result = await Fees.RequestCodexAsync(id, profile.Version, principal); await Reload(); handoff = result; } catch (Exception ex) { error = ex.Message; } finally { busy = false; } }
+    private async Task Copy() { try { clipboard ??= await JS.InvokeAsync<IJSObjectReference>("import", "./Components/Pages/ClientOnboarding.razor.js"); copyMessage = await clipboard.InvokeAsync<bool>("copyBrief", handoffElement) ? "Copied." : "Select and copy the handoff."; } catch (JSException) { copyMessage = "Select and copy the handoff."; } }
+    public async ValueTask DisposeAsync() { if (clipboard is not null) { try { await clipboard.DisposeAsync(); } catch (JSDisconnectedException) { } } }
+}

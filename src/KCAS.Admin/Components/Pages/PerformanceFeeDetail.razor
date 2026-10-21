@@ -1,0 +1,146 @@
+@page "/investments/performance-fees/{Id:int}"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPolicies.PerformanceFeesView)]
+@implements IAsyncDisposable
+@using KCAS.Admin.Data
+@inject PerformanceFeeService Fees
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IJSRuntime JS
+
+<PageTitle>Client PDF claim</PageTitle>
+<div class="performance-fee-workspace">
+<div class="page-header"><div><h1>Client PDF claim</h1><p>@profile?.Account.Client.DisplayName · @profile?.Account.AccountNumber</p></div>
+    <div class="header-actions"><a class="btn btn-outline-secondary" href="/investments/performance-fees">All PDF claims</a>
+        @if (profile is not null) { <a class="btn btn-outline-secondary" href="@($"/clients/{profile.Account.ClientId}?tab=investments")">Client investments</a> }
+    </div></div>
+@if (error is not null) { <div class="alert alert-warning" role="alert">@error</div> }
+@if (message is not null) { <div class="alert alert-success" role="status">@message</div> }
+@if (profile is not null)
+{
+    var input = FeeJson.Read<FeePreparation>(profile.PreparationJson);
+    <dl class="row"><dt class="col-sm-3">Kanaan ID</dt><dd class="col-sm-9">@profile.Account.Client.KanaanId</dd>
+        <dt class="col-sm-3">Administrator fee inception</dt><dd class="col-sm-9">@(profile.InceptionDate?.ToString("yyyy-MM-dd") ?? "Not yet verified")</dd>
+        <dt class="col-sm-3">Next anniversary review</dt><dd class="col-sm-9">@(profile.NextReviewDate?.ToString("yyyy-MM-dd") ?? "Verify inception")</dd>
+        <dt class="col-sm-3">Administrator / wrap</dt><dd class="col-sm-9">@input.Administrator · @input.WrapFund</dd>
+        <dt class="col-sm-3">Mandate</dt><dd class="col-sm-9">@(string.IsNullOrWhiteSpace(input.MandateReference) ? "Research required" : input.MandateReference)</dd>
+        <dt class="col-sm-3">Fee / hurdle / VAT</dt><dd class="col-sm-9">@(input.FeePercent?.ToString("0.####") ?? "-")% / CPI + @(input.HurdleSpreadPercent?.ToString("0.####") ?? "-")% / @(input.VatPercent?.ToString("0.####") ?? "-")%</dd>
+    </dl>
+    @if (canPrepare && !profile.Claims.Any(c => c.Status is FeeClaimStages.Approved or FeeClaimStages.Submitted or FeeClaimStages.Accepted))
+    {
+        <div class="d-flex gap-2 flex-wrap mb-3"><a class="btn btn-primary" href="@($"/investments/performance-fees/{Id}/client-review")"><i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> Upload statements / client review</a><a class="btn btn-outline-secondary" href="@($"/investments/performance-fees/{Id}/statements")">Administrator statements</a><a class="btn btn-outline-primary" href="@($"/investments/performance-fees/{Id}/prepare")">Prepare / update calculation</a>
+        <button type="button" class="btn btn-primary" disabled="@(!ready || busy)" @onclick="Request"><i class="bi bi-robot" aria-hidden="true"></i> @(profile.CodexRequestVersion is null ? "Request Codex preparation" : "Refresh Codex handoff")</button></div>
+    }
+    @if (handoff is not null)
+    {
+        <section id="codex-handoff" class="mb-4"><h2>Codex handoff</h2><textarea class="form-control" rows="12" readonly value="@handoff" @ref="brief"></textarea>
+        <button class="btn btn-outline-secondary mt-2" type="button" @onclick="Copy" disabled="@(!ready)"><i class="bi bi-clipboard" aria-hidden="true"></i> Copy handoff</button><span class="ms-2" role="status">@copyStatus</span></section>
+    }
+    @foreach (var claim in profile.Claims.OrderByDescending(c => c.Id))
+    {
+        var result = FeeJson.Read<FeeCalculationResult>(claim.ResultJson);
+        var savedInput = FeeJson.Read<FeePreparation>(claim.InputJson);
+        <section class="border-top pt-3 mt-3"><h2>@claim.From.ToString("yyyy-MM-dd") to @claim.To.ToString("yyyy-MM-dd") <small class="text-muted">@claim.Status</small></h2>
+        <p>@claim.Reference<br />Prepared by @claim.Performer · recorded by @claim.PreparedBy · @claim.PreparedAtUtc.ToString("yyyy-MM-dd HH:mm") UTC</p>
+        @if (savedInput.StatementHistory is not null) { <FeeStatementCoverage History="savedInput.StatementHistory" /> }
+        @if (claim.ApprovedAtUtc is not null) { <p>KI approval: @claim.ApprovedBy · @claim.ApprovedAtUtc.Value.ToString("yyyy-MM-dd HH:mm") UTC</p> }
+        <details class="mb-3"><summary>Saved mandate, scope and source evidence</summary>
+            <dl class="row mt-3"><dt class="col-sm-3">Mandate / method</dt><dd class="col-sm-9">@savedInput.MandateReference<br />@savedInput.MethodRationale</dd>
+            <dt class="col-sm-3">Scope and continuity</dt><dd class="col-sm-9">@savedInput.ScopeRationale</dd>
+            <dt class="col-sm-3">Opening checkpoint</dt><dd class="col-sm-9">@savedInput.OpeningReference</dd>
+            <dt class="col-sm-3">Previous fee research</dt><dd class="col-sm-9">@savedInput.PriorFeeReviewReference</dd>
+            <dt class="col-sm-3">Closing valuation</dt><dd class="col-sm-9">@savedInput.ClosingReference</dd>
+            <dt class="col-sm-3">Cash flows</dt><dd class="col-sm-9">@savedInput.CashFlowReference</dd>
+            <dt class="col-sm-3">VAT basis</dt><dd class="col-sm-9">@savedInput.VatReference</dd></dl>
+            <div class="table-responsive"><table class="table"><thead><tr><th>Benchmark from</th><th>To</th><th>CPI %</th><th>Evidence</th></tr></thead><tbody>
+            @foreach (var period in savedInput.Benchmarks) { <tr><td>@period.From.ToString("yyyy-MM-dd")</td><td>@period.To.ToString("yyyy-MM-dd")</td><td>@period.CpiPercent</td><td>@period.Reference</td></tr> }
+            </tbody></table></div>
+            <div class="table-responsive"><table class="table"><thead><tr><th>Actual date</th><th>Movement</th><th>Amount (R)</th><th>Pre-withdrawal value (R)</th><th>Evidence</th></tr></thead><tbody>
+            @foreach (var move in savedInput.Movements) { <tr><td>@move.Date.ToString("yyyy-MM-dd")</td><td>@move.Kind</td><td>@move.Amount.ToString("N2")</td><td>@move.ValueBeforeWithdrawal?.ToString("N2")</td><td>@move.Reference</td></tr> }
+            </tbody></table></div>
+        </details>
+        @if (result.Issues.Count > 0) { <div class="alert alert-warning"><ul class="mb-0">@foreach (var issue in result.Issues) { <li>@issue</li> }</ul></div> }
+        @if (result.Wraps.Count > 0)
+        {
+            <h3>Separate wrap calculations</h3><div class="table-responsive"><table class="table"><thead><tr><th>Wrap</th><th>Threshold (R)</th><th>Chargeable excess (R)</th><th>PDF excl. VAT (R)</th><th>VAT (R)</th><th>Total (R)</th><th>Status</th></tr></thead><tbody>
+            @foreach (var wrap in result.Wraps)
+            { <tr><td>@wrap.Code · @wrap.Name</td><td>@(wrap.Result.CanShowCalculation && !wrap.Result.IsZeroRateReview ? wrap.Result.Threshold.ToString("N2") : "-")</td><td>@(wrap.Result.CanShowCalculation && !wrap.Result.IsZeroRateReview ? wrap.Result.Outperformance.ToString("N2") : "-")</td><td>@(wrap.Result.CanShowCalculation ? wrap.Result.FeeExVat.ToString("N2") : "-")</td><td>@(wrap.Result.IsReady || wrap.Result.HasVatCalculation ? wrap.Result.Vat.ToString("N2") : "Not confirmed")</td><td>@(wrap.Result.IsReady || wrap.Result.HasVatCalculation ? wrap.Result.Total.ToString("N2") : "-")</td><td>@FeeResultDescription.Describe(wrap.Result)</td></tr> }
+            </tbody></table></div>
+        }
+        @if (savedInput.OtherScopes.Count > 0)
+        { <h3>Other statement holdings</h3><ul>@foreach (var other in savedInput.OtherScopes) { <li>@other.Code · R @other.ClosingValue.ToString("N2"): @other.Reason</li> }</ul> }
+        @if (result.IsReady && result.IsZeroRateReview) { <p>@FeeResultDescription.Describe(result). Total PDF: R 0.00. No financial high-water mark has been reset.</p> }
+        @if (result.CanShowCalculation && !result.IsZeroRateReview)
+        {
+            <dl class="row"><dt class="col-sm-3">Protected threshold</dt><dd class="col-sm-9">R @result.Threshold.ToString("N2")</dd>
+            <dt class="col-sm-3">Chargeable excess</dt><dd class="col-sm-9">R @result.Outperformance.ToString("N2")</dd>
+            <dt class="col-sm-3">Fee excluding VAT</dt><dd class="col-sm-9">R @result.FeeExVat.ToString("N2")</dd>
+            <dt class="col-sm-3">VAT</dt><dd class="col-sm-9">@(result.IsReady || result.HasVatCalculation ? "R " + result.Vat.ToString("N2") : "Not confirmed")</dd>
+            <dt class="col-sm-3">Total including VAT</dt><dd class="col-sm-9">@(result.IsReady || result.HasVatCalculation ? "R " + result.Total.ToString("N2") : "Not confirmed")</dd>
+            @if (result.IsReady) { <dt class="col-sm-3">Received / outstanding</dt><dd class="col-sm-9">R @claim.Paid.ToString("N2") / R @((result.Total - claim.Paid).ToString("N2"))</dd> }</dl>
+            <details><summary>Calculation steps</summary><div class="table-responsive"><table class="table"><thead><tr><th>Date</th><th>Step</th><th>Benchmark (R)</th><th>HWM (R)</th></tr></thead><tbody>@foreach (var step in result.Steps) { <tr><td>@step.Date.ToString("yyyy-MM-dd")</td><td>@step.Description</td><td>@step.Benchmark.ToString("N2")</td><td>@step.HighWaterMark.ToString("N2")</td></tr> }</tbody></table></div></details>
+        }
+        <div class="d-flex gap-2 flex-wrap my-3"><a class="btn btn-outline-secondary" href="@($"/investments/performance-fees/{Id}/claims/{claim.Id}/preview.pdf")"><i class="bi bi-download" aria-hidden="true"></i> Draft calculation PDF</a>
+        @if (claim.ApprovedAtUtc is not null && FeeClaimStages.Exportable(claim.Status) && canManage)
+        { <a class="btn btn-primary" href="@($"/investments/performance-fees/submission.zip?ids={claim.Id}")"><i class="bi bi-download" aria-hidden="true"></i> Administrator submission</a> }
+        </div>
+        @if (claim.Status == FeeClaimStages.Draft && result.IsReady && canApprove && profile.CodexRequestVersion is null)
+        {
+            <label class="form-label" for="approval-reason">KI decision reason</label><textarea id="approval-reason" class="form-control" rows="2" @bind="approvalReason"></textarea>
+            <button class="btn btn-primary my-2" type="button" disabled="@(!ready || busy || string.IsNullOrWhiteSpace(approvalReason))" @onclick="() => Approve(claim.Id)">@(result.Total == 0 ? "Approve zero-fee review" : "Approve fee claim")</button>
+        }
+        @if (canManage && claim.Status is FeeClaimStages.Draft or FeeClaimStages.Approved or FeeClaimStages.Submitted or FeeClaimStages.Accepted or FeeClaimStages.Deducted)
+        {
+            <details class="my-3"><summary>Record administrator action</summary>
+            <div class="row g-3 mt-1"><div class="col-md-3"><label>Action<select class="form-select" @bind="action"><option value="">Select</option>
+                @if (claim.Status == FeeClaimStages.Approved) { <option value="Submitted">Submission sent</option> }
+                @if (claim.Status == FeeClaimStages.Submitted) { <option value="Accepted">Administrator accepted</option> }
+                @if (claim.Status == FeeClaimStages.Accepted) { <option value="Deducted">Fee deducted / crystallised</option> }
+                @if (claim.Status == FeeClaimStages.Deducted) { <option value="Paid">Payment received</option> }
+                @if (claim.Status is FeeClaimStages.Submitted or FeeClaimStages.Accepted) { <option value="Returned">Administrator returned / declined</option> }
+                @if (claim.Status is FeeClaimStages.Draft or FeeClaimStages.Approved) { <option value="Voided">Void unsubmitted claim</option> }
+                </select></label></div>
+                <div class="col-md-3"><label>Actual event date<InputDate class="form-control" @bind-Value="occurredOn" /></label></div>
+                <div class="col-md-3"><label>Actual amount (R)<InputNumber class="form-control" @bind-Value="eventAmount" /></label></div>
+                <div class="col-md-12"><label class="d-block">Evidence / correspondence reference<input class="form-control" maxlength="2000" @bind="eventReference" /></label></div>
+                <div class="col-md-12"><label class="d-block">Summary / reason<textarea class="form-control" rows="2" maxlength="20000" @bind="eventSummary"></textarea></label></div></div>
+                <button type="button" class="btn btn-outline-primary mt-2" disabled="@(!ready || busy || string.IsNullOrWhiteSpace(action))" @onclick="() => Record(claim.Id)">Record action</button>
+            </details>
+        }
+        </section>
+    }
+    <section class="border-top mt-4 pt-3"><h2>Audit history</h2><div class="table-responsive"><table class="table"><thead><tr><th>Recorded UTC</th><th>Action / event date</th><th>Performer / recording account</th><th>Details</th></tr></thead><tbody>
+    @foreach (var entry in profile.Events.OrderByDescending(x => x.Id)) { <tr><td>@entry.RecordedAtUtc.ToString("yyyy-MM-dd HH:mm")</td><td>@entry.Action<br />@entry.OccurredOn.ToString("yyyy-MM-dd")</td><td>@entry.Performer<br />@entry.RecordedBy</td><td>@entry.Summary<br /><small>@entry.Reference</small></td></tr> }
+    </tbody></table></div></section>
+}
+
+</div>
+
+@code {
+    [Parameter] public int Id { get; set; }
+    private PerformanceFeeProfile? profile;
+    private System.Security.Claims.ClaimsPrincipal principal = new();
+    private bool ready, busy, canPrepare, canManage, canApprove;
+    private string? error, message, handoff, copyStatus;
+    private string approvalReason = "", action = "", eventReference = "", eventSummary = "";
+    private decimal? eventAmount;
+    private DateOnly occurredOn = DateOnly.FromDateTime(DateTime.Today);
+    private ElementReference brief;
+    private IJSObjectReference? clipboard;
+    protected override void OnAfterRender(bool firstRender) { if (firstRender) { ready = true; StateHasChanged(); } }
+    protected override async Task OnParametersSetAsync()
+    {
+        try { principal = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User; canManage = principal.HasClaim(KcasClaimTypes.Permission, KcasPermissions.InvestmentsManage); canPrepare = canManage || principal.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage); await Reload(); canApprove = await Fees.CanApproveAsync(principal); }
+        catch (Exception ex) { error = ex.Message; }
+    }
+    private async Task Reload()
+    {
+        profile = await Fees.LoadAsync(Id, principal);
+        handoff = await Fees.HandoffAsync(Id, principal);
+    }
+    private async Task Run(Func<Task> work, string success) { busy = true; error = message = null; try { await work(); await Reload(); message = success; } catch (Exception ex) { error = ex.Message; } finally { busy = false; } }
+    private Task Request() => Run(async () => handoff = await Fees.RequestCodexAsync(Id, profile!.Version, principal), "Codex preparation requested. Compliance reviewers can find the request in the bell actions.");
+    private Task Approve(int claimId) => Run(() => Fees.ApproveAsync(Id, claimId, profile!.Version, approvalReason, principal), "KI decision recorded. No administrator submission or payment has been assumed.");
+    private Task Record(int claimId) => Run(() => Fees.RecordAsync(Id, claimId, profile!.Version, action, occurredOn, eventReference, eventSummary, eventAmount, principal), "Administrator action recorded.");
+    private async Task Copy() { try { clipboard ??= await JS.InvokeAsync<IJSObjectReference>("import", "./Components/Pages/ClientOnboarding.razor.js"); copyStatus = await clipboard.InvokeAsync<bool>("copyBrief", brief) ? "Copied." : "Select and copy the handoff."; } catch (JSException) { copyStatus = "Select and copy the handoff."; } }
+    public async ValueTask DisposeAsync() { if (clipboard is not null) { try { await clipboard.DisposeAsync(); } catch (JSDisconnectedException) { } } }
+}

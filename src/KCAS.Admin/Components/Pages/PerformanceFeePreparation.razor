@@ -1,0 +1,186 @@
+@page "/investments/performance-fees/{Id:int}/prepare"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPolicies.PerformanceFeesView)]
+@using KCAS.Admin.Data
+@inject PerformanceFeeService Fees
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>Prepare PDF calculation</PageTitle>
+<div class="performance-fee-workspace">
+<div class="page-header"><div><h1>Prepare PDF calculation</h1><p>@profile?.Account.Client.DisplayName · @profile?.Account.AccountNumber</p></div><a class="btn btn-outline-secondary" href="@($"/investments/performance-fees/{Id}")">Back to claim</a></div>
+@if (error is not null) { <div class="alert alert-warning" role="alert">@error</div> }
+@if (profile is not null && input is not null && canPrepare)
+{
+    <EditForm Model="input" OnSubmit="Save" FormName="fee-preparation">
+    <fieldset disabled="@(!ready || busy)">
+    @if (accountInput?.Wraps.Count > 0)
+    {
+        <div class="row g-3 mb-4"><div class="col-md-6"><label class="d-block">Wrap to prepare<select class="form-select" @bind="selectedWrap" @bind:after="SelectWrap">@foreach (var wrap in accountInput.Wraps) { <option value="@wrap.Code">@wrap.Code · @wrap.Input.WrapFund</option> }</select></label></div><div class="col-md-6 align-self-end"><a class="btn btn-outline-secondary" href="@($"/investments/performance-fees/{Id}/statements")">Administrator history</a></div></div>
+        @if (input.FeePercent == 0 && input.EvidenceIssues.Count > 0)
+        { <details class="mb-3"><summary>Retained transaction notes (@input.EvidenceIssues.Count)</summary>@foreach (var issue in input.EvidenceIssues) { <p>@issue</p> }</details> }
+        else { @foreach (var issue in input.EvidenceIssues) { <p class="text-danger">@issue</p> } }
+    }
+    <h2>Mandate and scope</h2>
+    <div class="row g-3 mb-4">
+        <div class="col-md-6"><label class="d-block">Administrator<input class="form-control" maxlength="256" @bind="input.Administrator" /></label></div>
+        <div class="col-md-6"><label class="d-block">Wrap fund<input class="form-control" maxlength="256" @bind="input.WrapFund" /></label></div>
+        <div class="col-12"><label class="d-block">Signed mandate / amendment reference<input class="form-control" maxlength="2000" @bind="input.MandateReference" /></label></div>
+        <div class="col-md-3"><label>Mandate effective from<InputDate class="form-control" @bind-Value="input.MandateEffectiveFrom" /></label></div>
+        <div class="col-md-3"><label>PDF % excluding VAT<InputNumber class="form-control" @bind-Value="input.FeePercent" step="0.0001" /></label></div>
+        @if (input.FeePercent == 0)
+        { <div class="col-12"><label class="form-check"><InputCheckbox class="form-check-input" @bind-Value="input.ZeroRateConfirmed" /><span class="form-check-label">Signed mandate confirms 0% PDF for this exact wrap throughout the review period</span></label></div> }
+        @if (input.FeePercent != 0)
+        {
+        <div class="col-md-3"><label>Spread above CPI %<InputNumber class="form-control" @bind-Value="input.HurdleSpreadPercent" step="0.0001" /></label></div>
+        <div class="col-md-3"><label>VAT %<InputNumber class="form-control" @bind-Value="input.VatPercent" step="0.0001" disabled="@input.UseSharedPolicy" /></label></div>
+        <div class="col-12"><label class="d-block">VAT treatment evidence<input class="form-control" maxlength="4000" @bind="input.VatReference" disabled="@input.UseSharedPolicy" /></label></div>
+        }
+        <div class="col-md-6"><label class="form-check"><InputCheckbox class="form-check-input" @bind-Value="input.IsSouthAfricanWrap" /><span class="form-check-label">Confirmed South African client wrap mandate</span></label></div>
+        <div class="col-12"><label class="d-block">Fee scope, holdings and administrator-transfer continuity<textarea class="form-control" rows="3" maxlength="10000" @bind="input.ScopeRationale"></textarea></label></div>
+        @if (input.FeePercent != 0)
+        {
+        <div class="col-12"><label class="form-check"><InputCheckbox class="form-check-input" @bind-Value="input.UseSharedPolicy" /><span class="form-check-label">Use the shared Kanaan convention and VAT for this matching signed 15% / CPI+3 SA-wrap mandate</span></label><a href="/investments/performance-fees/convention">View convention and VAT</a></div>
+        <div class="col-md-6"><label class="d-block">Calculation method<select class="form-select" @bind="input.Method"><option value="CapitalHwmAct365V1">Capital HWM · CPI + spread · ACT/365</option><option value="Unsupported">Other / not yet confirmed</option></select></label></div>
+        <div class="col-12"><label class="d-block">Mandate / administrator calculation convention evidence<textarea class="form-control" rows="3" maxlength="10000" @bind="input.MethodRationale" disabled="@input.UseSharedPolicy"></textarea></label></div>
+        <div class="col-12"><label class="form-check"><InputCheckbox class="form-check-input" @bind-Value="input.MethodMatchesMandate" disabled="@input.UseSharedPolicy" /><span class="form-check-label">Verified ACT/365 compounding, proportional withdrawals and positive-fee after-fee reset against the signed mandate / administrator convention</span></label></div>
+        }
+    </div>
+    <h2>Opening checkpoint and anniversary</h2>
+    <div class="row g-3 mb-4">
+        <div class="col-md-4"><label>Original first investment<InputDate class="form-control" @bind-Value="input.Inception" @bind-Value:after="SyncDates" /></label></div>
+        <div class="col-md-4"><label>Period from<InputDate class="form-control" @bind-Value="input.From" @bind-Value:after="SyncDates" /></label></div>
+        <div class="col-md-4"><label>Closing valuation date<InputDate class="form-control" @bind-Value="input.To" @bind-Value:after="SyncDates" /></label></div>
+        @if (input.FeePercent != 0)
+        {
+        <div class="col-md-4"><label>Opening actual value (R)<InputNumber class="form-control" @bind-Value="input.OpeningValue" step="0.01" /></label></div>
+        <div class="col-md-4"><label>Opening benchmark capital (R)<InputNumber class="form-control" @bind-Value="input.OpeningBenchmark" step="0.000001" /></label></div>
+        <div class="col-md-4"><label>Opening HWM capital (R)<InputNumber class="form-control" @bind-Value="input.OpeningHighWaterMark" step="0.000001" /></label></div>
+        <div class="col-12"><label class="d-block">Opening value / checkpoint evidence<input class="form-control" maxlength="2000" @bind="input.OpeningReference" /></label></div>
+        <div class="col-12"><label class="d-block">Previous fee history / deduction research<textarea class="form-control" rows="2" maxlength="10000" @bind="input.PriorFeeReviewReference"></textarea></label></div>
+        <div class="col-12"><label class="form-check"><InputCheckbox class="form-check-input" @bind-Value="input.NoPriorFeeConfirmed" /><span class="form-check-label">History confirms no earlier fee crystallisation (inception catch-up only)</span></label></div>
+        }
+    </div>
+    <h2>Closing valuation and cash-flow reconciliation</h2>
+    <div class="row g-3 mb-4">
+        <div class="col-md-4"><label>Closing value before this PDF (R)<InputNumber class="form-control" @bind-Value="input.ClosingValue" step="0.01" /></label></div>
+        <div class="col-md-8"><label class="d-block">Dated closing statement reference<input class="form-control" maxlength="2000" @bind="input.ClosingReference" /></label></div>
+        @if (input.FeePercent != 0)
+        {
+        <div class="col-12"><label class="d-block">Cash-flow reconciliation evidence<textarea class="form-control" rows="3" maxlength="10000" @bind="input.CashFlowReference"></textarea></label></div>
+        <div class="col-12"><label class="form-check"><InputCheckbox class="form-check-input" @bind-Value="input.CashFlowsComplete" /><span class="form-check-label">All actual external movements reconciled; no duplicated capital, internal switches or assumed recurring payments</span></label></div>
+        }
+    </div>
+    @if (input.FeePercent != 0)
+    {
+    <h2>CPI benchmark periods</h2>
+    <label class="form-check mb-3"><InputCheckbox class="form-check-input" @bind-Value="input.UsePublishedCpi" /><span class="form-check-label">Use published SA headline CPI, effective from its actual publication date</span></label>
+    <a href="/investments/performance-fees/benchmarks">PDF benchmark data</a>
+    <div class="table-responsive"><table class="table align-middle"><thead><tr><th>From (inclusive)</th><th>To (exclusive)</th><th>CPI % p.a.</th><th>Source / convention</th><th></th></tr></thead><tbody>
+    @foreach (var period in input.Benchmarks)
+    {
+        <tr @key="period"><td><InputDate class="form-control" @bind-Value="period.From" aria-label="Benchmark from" /></td><td><InputDate class="form-control" @bind-Value="period.To" aria-label="Benchmark to" /></td>
+        <td><InputNumber class="form-control" @bind-Value="period.CpiPercent" step="0.0001" aria-label="CPI percent" /></td><td><input class="form-control" @bind="period.Reference" maxlength="2000" aria-label="CPI source" /></td>
+        <td><button class="btn btn-sm btn-outline-danger" type="button" @onclick="() => input.Benchmarks.Remove(period)" title="Remove benchmark period" aria-label="Remove benchmark period"><i class="bi bi-trash" aria-hidden="true"></i></button></td></tr>
+    }
+    </tbody></table></div>
+    <button class="btn btn-outline-secondary mb-4" type="button" @onclick="AddBenchmark"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add benchmark period</button>
+    <h2>Actual external cash flows</h2>
+    <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Date</th><th>Type</th><th>Amount (R)</th><th>Value before withdrawal (R)</th><th>Evidence</th><th></th></tr></thead><tbody>
+    @foreach (var move in input.Movements)
+    {
+        <tr @key="move"><td><InputDate class="form-control" @bind-Value="move.Date" aria-label="Movement date" /></td><td><select class="form-select" @bind="move.Kind" aria-label="Movement type"><option>Contribution</option><option>Withdrawal</option><option>TransferIn</option><option>ScopeFunding</option></select>
+        @if (move.Kind == "TransferIn") { <label>Carried benchmark<InputNumber class="form-control" @bind-Value="move.TransferredBenchmark" /></label><label>Carried HWM<InputNumber class="form-control" @bind-Value="move.TransferredHighWaterMark" /></label> }</td>
+        <td><InputNumber class="form-control" @bind-Value="move.Amount" step="0.01" aria-label="Movement amount" /></td><td><InputNumber class="form-control" @bind-Value="move.ValueBeforeWithdrawal" step="0.01" disabled="@(move.Kind != "Withdrawal")" aria-label="Value before withdrawal" /></td>
+        <td><input class="form-control" @bind="move.Reference" maxlength="2000" aria-label="Movement evidence" /></td><td><button class="btn btn-sm btn-outline-danger" type="button" @onclick="() => input.Movements.Remove(move)" title="Remove movement" aria-label="Remove movement"><i class="bi bi-trash" aria-hidden="true"></i></button></td></tr>
+    }
+    </tbody></table></div>
+    <button class="btn btn-outline-secondary mb-4" type="button" @onclick="() => input.Movements.Add(new() { Date = input.From?.AddDays(1) ?? DateOnly.FromDateTime(DateTime.Today) })"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add movement</button>
+    }
+    @if (accountInput?.Wraps.Count > 0)
+    {
+        <h2>Transfers between fee scopes</h2>
+        @foreach (var transfer in accountInput.Transfers)
+        {
+            <div class="row g-3 border-top py-3" @key="transfer"><div class="col-md-3"><label>Date<InputDate class="form-control" @bind-Value="transfer.Date" /></label></div>
+            <div class="col-md-3"><label class="d-block">From wrap<select class="form-select" @bind="transfer.FromWrap">@foreach (var wrap in accountInput.Wraps) { <option value="@wrap.Code">@wrap.Code</option> }</select></label></div>
+            <div class="col-md-3"><label class="d-block">To wrap<select class="form-select" @bind="transfer.ToWrap">@foreach (var wrap in accountInput.Wraps) { <option value="@wrap.Code">@wrap.Code</option> }</select></label></div>
+            <div class="col-md-3"><label>Amount (R)<InputNumber class="form-control" @bind-Value="transfer.Amount" /></label></div>
+            <div class="col-md-4"><label>Source value before transfer (R)<InputNumber class="form-control" @bind-Value="transfer.ValueBeforeTransfer" /></label></div>
+            <div class="col-md-8"><label class="d-block">Paired transfer and continuity evidence<input class="form-control" maxlength="10000" @bind="transfer.Reference" /></label></div>
+            <div class="col-md-10"><label class="form-check"><InputCheckbox class="form-check-input" @bind-Value="transfer.ContinuityConfirmed" /><span class="form-check-label">Verified matched transfer and mandate continuity; carry the source benchmark and HWM without reset</span></label></div>
+            <div class="col-md-2"><button class="btn btn-outline-danger" type="button" @onclick="() => accountInput.Transfers.Remove(transfer)" title="Remove transfer" aria-label="Remove transfer"><i class="bi bi-trash"></i></button></div></div>
+        }
+        <button class="btn btn-outline-secondary mb-4" type="button" @onclick="() => accountInput.Transfers.Add(new() { Date = input.From?.AddDays(1) ?? DateOnly.FromDateTime(DateTime.Today), FromWrap = accountInput.Wraps[0].Code, ToWrap = accountInput.Wraps.Last().Code })"><i class="bi bi-plus-lg"></i> Add evidenced transfer</button>
+    }
+    <div class="mb-3"><label class="d-block">Preparation findings / change reason<textarea class="form-control" rows="3" maxlength="20000" @bind="summary"></textarea></label></div>
+    <button class="btn btn-primary" type="submit" disabled="@(string.IsNullOrWhiteSpace(summary))"><i class="bi bi-save" aria-hidden="true"></i> Save draft calculation</button>
+    </fieldset></EditForm>
+}
+
+</div>
+
+@code {
+    [Parameter] public int Id { get; set; }
+    private PerformanceFeeProfile? profile;
+    private FeePreparation? input;
+    private FeePreparation? accountInput;
+    private string selectedWrap = "";
+    private System.Security.Claims.ClaimsPrincipal principal = new();
+    private bool ready, busy, canPrepare;
+    private string? error;
+    private string summary = "";
+    protected override void OnAfterRender(bool firstRender) { if (firstRender) { ready = true; StateHasChanged(); } }
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            principal = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User;
+            canPrepare = principal.HasClaim(KcasClaimTypes.Permission, KcasPermissions.InvestmentsManage) || principal.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage);
+            profile = await Fees.LoadAsync(Id, principal); accountInput = FeeJson.Read<FeePreparation>(profile.PreparationJson); input = accountInput;
+            if (profile.CheckpointJson is not null && !profile.Claims.Any(c => c.Status == FeeClaimStages.Draft))
+            {
+                var checkpoint = System.Text.Json.JsonSerializer.Deserialize<FeeCheckpoint>(profile.CheckpointJson, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+                input.From = checkpoint.Date; input.OpeningValue = checkpoint.Value; input.OpeningBenchmark = checkpoint.Benchmark; input.OpeningHighWaterMark = checkpoint.HighWaterMark;
+                input.OpeningReference = checkpoint.Reference; input.PriorFeeReviewReference = checkpoint.Reference; input.NoPriorFeeConfirmed = false;
+                input.To = null; input.ClosingValue = null; input.ClosingReference = ""; input.CashFlowsComplete = false; input.CashFlowReference = ""; input.Movements.Clear(); input.Benchmarks.Clear();
+                foreach (var wrap in input.Wraps)
+                {
+                    var cp = checkpoint.Wraps.SingleOrDefault(x => x.Code == wrap.Code)?.Checkpoint;
+                    if (cp is null) continue;
+                    var child = wrap.Input; child.From = cp.Date; child.OpeningValue = cp.Value; child.OpeningBenchmark = cp.Benchmark; child.OpeningHighWaterMark = cp.HighWaterMark;
+                    child.OpeningReference = cp.Reference; child.PriorFeeReviewReference = cp.Reference; child.NoPriorFeeConfirmed = false;
+                    child.To = null; child.ClosingValue = null; child.ClosingReference = ""; child.CashFlowsComplete = false; child.Movements.Clear(); child.Benchmarks.Clear();
+                }
+                input.Transfers.Clear();
+            }
+            if (accountInput.Wraps.Count > 0) { selectedWrap = accountInput.Wraps[0].Code; SelectWrap(); }
+        }
+        catch (Exception ex) { error = ex.Message; }
+    }
+    private void AddBenchmark() { var from = input!.Benchmarks.LastOrDefault()?.To ?? input.From ?? DateOnly.FromDateTime(DateTime.Today); input.Benchmarks.Add(new() { From = from, To = input.To ?? from.AddYears(1) }); }
+    private void SelectWrap() => input = accountInput!.Wraps.Single(x => x.Code == selectedWrap).Input;
+    private void SyncDates()
+    {
+        if (accountInput?.Wraps.Count > 0)
+        {
+            accountInput.Inception = input!.Inception; accountInput.From = input.From; accountInput.To = input.To;
+            foreach (var wrap in accountInput.Wraps) { wrap.Input.Inception = input.Inception; wrap.Input.From = input.From; wrap.Input.To = input.To; }
+        }
+    }
+    private async Task Save()
+    {
+        busy = true; error = null;
+        try
+        {
+            if (accountInput!.Wraps.Count > 0)
+            {
+                accountInput.Inception = input!.Inception; accountInput.From = input.From; accountInput.To = input.To;
+                foreach (var wrap in accountInput.Wraps) { wrap.Input.Inception = input.Inception; wrap.Input.From = input.From; wrap.Input.To = input.To; }
+            }
+            await Fees.PrepareAsync(Id, profile!.Version, accountInput, summary, principal); Navigation.NavigateTo($"/investments/performance-fees/{Id}");
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+}

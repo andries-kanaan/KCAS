@@ -1,0 +1,46 @@
+@page "/investments/performance-fees/benchmarks"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPolicies.PerformanceFeesView)]
+@using KCAS.Admin.Data
+@using Microsoft.AspNetCore.Components.Forms
+@inject PerformanceFeeService Fees
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>PDF benchmark data</PageTitle>
+<div class="page-header"><h1>PDF benchmark data</h1><a class="btn btn-outline-secondary" href="/investments/performance-fees">Annual PDF claims</a></div>
+@if (error is not null) { <div class="alert alert-warning" role="alert">@error</div> }
+@if (message is not null) { <div class="alert alert-success" role="status">@message</div> }
+@if (canPrepare)
+{
+    <section class="mb-4"><h2>Published SA headline CPI</h2>
+    <label class="form-label" for="cpi-file">Source CSV</label><InputFile id="cpi-file" class="form-control" accept=".csv" OnChange="Upload" disabled="@(!ready || busy)" />
+    <label class="d-block mt-3">Observations<textarea class="form-control font-monospace" rows="7" @bind="csv" disabled="@busy"></textarea></label>
+    <button class="btn btn-primary mt-2" type="button" disabled="@(!ready || busy || string.IsNullOrWhiteSpace(csv))" @onclick="Save"><i class="bi bi-database-add" aria-hidden="true"></i> Import published observations</button></section>
+}
+<div class="table-responsive"><table class="table"><thead><tr><th>CPI month</th><th>Publication date</th><th>Annual headline CPI %</th><th>Source</th></tr></thead><tbody>
+@foreach (var row in observations.OrderByDescending(x => x.PublishedOn))
+{ <tr><td>@row.Month.ToString("yyyy-MM")</td><td>@row.PublishedOn.ToString("yyyy-MM-dd")</td><td>@row.AnnualPercent.ToString("0.####")</td><td class="text-break">@row.Reference</td></tr> }
+@if (observations.Count == 0) { <tr><td colspan="4">No published CPI observations recorded. No zero-CPI fallback is used.</td></tr> }
+</tbody></table></div>
+
+@code {
+    private List<FeeCpiObservation> observations = [];
+    private string csv = "Month,PublishedOn,AnnualPercent,Reference\n";
+    private string? error, message;
+    private bool ready, busy, canPrepare;
+    private System.Security.Claims.ClaimsPrincipal principal = new();
+    protected override void OnAfterRender(bool firstRender) { if (firstRender) { ready = true; StateHasChanged(); } }
+    protected override async Task OnInitializedAsync()
+    {
+        try { principal = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User; canPrepare = principal.HasClaim(KcasClaimTypes.Permission, KcasPermissions.InvestmentsManage) || principal.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage); observations = await Fees.BenchmarksAsync(principal); }
+        catch (Exception ex) { error = ex.Message; }
+    }
+    private async Task Upload(InputFileChangeEventArgs e) { try { using var reader = new StreamReader(e.File.OpenReadStream(500000)); csv = await reader.ReadToEndAsync(); } catch (Exception ex) { error = ex.Message; } }
+    private async Task Save()
+    {
+        busy = true; error = message = null;
+        try { await Fees.ImportBenchmarksAsync(csv, principal); observations = await Fees.BenchmarksAsync(principal); message = "Published observations saved for reuse. Existing approved calculations remain unchanged; prepare draft calculations again to use the updated sources."; }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+}

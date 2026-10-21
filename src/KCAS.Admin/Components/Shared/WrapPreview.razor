@@ -1,0 +1,11 @@
+@using KCAS.Admin.Data
+<FeeStatementCoverage History="Ledger.History" />
+<div class="table-responsive"><table class="table"><thead><tr><th>Wrap</th><th>Rows</th><th>Closing date</th><th>Closing value (R)</th><th>Unclassified / transfers</th><th>Reconciliation</th></tr></thead><tbody>
+@foreach (var wrap in Ledger.Wraps)
+{
+    <tr><td>@wrap.Code · @FeeStatementLedger.Name(wrap.Code)</td><td>@wrap.Rows.Count</td><td>@wrap.ClosingDate?.ToString("yyyy-MM-dd")</td><td class="text-end">@wrap.ClosingValue.ToString("N2")</td><td>@wrap.Rows.Count(x => x.Kind is "Unknown" or "Transfer" or "IncomeTransfer" or "PerformanceFee")</td><td>@(wrap.Issues.Count == 0 ? "Units reconciled" : $"{wrap.Issues.Count} issue(s)")</td></tr>
+}
+</tbody></table></div>
+@foreach (var issue in Ledger.Issues.Concat(Ledger.Wraps.SelectMany(w => w.Issues.Select(x => w.Code + ": " + x))).Take(30))
+{ <p class="text-danger">@issue</p> }
+@code { [Parameter, EditorRequired] public FeeStatementLedger Ledger { get; set; } = new(); }

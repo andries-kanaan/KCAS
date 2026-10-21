@@ -38,13 +38,13 @@ else
         </div>
     </div>
 
-    <ClientWorkspaceNav ClientId="Id" KanaanId="client.KanaanId" ClientCategory="client.ClientCategory" />
+    <ClientWorkspaceNav ClientId="Id" KanaanId="@client.KanaanId" ClientCategory="@client.ClientCategory" />
 
     <section class="client-overview-summary" aria-label="Client status summary">
         <AuthorizeView Policy="@KcasPermissions.InvestmentsView"><Authorized>
             <div><span>Current investment value</span><strong>@Money(TotalInvestmentCurrentValueZar)</strong>
             <span class="text-muted">@CurrentInvestmentAccounts.Count current / @HistoricalInvestmentAccounts.Count historical accounts</span>
-            <a href="#investments">View investments</a></div>
+            <a href="@ClientPage("?tab=investments")">View investments</a></div>
         </Authorized></AuthorizeView>
         <div><span>Compliance assessment</span><strong>@(hasCompletedComplianceReview ? "Finalised" : hasStartedComplianceReview ? "In progress" : "Not started")</strong>
         <span class="text-muted">Lifecycle: @client.LifecycleStatus</span><a href="@ClientPage("/compliance-review")">@ComplianceReviewActionLabel</a></div>
@@ -649,6 +649,12 @@ else
                                     <AuthorizeView Policy="@KcasPermissions.InvestmentsView">
                                         <Authorized><a href="@($"/clients/{Id}/investments/{account.Id}/returns")">Investment returns</a></Authorized>
                                     </AuthorizeView>
+                                    @if (InvestmentGeographies.Classify(account.FundName, null) == InvestmentGeographies.SouthAfrica)
+                                    {
+                                        <AuthorizeView Policy="@KcasPolicies.PerformanceFeesView">
+                                            <Authorized><div class="mt-1"><a href="@($"/investments/performance-fees?accountId={account.Id}")" title="Performance-driven fee claims">PDF claims</a></div></Authorized>
+                                        </AuthorizeView>
+                                    }
                                 </td>
                                 <td>@Display(account.Administrator)</td>
                                 <td>
@@ -862,6 +868,12 @@ else
                                         <AuthorizeView Policy="@KcasPermissions.InvestmentsView">
                                             <Authorized><a href="@($"/clients/{Id}/investments/{account.Id}/returns")">Investment returns</a></Authorized>
                                         </AuthorizeView>
+                                        @if (InvestmentGeographies.Classify(account.FundName, null) == InvestmentGeographies.SouthAfrica)
+                                        {
+                                            <AuthorizeView Policy="@KcasPolicies.PerformanceFeesView">
+                                                <Authorized><div class="mt-1"><a href="@($"/investments/performance-fees?accountId={account.Id}")" title="Performance-driven fee claims">PDF claims</a></div></Authorized>
+                                            </AuthorizeView>
+                                        }
                                     </td>
                                     <td>@Display(account.Administrator)</td>
                                     <td>

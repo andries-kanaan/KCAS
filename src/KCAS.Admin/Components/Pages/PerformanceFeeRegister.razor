@@ -1,0 +1,161 @@
+@page "/investments/performance-fees"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPolicies.PerformanceFeesView)]
+@using KCAS.Admin.Data
+@inject PerformanceFeeService Fees
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>@(AccountId.HasValue ? "Investment PDF preparation" : "Annual PDF claims")</PageTitle>
+<div class="page-header"><div><h1>@(AccountId.HasValue ? "Investment PDF preparation" : "Annual PDF claims")</h1>
+    @if (requestedAccount is not null) { <p>@requestedAccount.Client.DisplayName · Kanaan ID @requestedAccount.Client.KanaanId · @requestedAccount.AccountNumber</p> }
+    </div>
+    @if (AccountId.HasValue)
+    {
+        <div class="header-actions">
+            @if (requestedAccount is not null) { <a class="btn btn-outline-secondary" href="@($"/clients/{requestedAccount.ClientId}?tab=investments")">Back to client investments</a> }
+            <a class="btn btn-outline-secondary" href="/investments/performance-fees">All PDF claims</a>
+        </div>
+    }
+</div>
+@if (error is not null) { <div class="alert alert-warning" role="alert">@error</div> }
+@if (AccountId.HasValue)
+{
+    @if (requestedAccount is null && error is null) { <p role="status">Loading selected investment...</p> }
+    else if (requestedAccount is not null)
+    {
+        <ClientWorkspaceNav ClientId="requestedAccount.ClientId" KanaanId="@requestedAccount.Client.KanaanId" ClientCategory="@requestedAccount.Client.ClientCategory" />
+        @if (profiles?.SingleOrDefault() is { } existing)
+        {
+            <p role="status">Opening the existing fee review... <a href="@($"/investments/performance-fees/{existing.Id}")">Open fee review</a></p>
+        }
+        else
+        {
+            <dl class="row"><dt class="col-sm-3">Account</dt><dd class="col-sm-9">@requestedAccount.AccountNumber</dd>
+                <dt class="col-sm-3">Administrator</dt><dd class="col-sm-9">@requestedAccount.Administrator</dd>
+                <dt class="col-sm-3">Recorded fund</dt><dd class="col-sm-9">@requestedAccount.FundName</dd>
+                <dt class="col-sm-3">Recorded account start</dt><dd class="col-sm-9">@(requestedAccount.InvestmentDate?.ToString("yyyy-MM-dd") ?? "Not recorded")</dd>
+                <dt class="col-sm-3">Fee review</dt><dd class="col-sm-9">Preparation not started</dd>
+            </dl>
+            @if (canPrepare)
+            {
+                <div class="d-flex gap-2 flex-wrap">
+                    <button type="button" class="btn btn-primary" disabled="@(!ready || busy)" @onclick="UploadSelected"><i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> Upload client statements</button>
+                    <button type="button" class="btn btn-outline-secondary" disabled="@(!ready || busy)" @onclick="RequestSelected"><i class="bi bi-robot" aria-hidden="true"></i> Request Codex preparation</button>
+                    <button type="button" class="btn btn-outline-secondary" disabled="@(!ready || busy)" @onclick="() => Register(requestedAccount.Id)">Prepare manually</button>
+                </div>
+            }
+        }
+    }
+}
+else if (profiles is null) { <p role="status">Loading fee register...</p> }
+else
+{
+    <a class="btn btn-outline-secondary mb-3" href="/investments/performance-fees/benchmarks"><i class="bi bi-table" aria-hidden="true"></i> PDF benchmark data</a>
+    <a class="btn btn-outline-secondary mb-3 ms-2" href="/investments/performance-fees/convention"><i class="bi bi-sliders" aria-hidden="true"></i> Convention and VAT</a>
+    <div class="filter-row mb-3">
+        <label>Client, Kanaan ID or account<input class="form-control" @bind="search" @bind:event="oninput" /></label>
+        <label>Review status<select class="form-select" @bind="filter"><option value="all">All</option><option value="due">Due within 30 days / overdue</option><option value="codex">Awaiting Codex</option><option value="approval">Awaiting KI approval</option><option value="payment">Awaiting deduction / payment</option></select></label>
+    </div>
+    <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Submit</th><th>Kanaan ID</th><th>Client / account</th><th>Next review</th><th>Latest calculation</th><th>Total incl. VAT</th><th></th></tr></thead><tbody>
+    @foreach (var item in Filtered)
+    {
+        var claim = item.Claims.MaxBy(x => x.Id);
+        <tr><td>@if (canManage && claim?.ApprovedAtUtc is not null && FeeClaimStages.Exportable(claim.Status))
+            { <input type="checkbox" class="form-check-input" aria-label="@($"Select claim for {item.Account.Client.DisplayName} {item.Account.AccountNumber}")" checked="@selected.Contains(claim.Id)" @onchange="e => Select(claim.Id, (bool)(e.Value ?? false))" /> }</td>
+            <td>@item.Account.Client.KanaanId</td><td><a href="@($"/investments/performance-fees/{item.Id}")">@item.Account.Client.DisplayName</a><br /><small>@item.Account.AccountNumber · @item.Account.FundName</small></td>
+            <td>@item.NextReviewDate?.ToString("yyyy-MM-dd")</td><td>@(item.CodexRequestVersion is not null ? "Awaiting Codex" : claim?.Status ?? "Mandate research needed")</td>
+            <td>@(claim is not null && FeeJson.Read<FeeCalculationResult>(claim.ResultJson).IsReady ? "R " + FeeJson.Read<FeeCalculationResult>(claim.ResultJson).Total.ToString("N2") : "-")</td>
+            <td><a class="btn btn-sm btn-outline-secondary" href="@($"/investments/performance-fees/{item.Id}")">View</a></td></tr>
+    }
+    @if (!Filtered.Any()) { <tr><td colspan="7">No matching registered fee profiles.</td></tr> }
+    </tbody></table></div>
+    @if (selected.Count > 0 && canManage)
+    { <a class="btn btn-primary" href="@($"/investments/performance-fees/submission.zip?ids={string.Join(',', selected.Order())}")"><i class="bi bi-download" aria-hidden="true"></i> Download administrator submission (@selected.Count)</a> }
+    @if (canPrepare)
+    {
+        @if (initialReviews.Count > 0)
+        {
+            <section class="mt-4"><h2>Initial anniversary reviews (@initialReviews.Count)</h2>
+            <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Kanaan ID</th><th>Client / account</th><th>SA wrap</th><th>First anniversary</th><th></th></tr></thead><tbody>
+            @foreach (var account in initialReviews.Where(a => $"{a.Client.DisplayName} {a.Client.KanaanId} {a.AccountNumber}".Contains(search, StringComparison.OrdinalIgnoreCase)))
+            { <tr><td>@account.Client.KanaanId</td><td>@account.Client.DisplayName<br /><small>@account.AccountNumber</small></td><td>@account.FundName</td><td>@account.InvestmentDate?.AddYears(1).ToString("yyyy-MM-dd")</td><td><button class="btn btn-sm btn-outline-primary" type="button" disabled="@(!ready || busy)" @onclick="() => Register(account.Id)">Prepare initial review</button></td></tr> }
+            </tbody></table></div></section>
+        }
+        <section class="mt-4"><h2>Register an investment for mandate research</h2>
+        <div class="filter-row mt-3"><label>Find investment<input class="form-control" @bind="candidateSearch" @bind:event="oninput" /></label><button type="button" class="btn btn-outline-secondary" disabled="@(!ready || busy)" @onclick="Find"><i class="bi bi-search" aria-hidden="true"></i> Search</button></div>
+        @if (candidates is not null)
+        {
+            <div class="table-responsive"><table class="table"><thead><tr><th>Kanaan ID</th><th>Client</th><th>Account / fund</th><th>Investment date</th><th></th></tr></thead><tbody>
+            @foreach (var account in candidates)
+            { <tr><td>@account.Client.KanaanId</td><td>@account.Client.DisplayName</td><td>@account.AccountNumber · @account.FundName</td><td>@account.InvestmentDate?.ToString("yyyy-MM-dd")</td><td><button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(!ready || busy)" @onclick="() => Register(account.Id)">Register</button></td></tr> }
+            </tbody></table></div>
+        }
+        </section>
+    }
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "accountId")] public int? AccountId { get; set; }
+    private List<PerformanceFeeProfile>? profiles;
+    private List<ClientInvestmentAccount>? candidates;
+    private List<ClientInvestmentAccount> initialReviews = [];
+    private ClientInvestmentAccount? requestedAccount;
+    private System.Security.Claims.ClaimsPrincipal principal = new();
+    private string search = "", candidateSearch = "", filter = "all";
+    private string? error;
+    private bool ready, busy, canPrepare, canManage;
+    private readonly HashSet<int> selected = [];
+    private IEnumerable<PerformanceFeeProfile> Filtered => (profiles ?? []).Where(p =>
+        $"{p.Account.Client.DisplayName} {p.Account.Client.KanaanId} {p.Account.AccountNumber}".Contains(search, StringComparison.OrdinalIgnoreCase) && (filter switch
+        {
+            "due" => p.NextReviewDate <= DateOnly.FromDateTime(DateTime.Today).AddDays(30),
+            "codex" => p.CodexRequestVersion is not null,
+            "approval" => p.Claims.Any(c => c.Status == FeeClaimStages.Draft && FeeJson.Read<FeeCalculationResult>(c.ResultJson).IsReady),
+            "payment" => p.Claims.Any(c => c.Status is FeeClaimStages.Approved or FeeClaimStages.Submitted or FeeClaimStages.Accepted or FeeClaimStages.Deducted),
+            _ => true
+        }));
+    protected override void OnAfterRender(bool firstRender) { if (firstRender) { ready = true; StateHasChanged(); } }
+    protected override async Task OnParametersSetAsync()
+    {
+        profiles = null; requestedAccount = null; initialReviews = []; error = null;
+        candidates = null; selected.Clear();
+        try
+        {
+            principal = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User;
+            canManage = principal.HasClaim(KcasClaimTypes.Permission, KcasPermissions.InvestmentsManage);
+            canPrepare = canManage || principal.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage);
+            if (AccountId is { } id)
+            {
+                requestedAccount = await Fees.AccountAsync(id, principal);
+                profiles = await Fees.ListAsync(principal, id);
+                var existing = profiles.SingleOrDefault(x => x.ClientInvestmentAccountId == id);
+                if (existing is not null) Navigation.NavigateTo($"/investments/performance-fees/{existing.Id}");
+            }
+            else
+            {
+                profiles = await Fees.ListAsync(principal);
+                if (canPrepare) initialReviews = await Fees.InitialReviewsAsync(principal);
+            }
+        }
+        catch (Exception ex) { error = ex.Message; }
+    }
+    private void Select(int id, bool value) { if (value) selected.Add(id); else selected.Remove(id); }
+    private async Task Find() { busy = true; error = null; try { candidates = await Fees.CandidatesAsync(candidateSearch, principal); } catch (Exception ex) { error = ex.Message; } finally { busy = false; } }
+    private async Task Register(int id) { busy = true; error = null; try { Navigation.NavigateTo($"/investments/performance-fees/{await Fees.RegisterAsync(id, principal)}"); } catch (Exception ex) { error = ex.Message; } finally { busy = false; } }
+    private async Task RequestSelected()
+    {
+        if (busy || requestedAccount is null) return;
+        busy = true; error = null;
+        try
+        {
+            var id = await Fees.RegisterAsync(requestedAccount.Id, principal);
+            var profile = await Fees.LoadAsync(id, principal);
+            await Fees.RequestCodexAsync(id, profile.Version, principal);
+            Navigation.NavigateTo($"/investments/performance-fees/{id}#codex-handoff");
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+    private async Task UploadSelected() { busy = true; error = null; try { var id = await Fees.RegisterAsync(requestedAccount!.Id, principal); Navigation.NavigateTo($"/investments/performance-fees/{id}/client-review"); } catch (Exception ex) { error = ex.Message; } finally { busy = false; } }
+}

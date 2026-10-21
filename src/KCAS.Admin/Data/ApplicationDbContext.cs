@@ -8,6 +8,10 @@ namespace KCAS.Admin.Data;
 public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : IdentityDbContext<ApplicationUser, IdentityRole, string>(options)
 {
     public DbSet<InsurancePolicy> InsurancePolicies => Set<InsurancePolicy>();
+    public DbSet<PerformanceFeeProfile> PerformanceFeeProfiles => Set<PerformanceFeeProfile>();
+    public DbSet<PerformanceFeeClaim> PerformanceFeeClaims => Set<PerformanceFeeClaim>();
+    public DbSet<PerformanceFeeEvent> PerformanceFeeEvents => Set<PerformanceFeeEvent>();
+    public DbSet<PerformanceFeeStatement> PerformanceFeeStatements => Set<PerformanceFeeStatement>();
     public DbSet<InsuranceDocument> InsuranceDocuments => Set<InsuranceDocument>();
     public DbSet<InsuranceEvent> InsuranceEvents => Set<InsuranceEvent>();
     public DbSet<SanctionsSourceSnapshot> SanctionsSourceSnapshots => Set<SanctionsSourceSnapshot>();
@@ -115,6 +119,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     {
         base.OnModelCreating(builder);
         InsuranceModel.Configure(builder);
+        PerformanceFeeModel.Configure(builder);
         SanctionsAutomationModel.Configure(builder);
         ComplianceCoverageAndComplaintsModel.Configure(builder);
         EmployeeComplianceModel.Configure(builder);

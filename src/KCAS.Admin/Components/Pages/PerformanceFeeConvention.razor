@@ -1,0 +1,86 @@
+@page "/investments/performance-fees/convention"
+@page "/investments/performance-fees/convention/update"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPolicies.PerformanceFeesView)]
+@using KCAS.Admin.Data
+@inject PerformanceFeeService Fees
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>PDF convention and VAT</PageTitle>
+<div class="performance-fee-workspace">
+<div class="page-header"><div><h1>PDF convention and VAT</h1><p>South African client wrap performance fees</p></div><div class="header-actions"><a class="btn btn-outline-secondary" href="/investments/performance-fees">Annual PDF claims</a>
+@if (!editing && canRecord) { <a class="btn btn-outline-primary" href="/investments/performance-fees/convention/update"><i class="bi bi-pencil" aria-hidden="true"></i> Update settings</a> }
+</div></div>
+@if (error is not null) { <div class="alert alert-warning" role="alert">@error</div> }
+@if (message is not null) { <div class="alert alert-success" role="status">@message</div> }
+<h2>Calculation convention</h2>
+<p>@FeeSharedPolicy.Convention</p>
+@if (loaded)
+{
+    <dl class="row"><dt class="col-sm-3">Status</dt><dd class="col-sm-9">@(policy is null ? "Not recorded" : policy.ApprovedAtUtc is null ? "Proposed - KI adoption required" : "Adopted")</dd>
+    @if (policy is not null)
+    {
+        <dt class="col-sm-3">Version</dt><dd class="col-sm-9 text-break">@policy.Version</dd>
+        <dt class="col-sm-3">Evidence and rationale</dt><dd class="col-sm-9 text-break">@policy.MethodReference</dd>
+        <dt class="col-sm-3">VAT</dt><dd class="col-sm-9">@policy.VatPercent.ToString("0.####")% on the fee</dd>
+        <dt class="col-sm-3">VAT evidence</dt><dd class="col-sm-9 text-break">@policy.VatReference</dd>
+        <dt class="col-sm-3">Recorded</dt><dd class="col-sm-9">@policy.RecordedBy · @policy.RecordedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</dd>
+        @if (policy.ApprovedAtUtc is { } approved)
+        { <dt class="col-sm-3">KI adoption</dt><dd class="col-sm-9">@policy.ApprovedBy · @approved.ToLocalTime().ToString("yyyy-MM-dd HH:mm")<br />@policy.ApprovalReason</dd> }
+    }</dl>
+    @if (editing && canRecord)
+    {
+        <EditForm Model="form" OnSubmit="Save" FormName="fee-shared-policy"><fieldset disabled="@(!ready || busy)">
+        <div class="mb-3"><label class="d-block">Calculation convention evidence and rationale<textarea class="form-control" rows="4" maxlength="4000" @bind="form.MethodReference"></textarea></label></div>
+        <div class="mb-3"><label>VAT %<InputNumber class="form-control" @bind-Value="form.VatPercent" step="0.01" /></label></div>
+        <div class="mb-3"><label class="d-block">Kanaan VAT treatment evidence<textarea class="form-control" rows="3" maxlength="4000" @bind="form.VatReference"></textarea></label></div>
+        <div class="mb-3"><label class="d-block">Change reason<textarea class="form-control" rows="2" maxlength="2000" @bind="reason"></textarea></label></div>
+        <button class="btn btn-primary" type="submit"><i class="bi bi-save" aria-hidden="true"></i> Save proposed convention and VAT</button>
+        <a class="btn btn-outline-secondary ms-2" href="/investments/performance-fees/convention">Cancel</a>
+        </fieldset></EditForm>
+    }
+    else if (!editing && canApprove && policy is { ApprovedAtUtc: null })
+    {
+        <section class="mt-4"><h2>KI adoption</h2>
+        <label class="d-block mb-3">Decision and mandate compatibility rationale<textarea class="form-control" rows="3" maxlength="2000" @bind="reason"></textarea></label>
+        <button class="btn btn-primary" type="button" disabled="@(!ready || busy || string.IsNullOrWhiteSpace(reason))" @onclick="Approve"><i class="bi bi-check2" aria-hidden="true"></i> Adopt calculation convention</button></section>
+    }
+}
+</div>
+
+@code {
+    private FeeSharedPolicy? policy;
+    private FeeSharedPolicy form = new();
+    private System.Security.Claims.ClaimsPrincipal principal = new();
+    private bool ready, busy, loaded, canApprove, canRecord;
+    private string reason = "";
+    private string? error, message;
+    private bool editing => Navigation.Uri.Split('?')[0].TrimEnd('/').EndsWith("/update", StringComparison.Ordinal);
+    protected override void OnAfterRender(bool firstRender) { if (firstRender) { ready = true; StateHasChanged(); } }
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            principal = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User;
+            canRecord = principal.IsInRole(KcasRoles.ComplianceAdministrator) || principal.IsInRole(KcasRoles.ComplianceApprover);
+            canApprove = await Fees.CanApproveAsync(principal); await Reload();
+        }
+        catch (Exception ex) { error = ex.Message; }
+    }
+    private async Task Reload() { policy = await Fees.SharedPolicyAsync(principal); form = policy is null ? new() : FeeJson.Read<FeeSharedPolicy>(FeeJson.Write(policy)); loaded = true; }
+    private async Task Save()
+    {
+        busy = true; error = null;
+        try { await Fees.SaveSharedPolicyAsync(policy?.Version, form.MethodReference, form.VatPercent, form.VatReference, reason, principal); Navigation.NavigateTo("/investments/performance-fees/convention"); }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+    private async Task Approve()
+    {
+        busy = true; error = null;
+        try { await Fees.ApproveSharedPolicyAsync(policy!.Version, reason, principal); await Reload(); reason = ""; message = "Convention adopted. Refresh dependent draft calculations before individual claim approval."; }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+}

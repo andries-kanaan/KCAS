@@ -25,7 +25,7 @@ else
         </div>
     </div>
 
-    <ClientWorkspaceNav ClientId="ClientId" ClientCategory="model.ClientCategory" />
+    <ClientWorkspaceNav ClientId="ClientId" ClientCategory="@model.ClientCategory" />
 
     @if (!string.IsNullOrWhiteSpace(statusMessage))
     {

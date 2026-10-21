@@ -16,6 +16,7 @@
     </div>
     <div class="header-actions"><AuthorizeView Policy="@KcasPermissions.ClientsView"><Authorized><a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}#investments")">Back to investments</a></Authorized></AuthorizeView>
         <a class="btn btn-outline-secondary" href="@($"/clients/{ClientId}/investments/{AccountId}/returns/funding")">Review funding history</a>
+        <a class="btn btn-outline-secondary" href="@($"/investments/performance-fees?accountId={AccountId}")">PDF claims</a>
     </div>
 </div>
 <ClientWorkspaceNav ClientId="ClientId" />

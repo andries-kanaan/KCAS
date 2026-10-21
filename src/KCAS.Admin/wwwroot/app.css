@@ -1695,6 +1695,36 @@ h1:focus {
 }
 
 .client-onboarding-header { flex-wrap: wrap; gap: 1rem; }
+.performance-fee-workspace .page-header { flex-wrap: wrap; gap: .75rem; }
+.performance-fee-workspace { min-width: 0; max-width: 100%; }
+.performance-fee-workspace .page-header > div { min-width: 0; max-width: 100%; }
+.fee-client-summary, .fee-summary-downloads { padding: 1rem 0; }
+.fee-summary-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .75rem; align-items: center; }
+.fee-client-summary h2, .fee-summary-downloads h2 { font-size: 1.2rem; }
+.fee-client-summary h3, .fee-summary-downloads h3 { font-size: 1rem; margin: .75rem 0; }
+.fee-summary-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-block: 1px solid #dce0e4; margin: 1rem 0; }
+.fee-summary-totals > div { min-width: 0; padding: .75rem 1rem .75rem 0; }
+.fee-summary-totals dt { font-size: .85rem; color: #53605b; font-weight: 500; }
+.fee-summary-totals dd { font-size: 1.3rem; font-weight: 600; margin: .25rem 0 0; font-variant-numeric: tabular-nums; }
+.fee-summary-table { min-width: 830px; font-size: .9rem; }
+.fee-summary-table .text-end { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fee-summary-period { white-space: nowrap; font-size: .8rem; }
+.fee-summary-approval { max-width: 740px; padding-top: .5rem; }
+.fee-summary-downloads { border-top: 1px solid #dce0e4; }
+.fee-download-row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; padding: .5rem 0; }
+.fee-download-row h3 { flex: 0 0 160px; margin: 0; }
+.fee-download-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.fee-review-details { border-block: 1px solid #dce0e4; margin-top: .5rem; }
+.fee-review-details > summary { font-weight: 600; padding: 1rem 0; cursor: pointer; }
+@media (max-width: 600px) {
+    .fee-summary-totals { grid-template-columns: minmax(0, 1fr); }
+    .fee-summary-totals > div + div { border-top: 1px solid #e6e9e7; }
+    .fee-download-row h3 { flex-basis: 100%; }
+}
+.performance-fee-workspace p,
+.performance-fee-workspace dd,
+.performance-fee-workspace small,
+.performance-fee-workspace h2 { overflow-wrap: anywhere; }
 .client-onboarding-header > div, .client-onboarding-header h1 { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .client-onboarding-header > div:first-child { flex: 1 1 22rem; }
 .client-onboarding-details dd { overflow-wrap: anywhere; }

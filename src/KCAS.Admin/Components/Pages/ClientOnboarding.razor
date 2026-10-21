@@ -21,7 +21,7 @@
             @if (model.CanPrepare && !model.IsAccepted) { <button class="btn btn-outline-primary" disabled="@busy" @onclick="RequestAsync">Request Codex review</button> }
         </div>
     </div>
-    <ClientWorkspaceNav ClientId="ClientId" KanaanId="model.Client.KanaanId" ClientCategory="model.Client.ClientCategory" />
+    <ClientWorkspaceNav ClientId="ClientId" KanaanId="@model.Client.KanaanId" ClientCategory="@model.Client.ClientCategory" />
     @if (model.Request is { Status: "AwaitingCodex" } notice)
     {
         <div class="alert alert-info" role="status">Codex review task recorded: @notice.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm"). Available on the designated Compliance users' home page. No email sent.</div>

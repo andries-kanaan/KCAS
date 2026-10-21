@@ -28,6 +28,7 @@ public sealed class WorkspaceNavigationTests
     [InlineData("compliance/goaml/transfers", "/compliance/goaml/transfers")]
     [InlineData("COMPLIANCE/RMCP", "/compliance/programme")]
     [InlineData("imports/4", "/imports")]
+    [InlineData("investments/performance-fees/4/prepare", "/investments/performance-fees")]
     [InlineData("Account/Manage", null)]
     [InlineData("clientsevil", null)]
     public void Only_the_specific_workspace_destination_is_active(string url, string? expected)

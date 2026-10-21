@@ -50,6 +50,41 @@ public sealed class UserActionService(IDbContextFactory<ApplicationDbContext> fa
                 Add($"codex:{request.ClientId}", request.Client.DisplayName, "Run Codex review", $"/clients/{request.ClientId}/onboarding#codex-handoff");
         }
 
+        if (Can(KcasPermissions.InvestmentsView) && Can(KcasPermissions.InvestmentsManage) || receivesReviews && Can(KcasPermissions.ComplianceManage))
+        {
+            if (Can(KcasPermissions.InvestmentsManage))
+            {
+                if (ki && await PerformanceFeeService.SharedPolicy(db) is { ApprovedAtUtc: null })
+                    Add("pdf-convention-adoption", "SA wrap calculation convention", "Review and adopt the PDF convention", "/investments/performance-fees/convention");
+                var initial = await PerformanceFeeService.InitialReviewsAsync(db, admin, today.AddDays(30));
+                if (initial.Count > 0)
+                    Add("pdf-initial-reviews", "SA wrap anniversary reviews", $"Prepare initial PDF reviews ({initial.Count})", "/investments/performance-fees", initial[0].InvestmentDate?.AddYears(1));
+            }
+            var feeProfiles = await db.PerformanceFeeProfiles.AsNoTracking().Include(x => x.Account).ThenInclude(x => x.Client).Include(x => x.Claims)
+                .Where(x => admin || !x.Account.Client.ExcludeFromComplianceLists).ToListAsync();
+            foreach (var profile in feeProfiles)
+            {
+                var url = $"/investments/performance-fees/{profile.Id}";
+                var subject = $"{profile.Account.Client.DisplayName} · {profile.Account.AccountNumber}";
+                if (profile.CodexRequestVersion is not null && receivesReviews && Can(KcasPermissions.ComplianceManage))
+                    Add($"pdf-codex:{profile.Id}", subject, "Run Codex fee preparation", url + "#codex-handoff", profile.NextReviewDate);
+                else if (Can(KcasPermissions.InvestmentsManage))
+                {
+                    if (profile.NextReviewDate is null || profile.Claims.Any(c => c.Status == FeeClaimStages.Draft && !FeeJson.Read<FeeCalculationResult>(c.ResultJson).IsReady))
+                        Add($"pdf-evidence:{profile.Id}", subject, "Resolve fee evidence gaps", url, profile.NextReviewDate);
+                    if (profile.NextReviewDate <= today.AddDays(30))
+                        Add($"pdf-anniversary:{profile.Id}", subject, "Review anniversary PDF calculation", url, profile.NextReviewDate);
+                    foreach (var claim in profile.Claims)
+                    {
+                        if (claim.Status == FeeClaimStages.Draft && ki && FeeJson.Read<FeeCalculationResult>(claim.ResultJson).IsReady)
+                            Add($"pdf-approve:{claim.Id}", subject, "Approve performance fee calculation", url);
+                        if (claim.Status is FeeClaimStages.Approved or FeeClaimStages.Submitted or FeeClaimStages.Accepted or FeeClaimStages.Deducted)
+                            Add($"pdf-action:{claim.Id}", subject, claim.Status switch { FeeClaimStages.Approved => "Submit approved fee claim", FeeClaimStages.Submitted => "Follow up administrator acceptance", FeeClaimStages.Accepted => "Confirm actual fee deduction", _ => "Reconcile performance fee payment" }, url);
+                    }
+                }
+            }
+        }
+
         if (Can(KcasPermissions.AdviceView))
         {
             var cases = await db.ClientAdviceCases.AsNoTracking().Include(x => x.Client).Include(x => x.Participants).ThenInclude(x => x.Client)
