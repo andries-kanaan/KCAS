@@ -132,7 +132,8 @@ if (!builder.Environment.IsEnvironment("Testing"))
 }
 builder.Services.AddScoped<InspectionService>();
 builder.Services.AddScoped<GoAmlDailyCheckService>();
-builder.Services.AddOptions<GoAmlReminderOptions>().BindConfiguration("GoAmlReminders");
+builder.Services.AddOptions<GoAmlReminderOptions>().BindConfiguration("GoAmlReminders")
+    .PostConfigure(options => options.ApplyEnvironment(builder.Environment.EnvironmentName));
 builder.Services.AddOptions<GoAmlSmtpOptions>().BindConfiguration("Email:Smtp");
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 builder.Services.AddScoped<IGoAmlEmailSender, GoAmlSmtpEmailSender>();

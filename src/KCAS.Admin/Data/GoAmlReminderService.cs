@@ -21,9 +21,24 @@ public sealed class GoAmlReminderDelivery
 public sealed class GoAmlReminderOptions
 {
     public bool Enabled { get; set; }
+    public bool LocalEnabled { get; set; }
+    public string LocalPublicBaseUrl { get; set; } = "https://kcas.test:8443";
     public string Recipient { get; set; } = "";
     public string PublicBaseUrl { get; set; } = "";
     public int HourLocal { get; set; } = 8;
+
+    public void ApplyEnvironment(string environmentName)
+    {
+        if (string.Equals(environmentName, Environments.Development, StringComparison.OrdinalIgnoreCase))
+        {
+            Enabled = Enabled && LocalEnabled;
+            PublicBaseUrl = LocalPublicBaseUrl;
+        }
+        else if (!string.Equals(environmentName, Environments.Production, StringComparison.OrdinalIgnoreCase))
+        {
+            Enabled = false;
+        }
+    }
 }
 
 public sealed class GoAmlSmtpOptions
@@ -76,7 +91,7 @@ public sealed class GoAmlReminderService(ApplicationDbContext db, IOptions<GoAml
         get
         {
             var settings = options.Value;
-            if (!settings.Enabled) return "Daily email reminders are not enabled. Configure the sender and enable them on the live KCAS server.";
+            if (!settings.Enabled) return "Daily email reminders are disabled for this KCAS environment. Local development requires the separate LocalEnabled switch.";
             if (!MailAddress.TryCreate(settings.Recipient, out _) || settings.HourLocal is < 0 or > 23 ||
                 !Uri.TryCreate(settings.PublicBaseUrl, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps ||
                 !string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment))
