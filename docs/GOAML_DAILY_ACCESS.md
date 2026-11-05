@@ -22,11 +22,15 @@ The **Email reminder** section shows configuration availability and the most rec
 
 The migration `AddGoAmlReminderDeliveries` adds the delivery ledger. It does not replace the database, backfill completed checks, remove screenshots or send email by itself. Use the normal reviewed deployment/migration process. The fresh-database schema also includes the new table.
 
-Only the live server should have sending enabled. Repository defaults leave sending disabled so developer/test copies do not email the real user. Configure these keys in the live server's private configuration or environment, not tracked source files:
+Published defaults enable reminders in the Production environment, using Gmail STARTTLS and Andries's Kanaan sender/recipient. Sending remains blocked until a private SMTP password is supplied. Development additionally requires `LocalEnabled=true`; Testing, Staging and unknown environments cannot send daily reminders. The environment is the ASP.NET Core host environment, not the browser URL or the drive letter. `Restart-KCAS.ps1` explicitly starts Development. Production uses the live link; Development uses `LocalPublicBaseUrl`.
+
+Keep local sending off except during deliberate tests to avoid duplicate emails from separate databases. Configure secrets and overrides in private configuration or environment variables, not tracked source files:
 
 | Key | Setting |
 |---|---|
-| `GoAmlReminders:Enabled` | `true` after the approved sender is configured |
+| `GoAmlReminders:Enabled` | Master switch; published default `true`. Private settings can disable it. |
+| `GoAmlReminders:LocalEnabled` | Additional Development-only switch; default `false` |
+| `GoAmlReminders:LocalPublicBaseUrl` | Development email link base; default `https://kcas.test:8443` |
 | `GoAmlReminders:Recipient` | Primary goAML user's email; current default is Andries's Kanaan address |
 | `GoAmlReminders:PublicBaseUrl` | Live HTTPS KCAS base address, currently `https://kcas:8443` |
 | `GoAmlReminders:HourLocal` | `8` by default |
@@ -40,6 +44,30 @@ Only the live server should have sending enabled. Repository defaults leave send
 Environment keys use double underscores, for example `Email__Smtp__Password`. The sender uses platform TLS and certificate verification; there is no certificate-validation bypass. Do not disable TLS for authenticated SMTP. OAuth-only mail providers need an approved SMTP relay or a separately implemented provider integration; do not assume an ordinary account password will work.
 
 After configuring and restarting live KCAS, check the email section and the recipient's inbox. A real delivery test remains required; automated tests use an isolated fake sender and do not send real email. This reminder sender does not alter the existing Identity password-reset/registration mail behavior.
+
+### Private password entry and switches
+
+From PowerShell in the local repository, run:
+
+```powershell
+& .\deploy\windows\Set-KCAS-GoAmlEmail.ps1 -Target Local -Sending Enabled -SetPassword
+```
+
+Paste the Google app password only into the hidden prompt, never chat or a command argument. This updates the existing ignored `src/KCAS.Admin/appsettings.Development.json`, preserving other settings and file permissions. Restart local KCAS afterward. To disable local sending without re-entering the password:
+
+```powershell
+& .\deploy\windows\Set-KCAS-GoAmlEmail.ps1 -Target Local -Sending Disabled
+```
+
+On live, after publishing the code, run the equivalent command in the server's repository:
+
+```powershell
+& 'D:\Deploy\KCAS\repo\deploy\windows\Set-KCAS-GoAmlEmail.ps1' -Target Live -Sending Enabled -SetPassword
+```
+
+The live command updates the existing shared and active `appsettings.Production.json` files, preserving unrelated settings. Restart the existing KCAS task afterward. Future deployments copy shared configuration forward. Both files must already exist; this is not a deployment/install command. Existing environment-variable overrides still take precedence.
+
+The password is stored in private JSON, like the existing database credentials, not encrypted. Restrict NTFS access to administrators and the KCAS process identity. The helper preserves those ACLs, but does not repair overly permissive ones. A Google app password must be provisioned separately on each machine; publishing deliberately excludes private settings and never transfers the password. No database migration is required for the environment switches. The setup command sends no email; the normal worker respects today's existing access and delivery records after restart.
 
 ## Policy alignment
 

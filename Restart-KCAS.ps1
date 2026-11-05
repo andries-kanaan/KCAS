@@ -11,13 +11,34 @@ $appDllCommandPart = 'KCAS.Admin.dll'
 $env:NUGET_PACKAGES = Join-Path $env:USERPROFILE '.nuget\packages'
 
 $runningApps = Get-CimInstance Win32_Process -Filter "name = 'dotnet.exe'" |
-    Where-Object { $_.CommandLine -and $_.CommandLine.Contains($appDllCommandPart) }
+    Where-Object { $_.ExecutablePath -eq $dotnet -and $_.CommandLine -and $_.CommandLine.Contains($appDllCommandPart) }
 
 foreach ($process in $runningApps) {
-    Stop-Process -Id $process.ProcessId -Force
+    # Crash-reporting children can keep the DLL mapped after the main process exits.
+    & taskkill.exe /PID $process.ProcessId /T /F
+    $deadline = (Get-Date).AddSeconds(10)
+    while ((Get-Process -Id $process.ProcessId -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 200
+    }
+    if (Get-Process -Id $process.ProcessId -ErrorAction SilentlyContinue) {
+        throw "KCAS process $($process.ProcessId) did not exit. Clear its process tree before restarting."
+    }
 }
 
-& $dotnet build $project --no-incremental
+if (Test-Path -LiteralPath $appDll) {
+    try {
+        $lockCheck = [System.IO.File]::Open($appDll, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+        $lockCheck.Dispose()
+    }
+    catch {
+        throw "KCAS.Admin.dll is still locked. No build or startup was attempted. Clear the locking process (administrator rights may be needed)."
+    }
+}
+
+& $dotnet build $project
+if ($LASTEXITCODE -ne 0) {
+    throw "KCAS build failed with exit code $LASTEXITCODE. KCAS was not started."
+}
 
 if (-not (Test-Path $staticAssetManifest) -or
     -not (Select-String -Path $staticAssetManifest -SimpleMatch '"_framework/blazor.web.js"' -Quiet)) {
