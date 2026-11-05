@@ -102,6 +102,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<InspectionReadinessCheck> InspectionReadinessChecks => Set<InspectionReadinessCheck>();
     public DbSet<GoAmlSettings> GoAmlSettings => Set<GoAmlSettings>();
     public DbSet<GoAmlDailyCheck> GoAmlDailyChecks => Set<GoAmlDailyCheck>();
+    public DbSet<GoAmlReminderDelivery> GoAmlReminderDeliveries => Set<GoAmlReminderDelivery>();
     public DbSet<GoAmlTransferRecord> GoAmlTransferRecords => Set<GoAmlTransferRecord>();
     public DbSet<ComplianceProgrammeTransferRecord> ComplianceProgrammeTransferRecords => Set<ComplianceProgrammeTransferRecord>();
     public DbSet<ClientAdviceCase> ClientAdviceCases => Set<ClientAdviceCase>();
@@ -340,7 +341,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 
         builder.Entity<GoAmlDailyCheck>(entity =>
         {
-            entity.Property(item => item.Status).HasMaxLength(32);
+            entity.Property(item => item.Status).HasMaxLength(32).IsConcurrencyToken();
             entity.Property(item => item.StartedBy).HasMaxLength(191);
             entity.Property(item => item.CompletedBy).HasMaxLength(191);
             entity.Property(item => item.MessageReference).HasMaxLength(512);
@@ -357,6 +358,15 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
                 .WithMany()
                 .HasForeignKey(item => item.ComplianceTaskId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        builder.Entity<GoAmlReminderDelivery>(entity =>
+        {
+            ConfigureDateOnly(entity.Property(item => item.ReminderDate));
+            entity.Property(item => item.Recipient).HasMaxLength(191);
+            entity.Property(item => item.Status).HasMaxLength(32);
+            entity.Property(item => item.Error).HasMaxLength(512);
+            entity.HasIndex(item => item.ReminderDate).IsUnique();
         });
 
         builder.Entity<GoAmlTransferRecord>(entity =>

@@ -4948,6 +4948,7 @@ namespace KCAS.Admin.Data.Migrations
                         .HasColumnType("varchar(191)");
 
                     b.Property<string>("Status")
+                        .IsConcurrencyToken()
                         .IsRequired()
                         .HasMaxLength(32)
                         .HasColumnType("varchar(32)");
@@ -4962,6 +4963,46 @@ namespace KCAS.Admin.Data.Migrations
                     b.HasIndex("Status", "CheckDate");
 
                     b.ToTable("GoAmlDailyChecks");
+                });
+
+            modelBuilder.Entity("KCAS.Admin.Data.GoAmlReminderDelivery", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)");
+
+                    b.Property<DateTime?>("LastAttemptAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Recipient")
+                        .IsRequired()
+                        .HasMaxLength(191)
+                        .HasColumnType("varchar(191)");
+
+                    b.Property<DateTime>("ReminderDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime?>("SentAtUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReminderDate")
+                        .IsUnique();
+
+                    b.ToTable("GoAmlReminderDeliveries");
                 });
 
             modelBuilder.Entity("KCAS.Admin.Data.GoAmlSettings", b =>

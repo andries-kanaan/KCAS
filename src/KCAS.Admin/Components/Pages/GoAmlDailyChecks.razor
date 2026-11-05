@@ -1,8 +1,10 @@
 @page "/compliance/goaml"
 @rendermode InteractiveServer
+@implements IAsyncDisposable
 @attribute [Authorize(Policy = KcasPermissions.ComplianceView)]
 @using KCAS.Admin.Data
 @inject GoAmlDailyCheckService GoAml
+@inject GoAmlReminderService Reminders
 @inject AuthenticationStateProvider AuthenticationStateProvider
 
 <PageTitle>goAML check</PageTitle>
@@ -11,7 +13,7 @@
     <div>
         <p class="eyebrow">Compliance</p>
         <h1>goAML check</h1>
-        <p class="lede">Open goAML, record the outcome, retain readable screenshot evidence and escalate new messages into the compliance work register.</p>
+        <p class="lede">Daily goAML access and message follow-up.</p>
     </div>
     <div class="d-flex gap-2">
         @if (isAdministrator)
@@ -40,22 +42,23 @@ else
             Missing recordings: @string.Join(", ", dashboard.MissingDates.OrderBy(date => date).Select(date => date.ToString("yyyy-MM-dd"))).
         </div>
     }
-    else if (dashboard.IsTodayComplete)
+    @if (dashboard.IsTodayComplete)
     {
-        <div class="alert alert-success">Current goAML check is complete.</div>
+        <div class="alert alert-success">Today's goAML access is recorded.</div>
     }
 
     <section class="work-area">
         <div class="page-header compact-header">
             <div>
                 <h2>Current check</h2>
-                <p class="text-muted mb-0">Due daily by @dashboard.Settings.DueHourLocal.ToString("00"):00 local time.</p>
+                <p class="text-muted mb-0">Due daily by @dashboard.Settings.DueHourLocal.ToString("00"):00 South African time.</p>
             </div>
-            @if (!dashboard.IsTodayComplete)
+            @if (canManage)
             {
-                <a class="btn btn-primary" href="@dashboard.Settings.PortalUrl" target="_blank" rel="noopener" @onclick="StartTodayAsync">
-                    Open goAML and start check
-                </a>
+                <form method="post" action="/compliance/goaml/open" target="_blank" rel="noopener">
+                    <AntiforgeryToken />
+                    <button class="btn btn-primary" type="submit">Open goAML</button>
+                </form>
             }
         </div>
 
@@ -64,26 +67,23 @@ else
             <div class="investment-summary mt-3">
                 <div><span>Date</span><strong>@dashboard.TodayCheck.CheckDate.ToString("yyyy-MM-dd")</strong></div>
                 <div><span>Status</span><strong>@GoAmlCheckStatuses.Display(dashboard.TodayCheck.Status)</strong></div>
-                <div><span>Started by</span><strong>@dashboard.TodayCheck.StartedBy</strong></div>
-                <div><span>Evidence</span><strong>@(dashboard.TodayCheck.EvidenceFileName ?? "Pending")</strong></div>
+                <div><span>Recorded by: </span><strong>@(dashboard.TodayCheck.CompletedBy ?? dashboard.TodayCheck.StartedBy)</strong></div>
+                <div><span>Recorded at: </span><strong>@LocalTime(dashboard.TodayCheck.CompletedAtUtc ?? dashboard.TodayCheck.StartedAtUtc)</strong></div>
             </div>
         }
 
-        @if (canManage && dashboard.TodayCheck?.Status == GoAmlCheckStatuses.Started)
+        @if (canManage && dashboard.TodayCheck is not null &&
+            (dashboard.TodayCheck.Status == GoAmlCheckStatuses.Started || dashboard.TodayCheck.Status == GoAmlCheckStatuses.AccessRecorded))
         {
+            <details class="mt-3">
+            <summary>Record message outcome or access problem (optional)</summary>
             <div class="workspace-grid mt-3">
                 <select class="form-select" @bind="completion.Status">
                     <option value="@GoAmlCheckStatuses.NoNewMessages">No new or actionable messages</option>
                     <option value="@GoAmlCheckStatuses.ActionRequired">New message - action required</option>
                     <option value="@GoAmlCheckStatuses.Unavailable">goAML unavailable</option>
                 </select>
-                <InputFile class="form-control" OnChange="SelectEvidence" accept="image/png,image/jpeg" />
             </div>
-            <p class="form-text">The selected image is converted to a readable JPEG with a maximum size of 1600 × 1000 before upload.</p>
-            @if (selectedEvidence is not null)
-            {
-                <p class="small text-success">Selected: @selectedEvidence.Name (@FormatBytes(selectedEvidence.Size))</p>
-            }
             @if (completion.Status == GoAmlCheckStatuses.ActionRequired)
             {
                 <div class="workspace-grid mt-2">
@@ -94,16 +94,31 @@ else
                 <p class="form-text">KCAS creates a High-priority compliance work item automatically.</p>
             }
             <textarea class="form-control mt-2" rows="3" @bind="completion.Notes" placeholder="Notes, action summary or access problem"></textarea>
-            <input class="form-control mt-2" @bind="completionReason" placeholder="Reason for recording this goAML check" />
-            <button class="btn btn-success mt-2" @onclick="CompleteTodayAsync" disabled="@isBusy">Complete goAML check</button>
+            <button class="btn btn-success mt-2" @onclick="CompleteTodayAsync" disabled="@isBusy">Record outcome</button>
+            </details>
         }
     </section>
+
+    @if (reminderStatus is not null)
+    {
+        <section class="work-area">
+            <h2>Email reminder</h2>
+            <p>@reminderStatus.Description</p>
+            @if (reminderStatus.Latest is { } delivery)
+            {
+                <p>Latest reminder: @delivery.ReminderDate.ToString("yyyy-MM-dd") · @delivery.Status
+                    @if (delivery.SentAtUtc is { } sent) { <span> · @LocalTime(sent)</span> }
+                </p>
+                @if (delivery.Error is not null) { <p class="text-danger">@delivery.Error</p> }
+            }
+        </section>
+    }
 
     <section class="work-area">
         <h2>Recent checks</h2>
         <div class="table-responsive">
             <table class="table align-middle">
-                <thead><tr><th>Date</th><th>Outcome</th><th>Completed by</th><th>Evidence</th><th>Message/action</th></tr></thead>
+                <thead><tr><th>Date</th><th>Outcome</th><th>Recorded by</th><th>Recorded at (SA)</th><th>Previous evidence</th><th>Message/action</th></tr></thead>
                 <tbody>
                     @foreach (var check in dashboard.RecentChecks)
                     {
@@ -111,6 +126,7 @@ else
                             <td>@check.CheckDate.ToString("yyyy-MM-dd")</td>
                             <td>@GoAmlCheckStatuses.Display(check.Status)</td>
                             <td>@(check.CompletedBy ?? check.StartedBy)</td>
+                            <td>@LocalTime(check.CompletedAtUtc ?? check.StartedAtUtc)</td>
                             <td>
                                 @if (!string.IsNullOrWhiteSpace(check.EvidencePath))
                                 {
@@ -137,20 +153,17 @@ else
     {
         <section class="work-area">
             <h2>goAML settings</h2>
-            <p class="text-muted">The evidence folder is configurable. KCAS adds year and month subfolders automatically.</p>
-            <label class="form-label">Evidence base folder</label>
-            <input class="form-control" @bind="settings.EvidenceRootPath" />
             <div class="workspace-grid mt-2">
                 <div>
                     <label class="form-label">Official portal URL</label>
                     <input class="form-control" @bind="settings.PortalUrl" />
                 </div>
                 <div>
-                    <label class="form-label">Evidence tracking starts</label>
+                    <label class="form-label">Access tracking starts</label>
                     <InputDate class="form-control" @bind-Value="settings.TrackingStartDate" />
                 </div>
                 <div>
-                    <label class="form-label">Due hour (local, 0–23)</label>
+                    <label class="form-label">Due hour (South African time, 0–23)</label>
                     <InputNumber class="form-control" @bind-Value="settings.DueHourLocal" />
                 </div>
                 <div>
@@ -168,13 +181,15 @@ else
     private GoAmlDashboardModel? dashboard;
     private GoAmlSettingsModel settings = new();
     private GoAmlCompletionModel completion = new();
-    private IBrowserFile? selectedEvidence;
     private string? currentUser;
-    private string completionReason = "goAML message-board review.";
-    private string settingsReason = "Configure goAML daily-check evidence storage.";
+    private string settingsReason = "Configure goAML daily access.";
+    private GoAmlReminderStatus? reminderStatus;
+    private readonly CancellationTokenSource refreshCancellation = new();
+    private Task? refreshTask;
     private string? message;
     private bool isError;
     private bool isBusy;
+    private bool isLoading;
     private bool canManage;
     private bool isAdministrator;
 
@@ -188,53 +203,42 @@ else
         await LoadAsync();
     }
 
-    private async Task LoadAsync()
+    protected override Task OnAfterRenderAsync(bool firstRender)
     {
-        dashboard = await GoAml.LoadDashboardAsync();
-        settings = new GoAmlSettingsModel
-        {
-            EvidenceRootPath = dashboard.Settings.EvidenceRootPath,
-            PortalUrl = dashboard.Settings.PortalUrl,
-            TrackingStartDate = dashboard.Settings.TrackingStartDate,
-            DueHourLocal = dashboard.Settings.DueHourLocal,
-            BackupChecker = dashboard.Settings.BackupChecker
-        };
+        if (firstRender) refreshTask = RefreshAsync();
+        return Task.CompletedTask;
     }
 
-    private async Task StartTodayAsync()
+    private async Task RefreshAsync()
     {
-        if (!canManage) return;
         try
         {
-            await GoAml.StartTodayAsync(currentUser);
-            await LoadAsync();
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+            while (await timer.WaitForNextTickAsync(refreshCancellation.Token))
+                await InvokeAsync(async () => { if (!isBusy && !isLoading) { await LoadAsync(false); StateHasChanged(); } });
         }
-        catch (Exception ex) { ShowError(ex); }
+        catch (OperationCanceledException) when (refreshCancellation.IsCancellationRequested) { }
     }
 
-    private void SelectEvidence(InputFileChangeEventArgs args)
+    private async Task LoadAsync(bool reloadSettings = true)
     {
-        selectedEvidence = args.File;
-        message = null;
+        isLoading = true;
+        try
+        {
+            dashboard = await GoAml.LoadDashboardAsync();
+            reminderStatus = await Reminders.LoadStatusAsync();
+            if (reloadSettings) settings = dashboard.Settings;
+        }
+        finally { isLoading = false; }
     }
 
     private async Task CompleteTodayAsync()
     {
+        if (!canManage || isBusy || isLoading) return;
         try
         {
             isBusy = true;
-            Stream? stream = null;
-            if (selectedEvidence is not null)
-            {
-                var resized = await selectedEvidence.RequestImageFileAsync("image/jpeg", 1600, 1000);
-                stream = resized.OpenReadStream(5 * 1024 * 1024);
-            }
-            await using (stream)
-            {
-                await GoAml.CompleteTodayAsync(completion, stream, stream is null ? null : "image/jpeg",
-                    currentUser, completionReason);
-            }
-            selectedEvidence = null;
+            await GoAml.CompleteTodayAsync(completion, null, null, currentUser, "Recorded goAML message-board outcome.");
             message = "goAML check was recorded.";
             isError = false;
             await LoadAsync();
@@ -245,6 +249,7 @@ else
 
     private async Task SaveSettingsAsync()
     {
+        if (!canManage || isBusy || isLoading) return;
         try
         {
             isBusy = true;
@@ -263,7 +268,13 @@ else
         isError = true;
     }
 
-    private static string FormatBytes(long bytes) => bytes < 1024 * 1024
-        ? $"{bytes / 1024d:N0} KB"
-        : $"{bytes / 1024d / 1024d:N1} MB";
+    private static string LocalTime(DateTime utc) => DateTime.SpecifyKind(utc, DateTimeKind.Utc)
+        .AddHours(2).ToString("yyyy-MM-dd HH:mm:ss");
+
+    public async ValueTask DisposeAsync()
+    {
+        await refreshCancellation.CancelAsync();
+        if (refreshTask is not null) await refreshTask;
+        refreshCancellation.Dispose();
+    }
 }

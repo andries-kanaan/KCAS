@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using MySql.Data.MySqlClient;
 
 namespace KCAS.Admin.Data;
 
@@ -12,7 +13,7 @@ public sealed class GoAmlDailyCheckService(ApplicationDbContext db)
 
     public async Task<GoAmlDashboardModel> LoadDashboardAsync(DateTime? localNow = null)
     {
-        var now = localNow ?? DateTime.Now;
+        var now = localNow ?? GoAmlClock.LocalNow;
         var today = DateOnly.FromDateTime(now);
         var settings = await LoadSettingsAsync(today);
         var recent = await db.GoAmlDailyChecks.AsNoTracking()
@@ -52,7 +53,6 @@ public sealed class GoAmlDailyCheckService(ApplicationDbContext db)
             throw new ValidationException("The daily due hour must be between 0 and 23.");
         }
 
-        Directory.CreateDirectory(root);
         var settings = await db.GoAmlSettings.OrderBy(item => item.Id).FirstOrDefaultAsync();
         var oldJson = settings is null ? null : JsonSerializer.Serialize(SettingsSummary(settings), AuditOptions);
         if (settings is null)
@@ -77,7 +77,7 @@ public sealed class GoAmlDailyCheckService(ApplicationDbContext db)
     public async Task<GoAmlDailyCheck> StartTodayAsync(string? userName, DateTime? localNow = null)
     {
         var user = RequireUser(userName);
-        var today = DateOnly.FromDateTime(localNow ?? DateTime.Now);
+        var today = DateOnly.FromDateTime(localNow ?? GoAmlClock.LocalNow);
         var existing = await db.GoAmlDailyChecks.SingleOrDefaultAsync(item => item.CheckDate == today);
         if (existing is not null) return existing;
 
@@ -89,11 +89,43 @@ public sealed class GoAmlDailyCheckService(ApplicationDbContext db)
             StartedBy = user
         };
         db.GoAmlDailyChecks.Add(check);
-        await db.SaveChangesAsync();
+        try { await db.SaveChangesAsync(); }
+        catch (DbUpdateException ex) when (ex.InnerException is MySqlException { Number: 1062 })
+        {
+            db.Entry(check).State = EntityState.Detached;
+            return await db.GoAmlDailyChecks.SingleAsync(item => item.CheckDate == today);
+        }
         db.ComplianceAuditEvents.Add(CreateAudit(nameof(GoAmlDailyCheck), check.Id, "Started", user,
             "Opened the goAML daily message-board check.", null, CheckSummary(check)));
         await db.SaveChangesAsync();
         return check;
+    }
+
+    public async Task<string> RecordAccessAsync(string? userName, DateTime? localNow = null)
+    {
+        var user = RequireUser(userName);
+        var now = localNow ?? GoAmlClock.LocalNow;
+        var today = DateOnly.FromDateTime(now);
+        var settings = await LoadSettingsAsync(today);
+        if (!Uri.TryCreate(settings.PortalUrl, UriKind.Absolute, out var portal) || portal.Scheme != Uri.UriSchemeHttps)
+            throw new ValidationException("The goAML portal must be a valid HTTPS URL.");
+        var check = await StartTodayAsync(user, now);
+        // Conditional update also protects completed outcomes against concurrent clicks.
+        var recordedAt = DateTime.UtcNow;
+        await using var transaction = await db.Database.BeginTransactionAsync();
+        var updated = await db.GoAmlDailyChecks.Where(x => x.Id == check.Id && x.Status == GoAmlCheckStatuses.Started)
+            .ExecuteUpdateAsync(set => set.SetProperty(x => x.Status, GoAmlCheckStatuses.AccessRecorded)
+                .SetProperty(x => x.CompletedAtUtc, recordedAt).SetProperty(x => x.CompletedBy, user));
+        if (updated == 1)
+        {
+            db.ComplianceAuditEvents.Add(CreateAudit(nameof(GoAmlDailyCheck), check.Id, "AccessRecorded", user,
+                "Selected Open goAML in KCAS; daily access recorded without screenshot. Portal login and message contents are not verified by KCAS.",
+                null, new { CheckDate = today, PortalUrl = portal.ToString(), RecordedAtUtc = recordedAt, RecordedBy = user }));
+            await db.SaveChangesAsync();
+        }
+        await transaction.CommitAsync();
+        await db.Entry(check).ReloadAsync();
+        return portal.ToString();
     }
 
     public async Task CompleteTodayAsync(
@@ -107,20 +139,16 @@ public sealed class GoAmlDailyCheckService(ApplicationDbContext db)
     {
         RequireReason(reason);
         var user = RequireUser(userName);
-        if (!GoAmlCheckStatuses.Completed.Contains(model.Status, StringComparer.Ordinal))
+        if (!GoAmlCheckStatuses.Completed.Contains(model.Status, StringComparer.Ordinal) || model.Status == GoAmlCheckStatuses.AccessRecorded)
         {
             throw new ValidationException("Select a valid goAML check outcome.");
         }
-        var today = DateOnly.FromDateTime(localNow ?? DateTime.Now);
+        var today = DateOnly.FromDateTime(localNow ?? GoAmlClock.LocalNow);
         var check = await db.GoAmlDailyChecks.SingleOrDefaultAsync(item => item.CheckDate == today)
             ?? throw new InvalidOperationException("Start today's goAML check before recording the result.");
-        if (check.Status != GoAmlCheckStatuses.Started)
+        if (check.Status != GoAmlCheckStatuses.Started && check.Status != GoAmlCheckStatuses.AccessRecorded)
         {
             throw new InvalidOperationException("Today's goAML check has already been completed.");
-        }
-        if (model.Status != GoAmlCheckStatuses.Unavailable && evidence is null)
-        {
-            throw new ValidationException("A screenshot is required for a completed goAML message-board check.");
         }
         if (model.Status == GoAmlCheckStatuses.Unavailable && evidence is null && string.IsNullOrWhiteSpace(model.Notes))
         {
@@ -291,6 +319,11 @@ public sealed class GoAmlDailyCheckService(ApplicationDbContext db)
             : userName.Trim();
 
     private static string? NormalizeOrNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+}
+
+public static class GoAmlClock
+{
+    public static DateTime LocalNow => DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(2)).DateTime;
 }
 
 public sealed class GoAmlSettingsModel

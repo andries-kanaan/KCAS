@@ -218,7 +218,8 @@ public sealed class GoAmlTransferService(
 
         var package = preview.Package;
         var settings = await db.GoAmlSettings.AsNoTracking().OrderBy(item => item.Id).FirstOrDefaultAsync(cancellationToken);
-        var evidenceRoot = ValidateEvidenceRoot(settings?.EvidenceRootPath ?? GoAmlDefaults.EvidenceRootPath);
+        var evidenceRoot = package.Checks.Any(x => x.Evidence is not null)
+            ? ValidateEvidenceRoot(settings?.EvidenceRootPath ?? GoAmlDefaults.EvidenceRootPath) : null;
         var incomingDirectory = Path.Combine(StorageRoot, "incoming");
         Directory.CreateDirectory(incomingDirectory);
         var incomingFileName = BuildFileName(package);
@@ -269,7 +270,7 @@ public sealed class GoAmlTransferService(
 
                 if (source.Evidence is not null)
                 {
-                    var folder = Path.Combine(evidenceRoot, source.CheckDate.Year.ToString("0000"),
+                    var folder = Path.Combine(evidenceRoot!, source.CheckDate.Year.ToString("0000"),
                         source.CheckDate.Month.ToString("00"));
                     Directory.CreateDirectory(folder);
                     var fileName = $"goAML-{source.CheckDate:yyyy-MM-dd}-transfer-{check.Id}.jpg";
@@ -424,8 +425,6 @@ public sealed class GoAmlTransferService(
             conflicts.Add($"{check.CheckDate:yyyy-MM-dd} has incomplete completion metadata.");
         if (string.IsNullOrWhiteSpace(check.StartedBy))
             conflicts.Add($"{check.CheckDate:yyyy-MM-dd} has no checker identity.");
-        if (check.Status != GoAmlCheckStatuses.Unavailable && check.Evidence is null)
-            conflicts.Add($"{check.CheckDate:yyyy-MM-dd} is missing required screenshot evidence.");
         if (check.Status == GoAmlCheckStatuses.Unavailable && check.Evidence is null && string.IsNullOrWhiteSpace(check.Notes))
             conflicts.Add($"{check.CheckDate:yyyy-MM-dd} has neither evidence nor an outage description.");
         if (check.Status == GoAmlCheckStatuses.ActionRequired &&
