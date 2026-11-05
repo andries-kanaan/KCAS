@@ -129,17 +129,46 @@ public sealed class GoAmlDailyCheckServiceTests(KcasWebApplicationFactory factor
     }
 
     [Fact]
-    public async Task Successful_check_requires_a_JPEG_screenshot()
+    public async Task Successful_check_does_not_require_a_screenshot()
     {
         using var scope = factory.Services.CreateScope();
         var service = scope.ServiceProvider.GetRequiredService<GoAmlDailyCheckService>();
         var date = new DateOnly(2043, 4, 21);
         await service.StartTodayAsync("checker@example.test", date.ToDateTime(new TimeOnly(9, 0)));
 
-        await Assert.ThrowsAsync<ValidationException>(() => service.CompleteTodayAsync(
+        await service.CompleteTodayAsync(
             new GoAmlCompletionModel { Status = GoAmlCheckStatuses.NoNewMessages },
-            null, null, "checker@example.test", "Attempt without evidence.",
-            date.ToDateTime(new TimeOnly(9, 5))));
+            null, null, "checker@example.test", "Record message-board outcome without screenshot.",
+            date.ToDateTime(new TimeOnly(9, 5)));
+        var dashboard = await service.LoadDashboardAsync(date.ToDateTime(new TimeOnly(11, 0)));
+        Assert.True(dashboard.IsTodayComplete);
+        Assert.Null(dashboard.TodayCheck!.EvidencePath);
+    }
+
+    [Fact]
+    public async Task Open_records_daily_access_once_without_claiming_a_message_outcome_and_can_be_followed_up()
+    {
+        using var scope = factory.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<GoAmlDailyCheckService>();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var now = new DateTime(2045, 6, 23, 9, 0, 0);
+        var url = await service.RecordAccessAsync("checker@example.test", now);
+        var first = (await service.LoadDashboardAsync(now)).TodayCheck!;
+        var firstTime = first.CompletedAtUtc;
+        Assert.StartsWith("https://", url);
+        Assert.Equal(GoAmlCheckStatuses.AccessRecorded, first.Status);
+        Assert.Equal("checker@example.test", first.CompletedBy);
+        Assert.Null(first.EvidencePath);
+        await service.RecordAccessAsync("backup@example.test", now);
+        var repeated = (await service.LoadDashboardAsync(now)).TodayCheck!;
+        Assert.Equal(firstTime, repeated.CompletedAtUtc);
+        Assert.Equal("checker@example.test", repeated.CompletedBy);
+        Assert.Equal(1, await db.ComplianceAuditEvents.CountAsync(x => x.EntityType == nameof(GoAmlDailyCheck) &&
+            x.EntityId == first.Id && x.Action == "AccessRecorded"));
+        await service.CompleteTodayAsync(new GoAmlCompletionModel { Status = GoAmlCheckStatuses.Unavailable, Notes = "Portal unavailable." },
+            null, null, "checker@example.test", "Record portal outage.", now);
+        await service.RecordAccessAsync("backup@example.test", now);
+        Assert.Equal(GoAmlCheckStatuses.Unavailable, (await service.LoadDashboardAsync(now)).TodayCheck!.Status);
     }
 
     [Fact]

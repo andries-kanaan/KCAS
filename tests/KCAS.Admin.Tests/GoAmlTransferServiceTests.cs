@@ -8,6 +8,38 @@ namespace KCAS.Admin.Tests;
 public sealed class GoAmlTransferServiceTests(KcasWebApplicationFactory factory)
 {
     [Fact]
+    public async Task Access_only_check_transfers_without_screenshot_or_live_evidence_folder()
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var daily = scope.ServiceProvider.GetRequiredService<GoAmlDailyCheckService>();
+        var transfers = scope.ServiceProvider.GetRequiredService<GoAmlTransferService>();
+        var date = new DateOnly(2046, 7, 24);
+        string? outgoing = null, incoming = null;
+        try
+        {
+            await daily.RecordAccessAsync("checker@example.test", date.ToDateTime(new TimeOnly(8, 0)));
+            var exported = await transfers.ExportAsync(date, date, "test-passphrase", "checker@example.test", "Transfer access log.");
+            outgoing = exported.StoragePath;
+            var bytes = await File.ReadAllBytesAsync(outgoing);
+            db.GoAmlDailyChecks.Remove(await db.GoAmlDailyChecks.SingleAsync(x => x.CheckDate == date));
+            await db.SaveChangesAsync();
+            db.ChangeTracker.Clear();
+            var preview = await transfers.PreviewAsync(bytes, "test-passphrase");
+            Assert.True(preview.CanApply, string.Join("; ", preview.Conflicts));
+            Assert.Equal(0, preview.EvidenceCount);
+            var result = await transfers.ApplyAsync(bytes, "test-passphrase", "importer@example.test", "Apply access log.");
+            incoming = result.StoragePath;
+            Assert.Equal(1, result.ChecksImported);
+            var saved = await db.GoAmlDailyChecks.AsNoTracking().SingleAsync(x => x.CheckDate == date);
+            Assert.Equal(GoAmlCheckStatuses.AccessRecorded, saved.Status);
+            Assert.Equal("checker@example.test", saved.CompletedBy);
+            Assert.Null(saved.EvidencePath);
+        }
+        finally { DeleteFile(outgoing); DeleteFile(incoming); }
+    }
+
+    [Fact]
     public async Task Completed_checks_export_preview_apply_once_with_evidence_and_action_task()
     {
         using var scope = factory.Services.CreateScope();

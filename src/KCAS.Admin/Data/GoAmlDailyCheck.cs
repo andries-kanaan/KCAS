@@ -43,15 +43,17 @@ public static class GoAmlDefaults
 public static class GoAmlCheckStatuses
 {
     public const string Started = "Started";
+    public const string AccessRecorded = "AccessRecorded";
     public const string NoNewMessages = "NoNewMessages";
     public const string ActionRequired = "ActionRequired";
     public const string Unavailable = "Unavailable";
 
-    public static readonly IReadOnlyList<string> Completed = [NoNewMessages, ActionRequired, Unavailable];
+    public static readonly IReadOnlyList<string> Completed = [AccessRecorded, NoNewMessages, ActionRequired, Unavailable];
 
     public static string Display(string status) => status switch
     {
         Started => "Check started",
+        AccessRecorded => "Daily access recorded",
         NoNewMessages => "No new or actionable messages",
         ActionRequired => "New message - action required",
         Unavailable => "goAML unavailable",

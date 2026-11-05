@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Negotiate;
 using Microsoft.AspNetCore.Authorization;
@@ -131,6 +132,12 @@ if (!builder.Environment.IsEnvironment("Testing"))
 }
 builder.Services.AddScoped<InspectionService>();
 builder.Services.AddScoped<GoAmlDailyCheckService>();
+builder.Services.AddOptions<GoAmlReminderOptions>().BindConfiguration("GoAmlReminders");
+builder.Services.AddOptions<GoAmlSmtpOptions>().BindConfiguration("Email:Smtp");
+builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
+builder.Services.AddScoped<IGoAmlEmailSender, GoAmlSmtpEmailSender>();
+builder.Services.AddScoped<GoAmlReminderService>();
+if (!builder.Environment.IsEnvironment("Testing")) builder.Services.AddHostedService<GoAmlReminderJob>();
 builder.Services.AddScoped<GoAmlTransferService>();
 builder.Services.AddScoped<ComplianceProgrammeTransferService>();
 builder.Services.AddSingleton<ClientEvidenceScanCoordinator>();
@@ -318,6 +325,15 @@ app.MapGet("/compliance/evidence/{id:int}/file", async Task<IResult> (int id, Ap
 
     return Results.File(File.OpenRead(evidence.Location), contentType, enableRangeProcessing: true);
 }).RequireAuthorization(KcasPermissions.ComplianceView);
+
+app.MapPost("/compliance/goaml/open", async Task<IResult> (HttpContext context,
+    IAntiforgery antiforgery, GoAmlDailyCheckService goAml) =>
+{
+    try { await antiforgery.ValidateRequestAsync(context); }
+    catch (AntiforgeryValidationException) { return Results.BadRequest("Reload KCAS before opening goAML."); }
+    var portal = await goAml.RecordAccessAsync(context.User.Identity?.Name);
+    return Results.Redirect(portal);
+}).RequireAuthorization(KcasPermissions.ComplianceManage);
 
 app.MapGet("/compliance/goaml/checks/{id:int}/evidence", async Task<IResult> (
     int id,
