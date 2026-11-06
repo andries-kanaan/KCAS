@@ -10,6 +10,8 @@ The status is **Daily access recorded**, not **No new messages**. A click record
 
 ## Email delivery
 
+**Send goAML email**, beside **Open goAML**, lets a Compliance.Manage user request one manual email to the configured recipient. It works even when the daily schedule is disabled, uses this environment's configured link, and identifies its host in the subject. It does not record access or change daily delivery/deduplication records. KCAS logs the requesting user and acceptance time; SMTP acceptance still requires inbox confirmation. The button is disabled while a send is in progress. Failed/uncertain sends are not automatically retried.
+
 The background worker runs every five minutes without requiring a login. Starting at the configured hour (default 08:00 South African time, UTC+2), it sends one reminder for the current date if access is outstanding. It runs every calendar day, including weekends. There is no backfill of emails for older missed days. If KCAS starts later that day, it sends the outstanding current reminder then. An already recorded access or outcome suppresses that day's reminder.
 
 The email links to `/compliance/goaml` on the configured live KCAS address, not directly to the external portal. Opening an email or its KCAS link does not create an access record. The configured KCAS address must be reachable from the recipient's computer/network.

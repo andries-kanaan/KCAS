@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Mail;
+using System.Security.Claims;
+using KCAS.Admin.Security;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using MySql.Data.MySqlClient;
@@ -86,6 +88,37 @@ public sealed record GoAmlReminderStatus(string Description, GoAmlReminderDelive
 public sealed class GoAmlReminderService(ApplicationDbContext db, IOptions<GoAmlReminderOptions> options,
     IGoAmlEmailSender sender, TimeProvider clock, ILogger<GoAmlReminderService> logger)
 {
+    public async Task<string> SendManualAsync(ClaimsPrincipal principal, CancellationToken cancellationToken = default)
+    {
+        if (principal.Identity?.IsAuthenticated != true ||
+            !principal.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage))
+            throw new UnauthorizedAccessException("Compliance management permission is required.");
+        var settings = options.Value;
+        if (!MailAddress.TryCreate(settings.Recipient, out _) ||
+            !Uri.TryCreate(settings.PublicBaseUrl, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps ||
+            !string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment))
+            throw new InvalidOperationException("Configure the reminder recipient and HTTPS KCAS address.");
+        if (sender.ConfigurationProblem is { } problem) throw new InvalidOperationException(problem);
+        var link = new Uri(uri, "/compliance/goaml").AbsoluteUri;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        try
+        {
+            await sender.SendAsync(settings.Recipient.Trim(), $"KCAS: manual goAML email - {uri.Host}",
+                $"Please access the FIC goAML message board today.\n\nOpen KCAS: {link}\n\n" +
+                "Sign in and select Open goAML. Read the message board and record any follow-up in KCAS.\n\n" +
+                "This email was requested manually. It does not record goAML access or replace the scheduled daily reminder.", timeout.Token);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Manual goAML email requested by {Actor} failed.", principal.Identity.Name);
+            throw new InvalidOperationException("Email delivery could not be confirmed. Check the inbox/sender log before retrying to avoid duplicates.");
+        }
+        logger.LogInformation("Manual goAML email accepted for {Recipient}, requested by {Actor} at {Time} for {Host}.",
+            settings.Recipient, principal.Identity.Name, clock.GetUtcNow(), uri.Host);
+        return $"Email accepted by the mail server for {settings.Recipient}. Link: {link}. Please confirm inbox delivery.";
+    }
+
     private string? ConfigurationProblem
     {
         get
