@@ -55,10 +55,13 @@ else
             </div>
             @if (canManage)
             {
+                <div class="d-flex flex-wrap gap-2">
                 <form method="post" action="/compliance/goaml/open" target="_blank" rel="noopener">
                     <AntiforgeryToken />
                     <button class="btn btn-primary" type="submit">Open goAML</button>
                 </form>
+                <button class="btn btn-outline-primary" type="button" @onclick="SendEmailAsync" disabled="@(isBusy || isLoading)">Send goAML email</button>
+                </div>
             }
         </div>
 
@@ -242,6 +245,20 @@ else
             message = "goAML check was recorded.";
             isError = false;
             await LoadAsync();
+        }
+        catch (Exception ex) { ShowError(ex); }
+        finally { isBusy = false; }
+    }
+
+    private async Task SendEmailAsync()
+    {
+        if (!canManage || isBusy || isLoading) return;
+        isBusy = true;
+        try
+        {
+            var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            message = await Reminders.SendManualAsync(state.User, refreshCancellation.Token);
+            isError = false;
         }
         catch (Exception ex) { ShowError(ex); }
         finally { isBusy = false; }
