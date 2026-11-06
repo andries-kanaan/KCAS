@@ -27,19 +27,34 @@ public sealed class GoAmlReminderOptions
     public string LocalPublicBaseUrl { get; set; } = "https://kcas.test:8443";
     public string Recipient { get; set; } = "";
     public string PublicBaseUrl { get; set; } = "";
+    public string OtherPublicBaseUrl { get; private set; } = "https://kcas.test:8443";
     public int HourLocal { get; set; } = 8;
 
     public void ApplyEnvironment(string environmentName)
     {
+        OtherPublicBaseUrl = LocalPublicBaseUrl;
         if (string.Equals(environmentName, Environments.Development, StringComparison.OrdinalIgnoreCase))
         {
             Enabled = Enabled && LocalEnabled;
+            OtherPublicBaseUrl = PublicBaseUrl;
             PublicBaseUrl = LocalPublicBaseUrl;
         }
         else if (!string.Equals(environmentName, Environments.Production, StringComparison.OrdinalIgnoreCase))
         {
             Enabled = false;
         }
+    }
+
+    public string EmailLinks()
+    {
+        static string Link(string address)
+        {
+            if (!Uri.TryCreate(address, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps ||
+                !string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment))
+                throw new InvalidOperationException("Configure valid HTTPS live and local KCAS addresses.");
+            return new Uri(uri, "/compliance/goaml").AbsoluteUri;
+        }
+        return $"Open KCAS: {Link(PublicBaseUrl)}\nOpen KCAS: {Link(OtherPublicBaseUrl)}";
     }
 }
 
@@ -100,12 +115,13 @@ public sealed class GoAmlReminderService(ApplicationDbContext db, IOptions<GoAml
             throw new InvalidOperationException("Configure the reminder recipient and HTTPS KCAS address.");
         if (sender.ConfigurationProblem is { } problem) throw new InvalidOperationException(problem);
         var link = new Uri(uri, "/compliance/goaml").AbsoluteUri;
+        var links = settings.EmailLinks();
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(30));
         try
         {
             await sender.SendAsync(settings.Recipient.Trim(), $"KCAS: manual goAML email - {uri.Host}",
-                $"Please access the FIC goAML message board today.\n\nOpen KCAS: {link}\n\n" +
+                $"Please access the FIC goAML message board today.\n\n{links}\n\n" +
                 "Sign in and select Open goAML. Read the message board and record any follow-up in KCAS.\n\n" +
                 "This email was requested manually. It does not record goAML access or replace the scheduled daily reminder.", timeout.Token);
         }
@@ -183,11 +199,12 @@ public sealed class GoAmlReminderService(ApplicationDbContext db, IOptions<GoAml
         if (claimed != 1) return;
         try
         {
-            var link = new Uri(new Uri(options.Value.PublicBaseUrl), "/compliance/goaml").AbsoluteUri;
+            var host = new Uri(options.Value.PublicBaseUrl).Host;
+            var links = options.Value.EmailLinks();
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(30));
-            await sender.SendAsync(options.Value.Recipient.Trim(), $"KCAS: goAML access reminder - {today:yyyy-MM-dd}",
-                $"Please access the FIC goAML message board today.\n\nOpen KCAS: {link}\n\nSign in and select Open goAML. KCAS records the date, time and user; no screenshot is required.\nRead the message board and record any message requiring follow-up in KCAS.\n\nThis email does not record access or confirm a message-board outcome.", timeout.Token);
+            await sender.SendAsync(options.Value.Recipient.Trim(), $"KCAS: goAML access reminder - {host} - {today:yyyy-MM-dd}",
+                $"Please access the FIC goAML message board today.\n\n{links}\n\nSign in and select Open goAML. KCAS records the date, time and user; no screenshot is required.\nRead the message board and record any message requiring follow-up in KCAS.\n\nThis email does not record access or confirm a message-board outcome.", timeout.Token);
             await db.GoAmlReminderDeliveries.Where(x => x.Id == delivery.Id)
                 .ExecuteUpdateAsync(set => set.SetProperty(x => x.Status, "Sent")
                     .SetProperty(x => x.SentAtUtc, clock.GetUtcNow().UtcDateTime), cancellationToken);

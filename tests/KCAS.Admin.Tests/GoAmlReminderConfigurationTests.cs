@@ -33,6 +33,9 @@ public sealed class GoAmlReminderConfigurationTests
         var options = provider.GetRequiredService<IOptions<GoAmlReminderOptions>>().Value;
         Assert.Equal(expectedEnabled, options.Enabled);
         Assert.Equal(expectedUrl, options.PublicBaseUrl);
+        var first = expectedUrl + "/compliance/goaml";
+        var other = (environment == "Development" ? "https://live.example.test" : "https://local.example.test") + "/compliance/goaml";
+        Assert.Equal($"Open KCAS: {first}\nOpen KCAS: {other}", options.EmailLinks());
     }
 
     [Fact]

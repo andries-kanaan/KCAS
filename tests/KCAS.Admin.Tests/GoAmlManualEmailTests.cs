@@ -19,6 +19,11 @@ public sealed class GoAmlManualEmailTests
         Assert.Equal("checker@example.test", sender.Recipient);
         Assert.Contains(new Uri(url).Host, sender.Subject);
         Assert.Contains(url + "/compliance/goaml", sender.Body);
+        Assert.Contains("https://kcas:8443/compliance/goaml", sender.Body);
+        Assert.Contains("https://kcas.test:8443/compliance/goaml", sender.Body);
+        var other = url.Contains("kcas.test") ? "https://kcas:8443" : "https://kcas.test:8443";
+        Assert.True(sender.Body.IndexOf(url + "/compliance/goaml", StringComparison.Ordinal) <
+            sender.Body.IndexOf(other + "/compliance/goaml", StringComparison.Ordinal));
         Assert.Contains("requested manually", sender.Body);
         Assert.Contains("accepted", result);
     }
@@ -49,9 +54,17 @@ public sealed class GoAmlManualEmailTests
         ? [new Claim(ClaimTypes.Name, "checker@example.test"), new Claim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage)]
         : [new Claim(ClaimTypes.Name, "viewer@example.test")], "test"));
 
-    private static GoAmlReminderService Create(Sender sender, string url = "https://kcas.test:8443") => new(null!,
-        Options.Create(new GoAmlReminderOptions { Enabled = false, Recipient = "checker@example.test", PublicBaseUrl = url }),
-        sender, TimeProvider.System, NullLogger<GoAmlReminderService>.Instance);
+    private static GoAmlReminderService Create(Sender sender, string url = "https://kcas.test:8443")
+    {
+        var options = new GoAmlReminderOptions { Enabled = false, Recipient = "checker@example.test", PublicBaseUrl = url };
+        if (url.Contains("kcas.test"))
+        {
+            options.PublicBaseUrl = "https://kcas:8443";
+            options.ApplyEnvironment("Development");
+        }
+        else options.ApplyEnvironment("Production");
+        return new(null!, Options.Create(options), sender, TimeProvider.System, NullLogger<GoAmlReminderService>.Instance);
+    }
 
     private sealed class Sender : IGoAmlEmailSender
     {
