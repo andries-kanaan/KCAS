@@ -102,11 +102,7 @@ else
         {
             <div class="alert @(goAml.IsTodayComplete ? "alert-success" : "alert-info") mb-0">
                 <strong>goAML check:</strong>
-                @if (goAml.IsOverdue)
-                {
-                    <span>Recordings and evidence need attention soon.</span>
-                }
-                else if (goAml.IsTodayComplete)
+                @if (goAml.IsTodayComplete)
                 {
                     <span>Current check is complete.</span>
                 }

@@ -13,7 +13,7 @@
     <div>
         <p class="eyebrow">Compliance</p>
         <h1>goAML check</h1>
-        <p class="lede">Daily goAML access and message follow-up.</p>
+        <p class="lede">goAML access and message follow-up.</p>
     </div>
     <div class="d-flex gap-2">
         @if (isAdministrator)
@@ -35,13 +35,6 @@
 }
 else
 {
-    @if (dashboard.IsOverdue)
-    {
-        <div class="alert alert-info">
-            <strong>goAML check needed soon.</strong>
-            Missing recordings: @string.Join(", ", dashboard.MissingDates.OrderBy(date => date).Select(date => date.ToString("yyyy-MM-dd"))).
-        </div>
-    }
     @if (dashboard.IsTodayComplete)
     {
         <div class="alert alert-success">Today's goAML access is recorded.</div>
@@ -51,7 +44,7 @@ else
         <div class="page-header compact-header">
             <div>
                 <h2>Current check</h2>
-                <p class="text-muted mb-0">Due daily by @dashboard.Settings.DueHourLocal.ToString("00"):00 South African time.</p>
+                <p class="text-muted mb-0">Weekday checks by @dashboard.Settings.DueHourLocal.ToString("00"):00 South African time (Monday-Friday).</p>
             </div>
             @if (canManage)
             {

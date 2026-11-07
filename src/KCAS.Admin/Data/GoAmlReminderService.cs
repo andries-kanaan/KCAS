@@ -152,7 +152,7 @@ public sealed class GoAmlReminderService(ApplicationDbContext db, IOptions<GoAml
     public async Task<GoAmlReminderStatus> LoadStatusAsync()
     {
         var latest = await db.GoAmlReminderDeliveries.AsNoTracking().OrderByDescending(x => x.ReminderDate).FirstOrDefaultAsync();
-        return new(ConfigurationProblem ?? $"Daily email to {options.Value.Recipient} at {options.Value.HourLocal:00}:00 South African time.", latest);
+        return new(ConfigurationProblem ?? $"Weekday email to {options.Value.Recipient} at {options.Value.HourLocal:00}:00 South African time (Monday-Friday).", latest);
     }
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
@@ -162,6 +162,7 @@ public sealed class GoAmlReminderService(ApplicationDbContext db, IOptions<GoAml
         if (problem is not null) { logger.LogWarning("goAML daily reminder unavailable: {Problem}", problem); return; }
         var now = clock.GetUtcNow();
         var localNow = now.ToOffset(TimeSpan.FromHours(2));
+        if (localNow.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday) return;
         if (localNow.Hour < options.Value.HourLocal) return;
         var today = DateOnly.FromDateTime(localNow.DateTime);
         if (await db.GoAmlDailyChecks.AnyAsync(x => x.CheckDate == today && x.Status != GoAmlCheckStatuses.Started, cancellationToken)) return;
