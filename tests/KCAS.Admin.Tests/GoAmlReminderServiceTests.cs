@@ -15,7 +15,7 @@ public sealed class GoAmlReminderServiceTests(KcasWebApplicationFactory factory)
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        var clock = new TestClock(new DateTimeOffset(2070, 1, 10, 5, 59, 0, TimeSpan.Zero));
+        var clock = new TestClock(new DateTimeOffset(2070, 1, 9, 5, 59, 0, TimeSpan.Zero));
         var sender = new RecordingSender();
         var service = Create(db, sender, clock);
         await service.RunAsync();
@@ -25,12 +25,12 @@ public sealed class GoAmlReminderServiceTests(KcasWebApplicationFactory factory)
         var message = Assert.Single(sender.Messages);
         Assert.Contains("https://live.example.test:8443/compliance/goaml", message);
         Assert.DoesNotContain(GoAmlDefaults.PortalUrl, message);
-        Assert.False(await db.GoAmlDailyChecks.AnyAsync(x => x.CheckDate == new DateOnly(2070, 1, 10)));
+        Assert.False(await db.GoAmlDailyChecks.AnyAsync(x => x.CheckDate == new DateOnly(2070, 1, 9)));
         using var second = factory.Services.CreateScope();
         await Create(second.ServiceProvider.GetRequiredService<ApplicationDbContext>(), sender, clock).RunAsync();
         Assert.Single(sender.Messages);
         var status = await service.LoadStatusAsync();
-        var saved = await db.GoAmlReminderDeliveries.AsNoTracking().SingleAsync(x => x.ReminderDate == new DateOnly(2070, 1, 10));
+        var saved = await db.GoAmlReminderDeliveries.AsNoTracking().SingleAsync(x => x.ReminderDate == new DateOnly(2070, 1, 9));
         Assert.Equal("Sent", saved.Status);
         Assert.Equal(clock.Now.UtcDateTime, saved.SentAtUtc);
         Assert.Equal("checker@example.test", saved.Recipient);
@@ -94,7 +94,7 @@ public sealed class GoAmlReminderServiceTests(KcasWebApplicationFactory factory)
     [Fact]
     public async Task Concurrent_workers_only_claim_one_message()
     {
-        var clock = new TestClock(new DateTimeOffset(2070, 4, 12, 7, 0, 0, TimeSpan.Zero));
+        var clock = new TestClock(new DateTimeOffset(2070, 4, 11, 7, 0, 0, TimeSpan.Zero));
         var sender = new RecordingSender();
         using var first = factory.Services.CreateScope();
         using var second = factory.Services.CreateScope();
