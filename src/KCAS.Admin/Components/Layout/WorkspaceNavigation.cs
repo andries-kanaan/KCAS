@@ -15,6 +15,7 @@ public static class WorkspaceNavigation
             new("Evidence readiness", "/compliance/client-evidence", KcasPermissions.ComplianceView),
             new("Client risk register", "/compliance/client-risk", KcasPermissions.RiskAssessmentsView)]),
         new("Investments", "bi-list-nested-nav-menu", [
+            new("Fund modelling", "/investments/fund-models", KcasPermissions.InvestmentsView),
             new("Investment summary", "/investments/summary", KcasPermissions.InvestmentsView),
             new("Annual PDF claims", "/investments/performance-fees", KcasPolicies.PerformanceFeesView),
             new("Reconciliation", "/investments/reconciliation", KcasPermissions.InvestmentsManage)]),

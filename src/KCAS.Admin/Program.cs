@@ -88,6 +88,8 @@ builder.Services.AddScoped<ClientOnboardingService>();
 builder.Services.AddScoped<ClientBraRiskReportService>();
 builder.Services.AddScoped<ClientVisibilityService>();
 builder.Services.AddScoped<InvestmentSummaryService>();
+builder.Services.AddScoped<FundModelService>();
+if (!builder.Environment.IsEnvironment("Testing")) builder.Services.AddHostedService<FundModelJob>();
 builder.Services.AddScoped<InvestmentReturnService>();
 builder.Services.AddScoped<InvestmentFundingService>();
 builder.Services.AddScoped<PerformanceFeeService>();
@@ -160,6 +162,7 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
 builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSender>();
 
 var app = builder.Build();
+app.MapFundModelReports();
 var webRoot = app.Environment.WebRootPath;
 
 if (app.Configuration.GetValue("Database:MigrateOnStartup", false))

@@ -8,6 +8,9 @@ backups/
 
 # Local .NET SDK install
 .dotnet/
+.fund-model-runtime/
+__pycache__/
+*.pyc
 
 # User and IDE files
 .vs/

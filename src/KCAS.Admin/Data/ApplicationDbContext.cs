@@ -7,6 +7,10 @@ namespace KCAS.Admin.Data;
 
 public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : IdentityDbContext<ApplicationUser, IdentityRole, string>(options)
 {
+    public DbSet<ModelFund> ModelFunds => Set<ModelFund>();
+    public DbSet<ModelSecurity> ModelSecurities => Set<ModelSecurity>();
+    public DbSet<ModelRun> ModelRuns => Set<ModelRun>();
+    public DbSet<ModelEvent> ModelEvents => Set<ModelEvent>();
     public DbSet<InsurancePolicy> InsurancePolicies => Set<InsurancePolicy>();
     public DbSet<PerformanceFeeProfile> PerformanceFeeProfiles => Set<PerformanceFeeProfile>();
     public DbSet<PerformanceFeeClaim> PerformanceFeeClaims => Set<PerformanceFeeClaim>();
@@ -119,6 +123,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
+        FundModelJson.Configure(builder);
         InsuranceModel.Configure(builder);
         PerformanceFeeModel.Configure(builder);
         SanctionsAutomationModel.Configure(builder);
