@@ -142,6 +142,7 @@ try {
     Copy-Item -LiteralPath $operatorImportScriptPath -Destination (Join-Path $releaseRoot 'Import-KCAS-Legacy.ps1')
     Copy-Item -LiteralPath $operatorImportLauncherPath -Destination (Join-Path $releaseRoot 'Import-KCAS-Legacy.cmd')
     Copy-Item -LiteralPath $databaseInventoryScriptPath -Destination (Join-Path $releaseRoot 'Report-KCAS-DatabaseInventory.ps1')
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Install-KCAS-FundModelRuntime.ps1') -Destination (Join-Path $releaseRoot 'Install-KCAS-FundModelRuntime.ps1')
 
     foreach ($requiredOutput in @(
         (Join-Path $appOutput 'KCAS.Admin.exe'),

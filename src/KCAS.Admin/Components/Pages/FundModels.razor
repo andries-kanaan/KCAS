@@ -1,0 +1,121 @@
+@page "/investments/fund-models"
+@page "/investments/fund-models/{Id:int}"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPermissions.InvestmentsView)]
+@implements IAsyncDisposable
+@using System.Security.Claims
+@using System.Text.Json
+@using System.Globalization
+@using KCAS.Admin.Data
+@inject FundModelService Models
+@inject AuthenticationStateProvider Authentication
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<PageTitle>Fund modelling</PageTitle>
+<div class="page-header"><div><h1>@(fund?.Name ?? "Fund modelling")</h1><p>@(fund is null ? "Kanaan funds" : $"{fund.Currency} · Research portfolio")</p></div>
+<div class="header-actions"><a href="/investments/fund-models" class="btn btn-outline-secondary">Fund register</a>
+@if (canManage) { <button class="btn btn-outline-primary" @onclick="NewFund">New fund</button> }</div></div>
+@if (message is not null) { <div class="alert @(failed ? "alert-danger" : "alert-success")" role="status">@message</div> }
+@if (fund is null)
+{
+    <table class="table"><thead><tr><th>Fund</th><th>Currency</th><th>Updated</th><th>Status</th></tr></thead><tbody>
+    @foreach (var f in funds) { <tr><td><a href="@($"/investments/fund-models/{f.Id}")">@f.Name</a></td><td>@f.Currency</td><td>@f.UpdatedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td><td>@(f.Archived ? "Archived" : "Active")</td></tr> }
+    </tbody></table>
+}
+else
+{
+    <nav class="nav nav-tabs mb-3" aria-label="Fund views">@foreach (var t in tabs) { <button class="nav-link @(tab == t ? "active" : "")" @onclick="() => tab = t">@t</button> }</nav>
+    @if (tab == "Holdings")
+    {
+        <fieldset disabled="@(!canManage || busy)">
+        <div class="row g-3"><label class="col-md-5">Fund name<input class="form-control" @bind="fund.Name" maxlength="160" /></label><label class="col-md-2">Currency<select class="form-select" @bind="fund.Currency"><option>USD</option><option>ZAR</option><option>GBP</option><option>EUR</option></select></label><label class="col-md-3">Cash value<input class="form-control" type="number" min="0" step="0.01" @bind="cash" /></label><label class="col-md-2"><input type="checkbox" @bind="fund.Archived" /> Archived</label></div>
+        <div class="table-responsive"><table class="table mt-3"><thead><tr><th>Underlying</th><th>Current value</th><th>Min %</th><th>Max %</th><th>From</th><th>To</th><th>Include</th><th></th></tr></thead><tbody>
+        @foreach (var h in holdings)
+        { <tr @key="h"><td><select class="form-select" @bind="h.Security"><option value="">Select security</option>@foreach(var s in securities) { <option value="@s.Key">@s.Name (@s.Key)</option> }</select></td><td><input class="form-control" type="number" min="0" @bind="h.Value" /></td><td><input class="form-control model-number" type="number" value="@(h.Minimum*100)" @onchange="e => h.Minimum = Number(e)/100" /></td><td><input class="form-control model-number" type="number" value="@(h.Maximum*100)" @onchange="e => h.Maximum = Number(e)/100" /></td><td><input type="month" class="form-control" value="@h.From" @onchange="e => h.From = e.Value?.ToString() ?? string.Empty" /></td><td><input type="month" class="form-control" value="@h.To" @onchange="e => h.To = e.Value?.ToString() ?? string.Empty" /></td><td><input type="checkbox" @bind="h.Included" aria-label="Include security" /></td><td><button title="Remove from this draft" class="btn btn-outline-danger" @onclick="() => holdings.Remove(h)"><span class="bi bi-trash" aria-hidden="true"></span></button></td></tr> }
+        </tbody></table></div>
+        <button class="btn btn-outline-secondary" @onclick="() => holdings.Add(new())">Add holding</button> <button class="btn btn-primary" @onclick="Save">Save fund</button>
+        </fieldset>
+    }
+    else if (tab == "Security returns")
+    {
+        <FundSecurityReturns Securities="@(securities.Where(s=>holdings.Any(h=>h.Security==s.Key)).ToList())" />
+    }
+    else if (tab == "Prices")
+    {
+        <table class="table"><thead><tr><th>Security</th><th>Currency</th><th>Observations</th><th>Latest month</th><th></th></tr></thead><tbody>@foreach(var s in securities) { var prices = FundModelJson.Read<List<ModelObservation>>(s.SeriesJson); <tr><td>@s.Name (@s.Key)</td><td>@s.Currency</td><td>@prices.Count</td><td>@prices.LastOrDefault()?.Month</td><td><button class="btn btn-sm btn-outline-secondary" @onclick="() => security = new() { Key = s.Key, Name = s.Name, Currency = s.Currency, ProviderSymbol = s.ProviderSymbol }">Select</button></td></tr> }</tbody></table>
+        @if(canManage) {
+        <fieldset disabled="@busy"><div class="row g-3"><label class="col-md-3">Security key<input class="form-control" @bind="security.Key" /></label><label class="col-md-4">Name / share class<input class="form-control" @bind="security.Name" /></label><label class="col-md-2">Currency<input class="form-control" @bind="security.Currency" maxlength="3" /></label><label class="col-md-3">Online symbol<input class="form-control" @bind="security.ProviderSymbol" /></label></div>
+        <button class="btn btn-primary my-3" @onclick="SaveSecurity">Save security</button>
+        <label class="d-block">Monthly prices<input class="form-control" readonly value="Month,Price,TotalReturnIndex,Source" /><InputFile OnChange="ReadPrices" accept=".csv,.xlsx" /></label>
+        @if (preview.Count > 0) { <p>@preview.Count months: @preview.First().Month to @preview.Last().Month</p><table class="table"><thead><tr><th>Month</th><th>Price</th><th>Total-return index</th><th>Source</th></tr></thead><tbody>@foreach(var p in preview.Take(8)) { <tr><td>@p.Month</td><td>@p.Price</td><td>@p.TotalReturnIndex</td><td>@p.Source</td></tr> }</tbody></table><label><input type="checkbox" @bind="revisePrices" /> Accept revisions to saved months</label><button class="btn btn-primary ms-3" @onclick="ImportPrices">Import previewed prices</button> }
+        </fieldset> }
+    }
+    else if (tab == "Assumptions")
+    {
+        <fieldset disabled="@(!canManage || busy)"><div class="row g-3">
+        <label class="col-md-4">Saved scenario<select class="form-select" value="@savedScenarioName" @onchange="SelectScenario"><option value="">Unsaved scenario</option>@foreach(var saved in scenarios) { <option value="@saved.Name">@saved.Name</option> }</select></label>
+        <label class="col-md-4">Scenario name<input class="form-control" @bind="scenario.Name" /></label>
+        <label class="col-md-4">Calculation<select class="form-select" @bind="scenario.Mode"><option value="Optimise">Current optimisation</option><option value="Backtest">Historical walk-forward</option></select></label>
+        @foreach(var field in percentageFields) { <label class="col-md-3">@field.Label<input type="number" class="form-control" step="0.1" value="@(field.Get(scenario)*100)" @onchange="e => field.Set(scenario, Number(e)/100)" /></label> }
+        <label class="col-md-3">Estimation months<input class="form-control" type="number" min="12" max="240" @bind="scenario.Window" /></label>
+        <label class="col-md-3">Minimum history<input class="form-control" type="number" min="12" max="240" @bind="scenario.MinimumHistory" /></label>
+        <label class="col-md-3">Rebalance<select class="form-select" @bind="scenario.RebalanceMonths"><option value="12">Annually (January)</option><option value="6">Semiannually</option><option value="3">Quarterly</option><option value="1">Monthly</option></select></label>
+        <label class="col-md-3">Return basis<select class="form-select" @bind="scenario.Basis"><option value="Price">Price / capital return</option><option value="TotalReturn">Dividend-reinvested total return</option></select></label>
+        <label class="col-md-3">Start month<input type="month" class="form-control" value="@scenario.Start" @onchange="e => scenario.Start = e.Value?.ToString() ?? string.Empty" /></label><label class="col-md-3">Last complete month<input type="month" class="form-control" value="@scenario.End" @onchange="e => scenario.End = e.Value?.ToString() ?? string.Empty" /></label>
+        <label class="col-md-3">Universe<select class="form-select" @bind="scenario.Universe"><option value="Selected">Selected holdings</option><option value="Dated">Effective-dated holdings</option></select></label>
+        </div><button class="btn btn-primary mt-3" @onclick="SaveScenario">Save scenario</button>
+        <button class="btn btn-outline-danger mt-3 ms-2" disabled="@(fund.Id == 0 || string.IsNullOrEmpty(savedScenarioName))" @onclick="DeleteScenario"><span class="bi bi-trash" aria-hidden="true"></span> Delete saved scenario</button></fieldset>
+    }
+    else if (tab == "Results")
+    {
+        @if(canManage) { <button class="btn btn-primary" disabled="@(busy || fund.Id == 0)" @onclick="Run">Run @scenario.Name</button> }
+        <button class="btn btn-outline-secondary ms-2" @onclick="RefreshRuns">Refresh results</button>
+        <table class="table mt-3"><thead><tr><th>Run</th><th>Created</th><th>Status</th><th>Progress</th><th></th></tr></thead><tbody>@foreach(var r in runs) { <tr><td><button class="btn btn-link" @onclick="() => selected = r">#@r.Id</button></td><td>@r.CreatedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td><td>@r.State</td><td>@r.Progress</td><td>@if(canManage && r.State is "Queued" or "Running") { <button class="btn btn-sm btn-outline-danger" @onclick="() => Cancel(r.Id)">Cancel</button> } @if(canManage && FundModelService.CanDeleteRun(r.State)) { <button class="btn btn-sm btn-outline-danger" disabled="@busy" title="Delete run" aria-label="@($"Delete run {r.Id}")" @onclick="() => DeleteRun(r.Id)"><span class="bi bi-trash" aria-hidden="true"></span></button> }</td></tr> }</tbody></table>
+        @if(selected?.State == "Complete") { <FundModelResult Run="selected" /> }
+    }
+}
+
+@code {
+    [Parameter] public int? Id { get; set; }
+    private ClaimsPrincipal user = new(); private bool canManage, busy, failed, revisePrices;
+    private string? message; private string savedScenarioName=""; private string tab="Results"; private string[] tabs=["Holdings","Prices","Security returns","Assumptions","Results"];
+    private List<ModelFund> funds=[]; private ModelFund? fund; private List<ModelHolding> holdings=[];
+    private List<ModelSecurity> securities=[]; private ModelSecurity security=new(); private List<ModelObservation> preview=[];
+    private List<ModelScenario> scenarios=[]; private ModelScenario scenario=new(); private List<ModelRun> runs=[]; private ModelRun? selected; private double cash;
+    private readonly CancellationTokenSource timerStop=new(); private Task? timer;
+    private record PercentageField(string Label, Func<ModelScenario,double> Get, Action<ModelScenario,double> Set);
+    private PercentageField[] percentageFields=[new("Annual volatility ceiling %",s=>s.Risk,(s,v)=>s.Risk=v),new("Maximum per holding %",s=>s.Cap,(s,v)=>s.Cap=v),new("Minimum cash %",s=>s.CashMin,(s,v)=>s.CashMin=v),new("Maximum cash %",s=>s.CashMax,(s,v)=>s.CashMax=v),new("Annual cash return %",s=>s.CashAnnual,(s,v)=>s.CashAnnual=v),new("Covariance shrinkage %",s=>s.CovShrink,(s,v)=>s.CovShrink=v),new("Mean shrinkage %",s=>s.MeanShrink,(s,v)=>s.MeanShrink=v),new("Trading allowance %",s=>s.Cost,(s,v)=>s.Cost=v)];
+    protected override async Task OnParametersSetAsync() {
+        user=(await Authentication.GetAuthenticationStateAsync()).User; canManage=user.HasClaim(KcasClaimTypes.Permission,KcasPermissions.InvestmentsManage);
+        await Attempt(async()=> { funds=await Models.ListAsync(user); securities=await Models.SecuritiesAsync(user);
+        fund=Id.HasValue?await Models.LoadAsync(Id.Value,user):null;
+        if(fund is not null) { cash=fund.CashValue;holdings=FundModelJson.Read<List<ModelHolding>>(fund.HoldingsJson);scenarios=FundModelJson.Read<List<ModelScenario>>(fund.ScenariosJson);scenario=FundModelJson.Read<ModelScenario>(FundModelJson.Write(scenarios.FirstOrDefault()??new()));savedScenarioName=scenarios.FirstOrDefault()?.Name??"";await RefreshRuns(); } });
+        timer ??= Poll();
+    }
+    private async Task Poll() { try { using var t=new PeriodicTimer(TimeSpan.FromSeconds(3));while(await t.WaitForNextTickAsync(timerStop.Token)) { if(runs.Any(x=>x.State is "Running" or "Queued")) await InvokeAsync(async()=>{await RefreshRuns();StateHasChanged();}); } } catch(OperationCanceledException){} }
+    private void NewFund() { fund=new();holdings=[];scenarios=[];runs=[];selected=null;cash=0;scenario=new();savedScenarioName="";tab="Holdings";message=null; }
+    private static double Number(ChangeEventArgs e)=>double.Parse(e.Value?.ToString()??"0",CultureInfo.InvariantCulture);
+    private async Task Attempt(Func<Task> action) { busy=true;message=null;failed=false;try { await action(); } catch(Exception ex) {message=ex.Message;failed=true;} finally {busy=false;} }
+    private async Task SaveCore() { if(fund is null)return;fund.CashValue=cash;fund.HoldingsJson=FundModelJson.Write(holdings);fund.ScenariosJson=FundModelJson.Write(scenarios);var id=await Models.SaveAsync(fund,user);fund=await Models.LoadAsync(id,user); }
+    private Task Save()=>Attempt(async()=> {await SaveCore();message="Fund saved.";});
+    private Task SaveScenario()=>Attempt(async()=>{scenarios.RemoveAll(x=>x.Name==scenario.Name);scenarios.Add(FundModelJson.Read<ModelScenario>(FundModelJson.Write(scenario)));await SaveCore();savedScenarioName=scenario.Name;message="Scenario saved.";});
+    private void SelectScenario(ChangeEventArgs e) { savedScenarioName=e.Value?.ToString()??"";scenario=FundModelJson.Read<ModelScenario>(FundModelJson.Write(scenarios.FirstOrDefault(x=>x.Name==savedScenarioName)??new())); }
+    private Task DeleteScenario()=>Attempt(async()=> {
+        if(fund is null || !await JS.InvokeAsync<bool>("confirm",$"Delete saved scenario '{savedScenarioName}'? Completed runs will remain unchanged."))return;
+        await Models.DeleteScenarioAsync(fund.Id,savedScenarioName,fund.Revision,user);
+        var latest=await Models.LoadAsync(fund.Id,user);fund.Revision=latest.Revision;fund.UpdatedUtc=latest.UpdatedUtc;fund.ScenariosJson=latest.ScenariosJson;
+        scenarios=FundModelJson.Read<List<ModelScenario>>(latest.ScenariosJson);savedScenarioName=scenarios.FirstOrDefault()?.Name??"";scenario=FundModelJson.Read<ModelScenario>(FundModelJson.Write(scenarios.FirstOrDefault()??new()));message="Saved scenario deleted. Existing runs are unchanged.";
+    });
+    private Task DeleteRun(long id)=>Attempt(async()=> {
+        if(!await JS.InvokeAsync<bool>("confirm",$"Delete run #{id} from Results? Its audit record will be retained. Securities, prices and scenarios are not affected."))return;
+        await Models.DeleteRunAsync(id,user);await RefreshRuns();message=$"Run #{id} deleted from Results.";
+    });
+    private Task SaveSecurity()=>Attempt(async()=>{await Models.SaveSecurityAsync(security,user);securities=await Models.SecuritiesAsync(user);message="Security saved.";});
+    private Task ReadPrices(InputFileChangeEventArgs e)=>Attempt(async()=>{using var stream=e.File.OpenReadStream(10*1024*1024);using var buffer=new MemoryStream();await stream.CopyToAsync(buffer);preview=FundModelPriceReader.Read(buffer.ToArray(),e.File.Name);});
+    private Task ImportPrices()=>Attempt(async()=>{await Models.ImportPricesAsync(security.Key,preview,revisePrices,user);securities=await Models.SecuritiesAsync(user);preview=[];message="Price observations saved with source history.";});
+    private Task Run()=>Attempt(async()=>{await SaveCore();var id=await Models.QueueAsync(fund!.Id,scenario,cash,user);await RefreshRuns();selected=runs.First(x=>x.Id==id);message=$"Run #{id}: {selected.State}.";});
+    private async Task RefreshRuns() { if(fund?.Id>0) {runs=await Models.RunsAsync(fund.Id,user);selected=runs.FirstOrDefault(x=>x.Id==selected?.Id)??runs.FirstOrDefault();} }
+    private Task Cancel(long id)=>Attempt(async()=>{await Models.CancelAsync(id,user);await RefreshRuns();});
+    public async ValueTask DisposeAsync() {timerStop.Cancel();if(timer is not null)await timer;timerStop.Dispose();}
+}

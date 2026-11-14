@@ -20,6 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include="FundModel\worker.py;FundModel\requirements.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Update="appsettings.*.json" CopyToPublishDirectory="Never" />
     <Content Remove="artifacts\**\*" />
     <None Remove="artifacts\**\*" />

@@ -1,0 +1,53 @@
+@using System.Text.Json
+@using System.Globalization
+@using KCAS.Admin.Data
+<h2>Research result #@Run.Id</h2>
+<a class="btn btn-outline-primary mb-2" href="@($"/fund-models/runs/{Run.Id}/report.xlsx")">Download Excel report</a>
+<div class="mb-3"><a class="btn btn-outline-primary" href="@($"/fund-models/runs/{Run.Id}/report.pdf")">Download PDF</a> <a class="btn btn-outline-primary" href="@($"/fund-models/runs/{Run.Id}/report.csv")">Download monthly CSV</a> <a class="btn btn-outline-secondary" href="@($"/fund-models/runs/{Run.Id}/snapshot.json")">Calculation inputs and results</a></div>
+@foreach(var warning in result.GetProperty("warnings").EnumerateArray()) { <p class="text-muted small">@warning.GetString()</p> }
+@if(result.GetProperty("monthly").GetArrayLength()>0) { <dl class="row"><dt class="col-sm-3">Total return:</dt><dd class="col-sm-3">@Pct(result.GetProperty("totalReturn"))</dd><dt class="col-sm-3">Annualised return:</dt><dd class="col-sm-3">@Pct(result.GetProperty("cagr"))</dd><dt class="col-sm-3">Actual volatility:</dt><dd class="col-sm-3">@Pct(result.GetProperty("volatility"))</dd><dt class="col-sm-3">Worst drawdown:</dt><dd class="col-sm-3">@Pct(result.GetProperty("maxDrawdown"))</dd></dl> }
+<h3>Efficient frontier</h3>
+@if(currentExcluded.Length>0) { <p class="alert alert-warning">Current comparison is partial: @string.Join(", ",currentExcluded) had insufficient eligible history in this estimation period. Their contribution is excluded from the displayed current risk/return.</p> }
+<p class="text-muted small">Model estimated at @result.GetProperty("annual")[0].GetProperty("month").GetString(). Current holdings are the saved holdings snapshot evaluated with that period's estimates, not realised returns.</p>
+<div class="table-responsive"><svg viewBox="0 0 840 380" role="img" aria-label="Efficient frontier with percentage scales and current and proposed portfolios" style="width:100%;min-width:600px;max-width:1000px;background:#fafbfc;border:1px solid #ddd">
+@for(var i=0;i<=riskTicks;i++) { var v=i*riskStep; <g><line x1="@X(v)" y1="45" x2="@X(v)" y2="300" stroke="#dde2e5" /><text x="@X(v)" y="322" text-anchor="middle" font-size="12">@v.ToString("P1")</text></g> }
+@for(var i=0;i<=returnTicks;i++) { var v=minReturn+i*returnStep; <g><line x1="85" y1="@Y(v)" x2="795" y2="@Y(v)" stroke="#dde2e5" /><text x="75" y="@Y(v)" text-anchor="end" dominant-baseline="middle" font-size="12">@v.ToString("P1")</text></g> }
+<line x1="85" y1="300" x2="795" y2="300" stroke="#777" /><line x1="85" y1="45" x2="85" y2="300" stroke="#777" />
+<polyline points="@Points()" fill="none" stroke="#237b70" stroke-width="3" />
+@foreach(var p in result.GetProperty("frontier").EnumerateArray()) { <circle cx="@X(p.GetProperty("risk").GetDouble())" cy="@Y(p.GetProperty("expectedReturn").GetDouble())" r="3" fill="#237b70"><title>@($"Risk {p.GetProperty("risk").GetDouble():P2}; expected return {p.GetProperty("expectedReturn").GetDouble():P2}")</title></circle> }
+<circle cx="@X(currentRisk)" cy="@Y(currentReturn)" r="9" fill="none" stroke="#275cab" stroke-width="3"><title>@($"Current: risk {currentRisk:P2}, expected return {currentReturn:P2}")</title></circle>
+<rect x="@F(XNumber(proposedRisk)-5)" y="@F(YNumber(proposedReturn)-5)" width="10" height="10" fill="#c65a24"><title>@($"Proposed: risk {proposedRisk:P2}, expected return {proposedReturn:P2}")</title></rect>
+<text x="440" y="353" text-anchor="middle" font-size="14">Estimated annual volatility</text>
+<text transform="translate(22,175) rotate(-90)" text-anchor="middle" font-size="14">Expected annual return</text>
+<g><circle cx="110" cy="20" r="6" fill="none" stroke="#275cab" stroke-width="2" /><text x="125" y="25" font-size="13">Current</text><rect x="220" y="14" width="12" height="12" fill="#c65a24" /><text x="240" y="25" font-size="13">Proposed</text><line x1="350" y1="20" x2="380" y2="20" stroke="#237b70" stroke-width="3" /><text x="390" y="25" font-size="13">Efficient frontier</text></g>
+</svg></div>
+<table class="table" style="max-width:650px"><thead><tr><th>Portfolio</th><th>Estimated volatility</th><th>Expected return</th></tr></thead><tbody><tr><td>Current</td><td>@currentRisk.ToString("P2")</td><td>@currentReturn.ToString("P2")</td></tr><tr><td>Proposed</td><td>@proposedRisk.ToString("P2")</td><td>@proposedReturn.ToString("P2")</td></tr></tbody></table>
+<details class="my-3"><summary>Underlying security monthly returns used in this run</summary><FundSecurityReturns @key="Run.Id" Securities="snapshotSecurities" ContextLabel="Frozen run observations" DefaultTotalReturn="snapshotTotal" /></details>
+<h3 class="mt-4">Allocation decisions</h3>
+@foreach(var a in result.GetProperty("annual").EnumerateArray()) { <details class="mb-3" open="@(result.GetProperty("annual").GetArrayLength()==1)"><summary>@a.GetProperty("month").GetString() · Expected return @Pct(a.GetProperty("expectedReturn")) · Model risk @Pct(a.GetProperty("estimatedRisk"))</summary>
+<table class="table"><thead><tr><th>Holding</th><th>Current %</th><th>Proposed %</th><th>History months</th></tr></thead><tbody>@for(var i=0;i<keys.Length;i++) { <tr><td>@keys[i]</td><td>@Pct(result.GetProperty("currentWeights")[i])</td><td>@Pct(a.GetProperty("weights")[i])</td><td>@(i<keys.Length-1?a.GetProperty("historyMonths")[i].ToString():"-")</td></tr> }</tbody></table>
+@foreach(var x in a.GetProperty("excluded").EnumerateArray()) { <p>@x.GetProperty("security"): @x.GetProperty("reason")</p> }</details> }
+<h3>Monthly returns</h3><div class="table-responsive"><table class="table"><thead><tr><th>Month</th><th>Gross</th><th>Trading allowance</th><th>Net</th><th>Equal mix</th><th>Index</th><th>Drawdown</th></tr></thead><tbody>@foreach(var m in result.GetProperty("monthly").EnumerateArray()) { <tr><td>@m.GetProperty("month")</td><td>@Pct(m.GetProperty("gross"))</td><td>@Pct(m.GetProperty("cost"))</td><td>@Pct(m.GetProperty("net"))</td><td>@Pct(m.GetProperty("equalNet"))</td><td>@m.GetProperty("wealth").GetDouble().ToString("N2")</td><td>@Pct(m.GetProperty("drawdown"))</td></tr> }</tbody></table></div>
+@code {
+    [Parameter, EditorRequired] public ModelRun Run {get;set;}=null!;
+    private JsonElement result; private string[] keys=[]; private double maxRisk,maxReturn,minReturn,riskStep,returnStep,currentRisk,currentReturn,proposedRisk,proposedReturn; private int riskTicks,returnTicks;
+    private List<ModelSecurity> snapshotSecurities=[]; private bool snapshotTotal; private string[] currentExcluded=[];
+    protected override void OnParametersSet(){
+        result=JsonSerializer.Deserialize<JsonElement>(Run.ResultJson);keys=result.GetProperty("keys").EnumerateArray().Select(x=>x.GetString()!).ToArray();
+        var p=result.GetProperty("frontier").EnumerateArray().ToArray();var a=result.GetProperty("annual")[0];
+        currentRisk=result.GetProperty("currentRisk").GetDouble();currentReturn=result.GetProperty("currentReturn").GetDouble();proposedRisk=a.GetProperty("estimatedRisk").GetDouble();proposedReturn=a.GetProperty("expectedReturn").GetDouble();
+        currentExcluded=keys.Take(keys.Length-1).Where((k,i)=>result.GetProperty("currentWeights")[i].GetDouble()>1e-10 && a.GetProperty("historyMonths")[i].GetInt32()==0).ToArray();
+        var x=FundModelPresentation.Axis(p.Select(v=>v.GetProperty("risk").GetDouble()).Append(currentRisk).Append(proposedRisk),true);
+        var y=FundModelPresentation.Axis(p.Select(v=>v.GetProperty("expectedReturn").GetDouble()).Append(currentReturn).Append(proposedReturn));
+        maxRisk=x.Maximum;riskStep=x.Step;minReturn=y.Minimum;maxReturn=y.Maximum;returnStep=y.Step;riskTicks=(int)Math.Round(maxRisk/riskStep);returnTicks=(int)Math.Round((maxReturn-minReturn)/returnStep);
+        var input=JsonSerializer.Deserialize<JsonElement>(Run.InputJson);snapshotTotal=input.GetProperty("scenario").GetProperty("basis").GetString()=="TotalReturn";
+        snapshotSecurities=input.GetProperty("securities").EnumerateArray().Select(s=>new ModelSecurity{Key=s.GetProperty("key").GetString()!,Name=s.GetProperty("name").GetString()!,Currency=s.GetProperty("currency").GetString()!,SeriesJson=s.GetProperty("series").GetRawText()}).ToList();
+    }
+    private static string Pct(JsonElement e)=>e.ValueKind==JsonValueKind.Number?e.GetDouble().ToString("P2"):"-";
+    private static string F(double v)=>v.ToString("0.0",CultureInfo.InvariantCulture);
+    private double XNumber(double risk)=>85+710*risk/maxRisk;
+    private double YNumber(double ret)=>300-255*(ret-minReturn)/(maxReturn-minReturn);
+    private string X(double risk)=>F(XNumber(risk));
+    private string Y(double ret)=>F(YNumber(ret));
+    private string Points()=>string.Join(" ",result.GetProperty("frontier").EnumerateArray().Select(x=>$"{X(x.GetProperty("risk").GetDouble())},{Y(x.GetProperty("expectedReturn").GetDouble())}"));
+}

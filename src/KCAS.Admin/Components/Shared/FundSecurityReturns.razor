@@ -1,0 +1,26 @@
+@using KCAS.Admin.Data
+<div class="row g-3 mb-3">
+    <label class="col-md-6">Underlying security<select class="form-select" @bind="key">@foreach(var item in Securities) { <option value="@item.Key">@item.Name (@item.Key)</option> }</select></label>
+    <label class="col-md-3">Year<select class="form-select" @bind="year"><option value="">All years</option>@foreach(var y in Years) { <option value="@y">@y</option> }</select></label>
+    <label class="col-md-3">Return basis<select class="form-select" @bind="total"><option value="false">Price / capital</option><option value="true">Total return</option></select></label>
+</div>
+@if(Selected is { } selected)
+{
+    <p>@selected.Name · @selected.Currency · @ContextLabel</p>
+    <div class="table-responsive"><table class="table"><thead><tr><th>Month</th><th>Closing price</th><th>Total-return index</th><th>Monthly return</th><th>Source</th></tr></thead><tbody>
+    @foreach(var observation in Observations.Where(x=>year.Length==0 || x.Month.StartsWith(year)).OrderByDescending(x=>x.Month))
+    { var growth=FundModelPresentation.MonthlyReturn(Observations,observation.Month,total);
+      <tr><td>@observation.Month</td><td>@observation.Price.ToString("N4")</td><td>@(observation.TotalReturnIndex?.ToString("N4") ?? "Not available")</td><td>@(growth?.ToString("P2") ?? "Not available")</td><td class="text-break">@observation.Source</td></tr> }
+    </tbody></table></div>
+}
+else { <p>No security observations are available.</p> }
+@code {
+    [Parameter] public IReadOnlyList<ModelSecurity> Securities {get;set;}=[];
+    [Parameter] public string ContextLabel {get;set;}="Current saved observations";
+    [Parameter] public bool DefaultTotalReturn {get;set;}
+    private string key="",year=""; private bool total,initialised;
+    private ModelSecurity? Selected=>Securities.FirstOrDefault(x=>x.Key==key);
+    private List<ModelObservation> Observations=>Selected is { } s?FundModelJson.Read<List<ModelObservation>>(s.SeriesJson):[];
+    private IEnumerable<string> Years=>Observations.Select(x=>x.Month[..4]).Distinct().OrderByDescending(x=>x);
+    protected override void OnParametersSet(){if(!Securities.Any(x=>x.Key==key))key=Securities.FirstOrDefault()?.Key??"";if(!initialised){total=DefaultTotalReturn;initialised=true;}}
+}
