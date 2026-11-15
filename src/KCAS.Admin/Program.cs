@@ -89,6 +89,8 @@ builder.Services.AddScoped<ClientBraRiskReportService>();
 builder.Services.AddScoped<ClientVisibilityService>();
 builder.Services.AddScoped<InvestmentSummaryService>();
 builder.Services.AddScoped<FundModelService>();
+builder.Services.AddScoped<FundModelTransferService>();
+builder.Services.AddScoped<FundModelRuntime>();
 builder.Services.AddHttpClient("FundPublicPrices", client =>
 {
     client.Timeout = TimeSpan.FromSeconds(30);
@@ -605,6 +607,11 @@ app.MapGet("/compliance/inspections/{id:int}/export.json", async Task<IResult> (
         $"KCAS-inspection-{safeReference}.json");
 }).RequireAuthorization(KcasPermissions.InspectionsExport);
 
+app.MapGet("/fund-models/transfers/{id}/download", async Task<IResult> (string id, FundModelTransferService transfers, HttpContext context) =>
+{
+    try { var file=await transfers.DownloadAsync(id,context.User);return file is null?Results.NotFound():Results.File(file.Value.Content,"application/octet-stream",file.Value.FileName); }
+    catch(UnauthorizedAccessException){return Results.Forbid();}
+}).RequireAuthorization(KcasPolicies.AdministratorOnly);
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
