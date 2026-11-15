@@ -1,0 +1,23 @@
+@using System.Text.Json
+@using KCAS.Admin.Data
+@if (periods.Count > 0)
+{
+    <section aria-labelledby="fund-annual-performance" class="mt-4">
+        <h3 id="fund-annual-performance">Annual performance</h3>
+        <div class="table-responsive">
+            <table class="table">
+                <thead><tr><th scope="col">Period</th><th scope="col">Coverage</th><th scope="col" class="text-end">Gross return</th><th scope="col" class="text-end">After trading allowance</th><th scope="col" class="text-end">Equal mix after allowance</th></tr></thead>
+                <tbody>@foreach (var p in periods)
+                {
+                    <tr><th scope="row">@p.Period</th><td>@p.Months @(p.Months == 1 ? "month" : "months")@(p.FullYear ? "" : " (partial year)")</td><td class="text-end text-nowrap">@p.Gross.ToString("P2")</td><td class="text-end text-nowrap">@p.Net.ToString("P2")</td><td class="text-end text-nowrap">@p.EqualMix.ToString("P2")</td></tr>
+                }</tbody>
+            </table>
+        </div>
+        <p class="text-muted small">Achieved simulated returns, compounded from the saved monthly results; partial years are not annualised. After-allowance returns exclude Kanaan management fees, performance-driven fees and investor tax.</p>
+    </section>
+}
+@code {
+    [Parameter, EditorRequired] public JsonElement Monthly { get; set; }
+    private List<FundModelPresentation.AnnualPerformance> periods = [];
+    protected override void OnParametersSet() => periods = FundModelPresentation.AnnualReturns(Monthly);
+}

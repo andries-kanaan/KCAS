@@ -1,9 +1,22 @@
 using System.Globalization;
+using System.Text.Json;
 
 namespace KCAS.Admin.Data;
 
 public static class FundModelPresentation
 {
+    public sealed record AnnualPerformance(string From, string To, int Months, double Gross, double Net, double EqualMix)
+    {
+        public bool FullYear => Months == 12 && From.EndsWith("-01", StringComparison.Ordinal) && To.EndsWith("-12", StringComparison.Ordinal);
+        public string Period => FullYear ? From[..4] : $"{DateTime.ParseExact(From, "yyyy-MM", CultureInfo.InvariantCulture):MMM} - {DateTime.ParseExact(To, "yyyy-MM", CultureInfo.InvariantCulture):MMM} {From[..4]}";
+    }
+    public static List<AnnualPerformance> AnnualReturns(JsonElement monthly) => monthly.EnumerateArray()
+        .OrderBy(m => m.GetProperty("month").GetString(), StringComparer.Ordinal)
+        .GroupBy(m => m.GetProperty("month").GetString()![..4])
+        .Select(group => new AnnualPerformance(group.First().GetProperty("month").GetString()!, group.Last().GetProperty("month").GetString()!, group.Count(),
+            group.Aggregate(1d, (value, month) => value * (1 + month.GetProperty("gross").GetDouble())) - 1,
+            group.Aggregate(1d, (value, month) => value * (1 + month.GetProperty("net").GetDouble())) - 1,
+            group.Aggregate(1d, (value, month) => value * (1 + month.GetProperty("equalNet").GetDouble())) - 1)).ToList();
     public static (string From, string To)? SavedPeriod(IEnumerable<ModelObservation> observations, int? months)
     {
         var rows=observations.OrderBy(x=>x.Month,StringComparer.Ordinal).ToList();

@@ -11,12 +11,13 @@ Research-only. No client investments, compliance assessments, fee claims or brok
 - CSV monthly price preview/import with revision history.
 - XLSX first-sheet import for Month, Price, TotalReturnIndex, Source columns.
 - EF migration and dedicated Python runtime installer.
+- Administrator-only encrypted fund-modelling transfer packages, preview/apply and runtime check.
 
 ## Still required before the full agreed module is complete
 - Optional scheduled refresh (manual public-price refresh is implemented; no background market downloads).
 - Excel column mapping, broker statement adapter and multi-currency FX histories.
 - Evidenced fund-level fee overlay (currently explicitly excluded).
-- Encrypted transfer preview/apply and integration with deployment runtime preflight.
+- Automatic integration of calculation-runtime checks into deployment preflight (a manual runtime check is available on transfers).
 - Side-by-side scenario comparison, frontier point selection and current/proposed trade amounts.
 - Populate other Kanaan funds from actual source records; do not invent missing histories.
 
@@ -34,7 +35,7 @@ The usability follow-up adds audit-retained deletion for stopped runs, saved-sce
 
 1. Browser/UI and report visual verification, permission/integration tests and native XLSX validation.
 2. Evaluate additional public/authorised data sources and optional scheduled refresh separately.
-3. Encrypted fund transfers with immutable snapshots and preview conflict checks.
+3. Extend deployment preflight with the calculation runtime check if automatic checking is desired.
 4. Mandate-specific fee overlays and FX conversion inputs; then broader spreadsheet/statement adapters.
 5. Scenario comparisons, interactive frontier selection, trade amounts and remaining source population.
 
@@ -43,7 +44,20 @@ The single-instance background worker marks interrupted runs on startup; multi-i
 ## Runtime
 `deploy/windows/Install-KCAS-FundModelRuntime.ps1` creates an isolated runtime from pinned requirements. Configure `FundModelling__PythonPath` for the KCAS service account. Never require desktop Excel or Solver on live.
 
+## Encrypted fund modelling transfers
+- Administrator menu: Investments > Fund modelling transfers. Also available from Transfer fund modelling on the fund-modelling page, with the current fund preselected.
+- Select one or more funds, optionally include completed runs, enter a reason and passphrase, then create/download the `.kcas-fund-models` package. It includes each selected fund's holdings, cash, saved scenarios and shared security prices/source references. Runs carry their original frozen inputs, results, performer and dates; queued, running, failed and deleted runs are excluded.
+- Deploy this code to live first. On the same menu there, choose the file, enter its passphrase, preview, record the reason, confirm and apply. Applying never reruns optimisation, fetches prices, scans folders or alters client investments/compliance. No additional migration is required beyond the existing fund-modelling migration.
+- Funds and runs match stable keys, not database IDs. Live assigns its own numeric IDs; the apply audit records the original-to-live mapping. Identical imports do not duplicate records. Live-deleted runs are not resurrected. A same-name fund with a different key blocks import rather than guessing its identity.
+- Later source updates can update a previously imported fund/security only while its live content still matches the last imported baseline. Independent live edits conflict. Changed shared security histories also block if another live fund outside the package uses them. Include all affected funds or reconcile deliberately; no overwrite option is provided.
+- Apply repeats the persisted administrator check, package validation, conflict and stale-preview checks inside a serializable transaction. Export/apply provenance and baselines use existing ModelEvents; source audit history itself is not merged or impersonated.
+- Packages use purpose-specific authenticated AES-GCM encryption and PBKDF2-SHA256, matching existing transfer protection. Maximum plaintext 50 MB, 25 funds, 1,500 securities and 500 completed runs. Package files stay outside wwwroot; the authorised download requires a recorded export.
+- Saved results/reports do not need Python. New live calculations do: install the isolated runtime with the existing installer, configure `FundModelling__PythonPath`, restart KCAS and use Check runtime on this server. The check verifies Python/NumPy/SciPy and the deployed worker without installing or downloading anything. Runtime executables, credentials, machine-specific settings and live IDs are not transferred.
+- Verification (16 November 2026): 65 affected C# tests passed, covering authenticated encryption, remapped live IDs, preserved PDF/XLSX results, repeat imports, supported source updates, live edits, stale previews, shared-history conflicts, retained run deletion and persisted administrator revocation. Published-build browser export/download/preview/repeat-apply/runtime checks passed at 1440px and 390px, with no horizontal overflow. EOIBKRBrokers' real 22 securities and five completed runs passed read-only package validation. Local Python/NumPy/SciPy check passed. Local KCAS now runs the FundTransfer build on port 5143; live deployment/import has not been performed.
+
 ## Limitations
+Results now includes Annual performance immediately above Monthly returns. Each calendar-year row compounds saved monthly gross, after-trading-allowance and equal-mix returns, with exact partial-year coverage. Partial periods are not annualised. The table is absent for optimisation-only runs with no simulated months. Existing run snapshots and calculations are unchanged; this does not add a new Excel sheet.
+
 Security returns now offers 3-year, 5-year and Max saved-history presets. They set both the displayed price-table range and CAR endpoints, anchored to the latest saved month. Exact 36/60-month opening observations are required; unavailable fixed periods are disabled rather than silently shortened. Max uses existing records only and never downloads more data. Custom month-end selections remain available. A selected-security-only month-end refresh reuses the existing authorised preview/revision/save workflow; no scope selector or all-fund request is exposed there. It is available to investment managers on current histories only, never on frozen run histories. Saving refreshed prices reloads the displayed series and recalculates the selected preset.
 
 Security history: Prices > View prices / CAR opens the chosen underlying's Security returns tab. The table shows saved monthly prices, monthly returns and sources. CAR from/to month-end controls calculate compounded annual growth using elapsed calendar months / 12, separately from cumulative growth and separately for price versus dividend-adjusted total return. Missing endpoint data never falls back to another basis. The year filter affects the table, not the selected CAR period. Editing/imports remain separate. Also available for frozen run histories. Verified with 26 focused tests and rendered desktop/mobile checks; local runtime is now FundHistory on port 5143.

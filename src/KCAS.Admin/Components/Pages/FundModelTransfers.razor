@@ -1,0 +1,62 @@
+@page "/investments/fund-model-transfers"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = KcasPolicies.AdministratorOnly)]
+@using System.Security.Claims
+@using KCAS.Admin.Data
+@inject FundModelTransferService Transfers
+@inject FundModelRuntime Runtime
+@inject AuthenticationStateProvider Authentication
+
+<PageTitle>Fund modelling transfers</PageTitle>
+<div class="page-header"><h1>Fund modelling transfers</h1><a class="btn btn-outline-secondary" href="/investments/fund-models">Fund modelling</a></div>
+@if(message is not null){<div class="alert @(error?"alert-danger":"alert-success")" role="status">@message</div>}
+<section class="work-area">
+    <h2>Create encrypted package</h2>
+    <fieldset disabled="@busy">
+    <div class="table-responsive"><table class="table"><thead><tr><th>Select</th><th>Fund</th><th>Currency</th></tr></thead><tbody>
+        @foreach(var f in funds){<tr><td><input type="checkbox" aria-label="@($"Select {f.Name}")" checked="@selected.Contains(f.Id)" @onchange="e=>ChooseFund(f.Id,e)" /></td><td>@f.Name</td><td>@f.Currency</td></tr>}
+    </tbody></table></div>
+    <label class="d-block"><input type="checkbox" @bind="includeRuns" /> Include completed runs and their frozen calculation inputs/results</label>
+    <label class="d-block mt-3">Export reason<textarea class="form-control" maxlength="2000" @bind="exportReason"></textarea></label>
+    <div class="row g-3 mt-1"><label class="col-md-6">Package passphrase<input type="password" class="form-control" autocomplete="new-password" @bind="exportPassword" /></label><label class="col-md-6">Confirm passphrase<input type="password" class="form-control" autocomplete="new-password" @bind="confirmPassword" /></label></div>
+    <button type="button" class="btn btn-primary mt-3" disabled="@(selected.Count==0)" @onclick="Export">Create encrypted package</button>
+    </fieldset>
+    @if(exported is not null){<div class="mt-3"><p>@exported.Funds funds · @exported.Securities securities · @exported.Runs completed runs</p><a class="btn btn-outline-primary" href="@($"/fund-models/transfers/{exported.PackageId}/download")">Download encrypted package</a></div>}
+</section>
+<section class="work-area">
+    <h2>Preview and apply package</h2>
+    <fieldset disabled="@busy">
+    <label class="d-block">Encrypted fund modelling package<InputFile class="form-control" accept=".kcas-fund-models" OnChange="ChooseFile" /></label>
+    <label class="d-block mt-3">Package passphrase<input type="password" class="form-control" autocomplete="current-password" @bind="importPassword" @bind:after="ClearPreview" /></label>
+    <button type="button" class="btn btn-outline-primary mt-3" disabled="@(bytes is null)" @onclick="Preview">Preview package</button>
+    @if(preview is not null){
+        <dl class="row mt-3"><dt class="col-sm-3">Source export:</dt><dd class="col-sm-9 text-break">@preview.Package.ExportedBy · @preview.Package.CreatedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</dd><dt class="col-sm-3">Export reason:</dt><dd class="col-sm-9 text-break">@preview.Package.Reason</dd></dl>
+        <div class="table-responsive"><table class="table"><thead><tr><th>Record</th><th>Name</th><th>Action on this server</th></tr></thead><tbody>@foreach(var r in preview.Rows){<tr><td>@r.Kind</td><td>@r.Name</td><td>@r.Action</td></tr>}</tbody></table></div>
+        @foreach(var conflict in preview.Conflicts.Distinct()){<p class="alert alert-danger">@conflict</p>}
+        @if(preview.CanApply){
+            <label class="d-block">Import reason<textarea class="form-control" maxlength="2000" @bind="importReason"></textarea></label>
+            <label class="d-block mt-3"><input type="checkbox" @bind="confirmed" /> I confirm the source and previewed changes on this server.</label>
+            <button type="button" class="btn btn-primary mt-3" disabled="@(!confirmed)" @onclick="Apply">Apply fund modelling package</button>
+        }
+    }
+    </fieldset>
+</section>
+<section class="work-area"><h2>Calculation runtime</h2><button class="btn btn-outline-secondary" disabled="@busy" @onclick="CheckRuntime">Check runtime on this server</button>@if(runtime is not null){<p class="mt-2" role="status">@runtime</p>}</section>
+
+@code {
+    [SupplyParameterFromQuery] public int? FundId{get;set;}
+    private ClaimsPrincipal user=new();private List<ModelFund> funds=[];private HashSet<int> selected=[];
+    private bool busy,error,includeRuns=true,confirmed;private byte[]? bytes;
+    private string? message,runtime;
+    private string exportReason="Transfer fund modelling records to live KCAS.",importReason="Reviewed fund modelling transfer.",exportPassword="",confirmPassword="",importPassword="";
+    private FundModelTransferExport? exported;private FundModelTransferPreview? preview;
+    protected override async Task OnInitializedAsync(){user=(await Authentication.GetAuthenticationStateAsync()).User;await Attempt(async()=>{funds=await Transfers.FundsAsync(user);if(FundId.HasValue&&funds.Any(f=>f.Id==FundId))selected.Add(FundId.Value);});}
+    private void ChooseFund(int id,ChangeEventArgs e){if(e.Value is true)selected.Add(id);else selected.Remove(id);}
+    private void ClearPreview(){preview=null;confirmed=false;}
+    private Task ChooseFile(InputFileChangeEventArgs e)=>Attempt(async()=>{ClearPreview();bytes=null;using var stream=e.File.OpenReadStream(50*1024*1024+1024);using var memory=new MemoryStream();await stream.CopyToAsync(memory);bytes=memory.ToArray();});
+    private Task Export()=>Attempt(async()=>{exported=null;if(exportPassword!=confirmPassword)throw new InvalidOperationException("Package passphrases do not match.");exported=await Transfers.ExportAsync(selected,includeRuns,exportPassword,exportReason,user);exportPassword=confirmPassword="";message="Encrypted package created. Running/queued and deleted runs are not included.";});
+    private Task Preview()=>Attempt(async()=>{ClearPreview();preview=await Transfers.PreviewAsync(bytes!,importPassword,user);message=preview.CanApply?"Preview complete; confirm before applying.":"Conflicts found. Nothing was changed.";error=!preview.CanApply;});
+    private Task Apply()=>Attempt(async()=>{if(!confirmed||preview is null)throw new InvalidOperationException("Preview and confirm first.");var count=await Transfers.ApplyAsync(bytes!,importPassword,preview.Stamp,importReason,user);message=$"Package applied: {count} records created or updated. Existing matching records were not duplicated. Source run numbers may differ on this server; provenance is retained in the transfer audit.";bytes=null;importPassword="";ClearPreview();funds=await Transfers.FundsAsync(user);});
+    private Task CheckRuntime()=>Attempt(async()=>{runtime=await Runtime.CheckAsync();});
+    private async Task Attempt(Func<Task> action){if(busy)return;busy=true;error=false;message=null;try{await action();}catch(Exception ex){message=ex.Message;error=true;}finally{busy=false;}}
+}

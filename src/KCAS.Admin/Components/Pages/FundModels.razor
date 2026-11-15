@@ -16,6 +16,7 @@
 <div class="page-header"><div><h1>@(fund?.Name ?? "Fund modelling")</h1><p>@(fund is null ? "Kanaan funds" : $"{fund.Currency} · Research portfolio")</p></div>
 <div class="header-actions"><a href="/investments/fund-models" class="btn btn-outline-secondary">Fund register</a>
 @if (canManage) { <button class="btn btn-outline-primary" @onclick="NewFund">New fund</button> }</div></div>
+<AuthorizeView Roles="@KcasRoles.Administrator"><a class="btn btn-outline-secondary mb-3" href="@($"/investments/fund-model-transfers{(fund?.Id>0?$"?fundId={fund.Id}":"")}")">Transfer fund modelling</a></AuthorizeView>
 @if (message is not null) { <div class="alert @(failed ? "alert-danger" : "alert-success")" role="status">@message</div> }
 @if (fund is null)
 {
