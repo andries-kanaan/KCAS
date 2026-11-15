@@ -89,6 +89,14 @@ builder.Services.AddScoped<ClientBraRiskReportService>();
 builder.Services.AddScoped<ClientVisibilityService>();
 builder.Services.AddScoped<InvestmentSummaryService>();
 builder.Services.AddScoped<FundModelService>();
+builder.Services.AddHttpClient("FundPublicPrices", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 KCAS/1.0");
+}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, AutomaticDecompression = DecompressionMethods.All });
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<FundModelMarketPrices>();
+builder.Services.AddScoped<FundModelPriceRefreshService>();
 if (!builder.Environment.IsEnvironment("Testing")) builder.Services.AddHostedService<FundModelJob>();
 builder.Services.AddScoped<InvestmentReturnService>();
 builder.Services.AddScoped<InvestmentFundingService>();

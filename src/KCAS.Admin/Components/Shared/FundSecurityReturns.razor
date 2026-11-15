@@ -1,14 +1,33 @@
 @using KCAS.Admin.Data
 <div class="row g-3 mb-3">
-    <label class="col-md-6">Underlying security<select class="form-select" @bind="key">@foreach(var item in Securities) { <option value="@item.Key">@item.Name (@item.Key)</option> }</select></label>
+    <label class="col-md-6">Underlying security<select class="form-select" @bind="key" @bind:after="SelectionChanged">@foreach(var item in Securities) { <option value="@item.Key">@item.Name (@item.Key)</option> }</select></label>
     <label class="col-md-3">Year<select class="form-select" @bind="year"><option value="">All years</option>@foreach(var y in Years) { <option value="@y">@y</option> }</select></label>
     <label class="col-md-3">Return basis<select class="form-select" @bind="total"><option value="false">Price / capital</option><option value="true">Total return</option></select></label>
 </div>
 @if(Selected is { } selected)
 {
     <p>@selected.Name · @selected.Currency · @ContextLabel</p>
+    @if(AllowRefresh) { <FundMarketRefresh @key="key" Securities="@(Securities.ToList())" SecurityKey="@key" OnSaved="OnRefreshSaved" /> }
+    <div class="btn-group mb-3" role="group" aria-label="Saved history period">
+        <button type="button" class="btn @(period==36 ? "btn-secondary" : "btn-outline-secondary")" aria-pressed="@(period==36 ? "true" : "false")" disabled="@(FundModelPresentation.SavedPeriod(Observations,36) is null)" @onclick="() => SetPeriod(36)">3 years</button>
+        <button type="button" class="btn @(period==60 ? "btn-secondary" : "btn-outline-secondary")" aria-pressed="@(period==60 ? "true" : "false")" disabled="@(FundModelPresentation.SavedPeriod(Observations,60) is null)" @onclick="() => SetPeriod(60)">5 years</button>
+        <button type="button" class="btn @(period is null ? "btn-secondary" : "btn-outline-secondary")" aria-pressed="@(period is null ? "true" : "false")" @onclick="() => SetPeriod(null)">Max</button>
+    </div>
+    <div class="row g-3 mb-3">
+        <label class="col-md-4">CAR from month-end<select class="form-select" @bind="from" @bind:after="CustomPeriod">@foreach(var p in Observations.OrderBy(x=>x.Month)) { <option value="@p.Month">@p.Month</option> }</select></label>
+        <label class="col-md-4">CAR to month-end<select class="form-select" @bind="to" @bind:after="CustomPeriod">@foreach(var p in Observations.OrderByDescending(x=>x.Month)) { <option value="@p.Month">@p.Month</option> }</select></label>
+    </div>
+    @if (FundModelPresentation.ReturnSince(Observations,from,to,total) is { } result)
+    {
+        <dl class="row mb-3">
+            <dt class="col-sm-3">CAR (annualised)</dt><dd class="col-sm-9" title="Compounded annual return between the selected month-end observations; elapsed years = calendar months / 12.">@result.Car.ToString("P2") (@result.Months months)</dd>
+            <dt class="col-sm-3">Cumulative growth</dt><dd class="col-sm-9">@result.Growth.ToString("P2")</dd>
+            <dt class="col-sm-3">@(total ? "Index values" : "Prices")</dt><dd class="col-sm-9">@from: @result.Opening.ToString("N4") → @to: @result.Closing.ToString("N4")</dd>
+        </dl>
+    }
+    else { <div class="alert alert-secondary" role="status">CAR unavailable: select an end month after the start month with both @(total ? "total-return index values" : "prices") available.</div> }
     <div class="table-responsive"><table class="table"><thead><tr><th>Month</th><th>Closing price</th><th>Total-return index</th><th>Monthly return</th><th>Source</th></tr></thead><tbody>
-    @foreach(var observation in Observations.Where(x=>year.Length==0 || x.Month.StartsWith(year)).OrderByDescending(x=>x.Month))
+    @foreach(var observation in Observations.Where(x=>string.CompareOrdinal(x.Month,from)>=0 && string.CompareOrdinal(x.Month,to)<=0 && (year.Length==0 || x.Month.StartsWith(year))).OrderByDescending(x=>x.Month))
     { var growth=FundModelPresentation.MonthlyReturn(Observations,observation.Month,total);
       <tr><td>@observation.Month</td><td>@observation.Price.ToString("N4")</td><td>@(observation.TotalReturnIndex?.ToString("N4") ?? "Not available")</td><td>@(growth?.ToString("P2") ?? "Not available")</td><td class="text-break">@observation.Source</td></tr> }
     </tbody></table></div>
@@ -18,9 +37,27 @@ else { <p>No security observations are available.</p> }
     [Parameter] public IReadOnlyList<ModelSecurity> Securities {get;set;}=[];
     [Parameter] public string ContextLabel {get;set;}="Current saved observations";
     [Parameter] public bool DefaultTotalReturn {get;set;}
-    private string key="",year=""; private bool total,initialised;
+    [Parameter] public string SelectedKey {get;set;}="";
+    [Parameter] public EventCallback<string> SelectedKeyChanged {get;set;}
+    [Parameter] public bool AllowRefresh {get;set;}
+    [Parameter] public EventCallback OnRefreshSaved {get;set;}
+    private int? period;
+    private string lastSeries="";
+    private string key="",year="",from="",to="",lastSelected=""; private bool total,initialised;
     private ModelSecurity? Selected=>Securities.FirstOrDefault(x=>x.Key==key);
     private List<ModelObservation> Observations=>Selected is { } s?FundModelJson.Read<List<ModelObservation>>(s.SeriesJson):[];
     private IEnumerable<string> Years=>Observations.Select(x=>x.Month[..4]).Distinct().OrderByDescending(x=>x);
-    protected override void OnParametersSet(){if(!Securities.Any(x=>x.Key==key))key=Securities.FirstOrDefault()?.Key??"";if(!initialised){total=DefaultTotalReturn;initialised=true;}}
+    private void SetPeriod(int? months){if(FundModelPresentation.SavedPeriod(Observations,months) is not { } range)return;period=months;from=range.From;to=range.To;year="";}
+    private void CustomPeriod(){period=-1;year="";}
+    private void ResetPeriod(){period=null;from="";to="";SetPeriod(null);}
+    private async Task SelectionChanged(){ResetPeriod();await SelectedKeyChanged.InvokeAsync(key);}
+    protected override void OnParametersSet(){
+        var old=key;
+        if(SelectedKey!=lastSelected){lastSelected=SelectedKey;if(Securities.Any(x=>x.Key==SelectedKey))key=SelectedKey;}
+        if(!Securities.Any(x=>x.Key==key))key=Securities.FirstOrDefault()?.Key??"";
+        if(!initialised){total=DefaultTotalReturn;initialised=true;ResetPeriod();}
+        else if(old!=key)ResetPeriod();
+        else if(lastSeries!=Selected?.SeriesJson && period!=-1){if(FundModelPresentation.SavedPeriod(Observations,period) is not null)SetPeriod(period);else ResetPeriod();}
+        lastSeries=Selected?.SeriesJson??"";
+    }
 }
