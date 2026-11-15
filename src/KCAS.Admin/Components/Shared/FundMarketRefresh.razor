@@ -1,0 +1,97 @@
+@using KCAS.Admin.Data
+@inject FundModelPriceRefreshService RefreshService
+@inject AuthenticationStateProvider Authentication
+@implements IDisposable
+
+<section class="fund-price-refresh mb-3" aria-label="Online price refresh">
+    <div class="d-flex flex-wrap align-items-end gap-2">
+        @if (string.IsNullOrEmpty(SecurityKey)) {
+        <label>Price refresh scope
+            <select class="form-select" @bind="scope" disabled="@busy">
+                <option value="">All holdings in this fund</option>
+                @foreach (var s in Securities) { <option value="@s.Key">@s.Name (@s.Key)</option> }
+            </select>
+        </label>
+        }
+        <button class="btn btn-outline-primary" disabled="@busy" @onclick="Fetch">@(busy ? "Refreshing..." : string.IsNullOrEmpty(SecurityKey) ? "Refresh market prices" : "Refresh latest month-end price")</button>
+        @if (busy) { <button class="btn btn-outline-secondary" @onclick="() => stop?.Cancel()">Stop</button> }
+    </div>
+    @if (status is not null) { <p class="mt-2 mb-2" role="status">@status</p> }
+    @foreach (var entry in entries)
+    {
+        <div class="fund-price-entry" @key="entry.Key">
+            <strong>@entry.Name (@entry.Key)</strong>
+            @if (entry.Error is not null) { <p class="text-danger mb-0">@entry.Error</p> }
+            @if (entry.Preview is { } p)
+            {
+                <div class="small text-muted">Yahoo Finance: @p.Symbol · @p.Currency · Retrieved @p.RetrievedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</div>
+                <div>@p.Added new months · @p.Revised revisions · @(p.Changes.Count-p.Added-p.Revised) unchanged · Latest @p.Changes.Last().Month</div>
+                @if (p.Added + p.Revised > 0 && !entry.Saved)
+                {
+                    <details class="mt-2"><summary>Compare downloaded prices</summary>
+                        <div class="table-responsive fund-price-comparison"><table class="table table-sm">
+                            <thead><tr><th>Month</th><th>Saved price</th><th>Downloaded price</th><th>Saved total-return index</th><th>Downloaded index</th></tr></thead>
+                            <tbody>@foreach (var c in p.Changes.Where(c => c.Saved is null || c.Changed).Reverse()) {
+                                <tr><td>@c.Month</td><td>@c.Saved?.Price.ToString("N6")</td><td>@c.Downloaded.Price.ToString("N6")</td><td>@c.Saved?.TotalReturnIndex?.ToString("N6")</td><td>@c.Downloaded.TotalReturnIndex?.ToString("N6")</td></tr>
+                            }</tbody>
+                        </table></div>
+                    </details>
+                    <div class="d-flex flex-wrap align-items-center gap-3 mt-2">
+                        @if (p.Revised > 0) { <label><input type="checkbox" @bind="entry.AcceptRevisions" disabled="@busy" /> Accept @p.Revised historical revisions</label> }
+                        <button class="btn btn-sm btn-primary" disabled="@(busy || p.Revised > 0 && !entry.AcceptRevisions)" @onclick="() => Apply(entry)">Save refreshed prices</button>
+                    </div>
+                }
+                @if (entry.Saved) { <div class="text-success">Prices saved. Existing modelling runs are unchanged.</div> }
+            }
+        </div>
+    }
+</section>
+
+@code {
+    [Parameter] public List<ModelSecurity> Securities { get; set; } = [];
+    [Parameter] public List<string> FundKeys { get; set; } = [];
+    [Parameter] public EventCallback OnSaved { get; set; }
+    [Parameter] public string SecurityKey { get; set; } = "";
+    private string scope = "";
+    private bool busy;
+    private string? status;
+    private CancellationTokenSource? stop;
+    private readonly List<Entry> entries = [];
+    private sealed class Entry {
+        public string Key { get; init; } = "";
+        public string Name { get; init; } = "";
+        public FundPricePreview? Preview { get; set; }
+        public string? Error { get; set; }
+        public bool AcceptRevisions { get; set; }
+        public bool Saved { get; set; }
+    }
+    private async Task Fetch() {
+        if (busy) return;
+        busy = true; entries.Clear(); stop?.Dispose(); stop = new();
+        var keys = (!string.IsNullOrEmpty(SecurityKey) ? new List<string>{SecurityKey} : scope.Length == 0 ? FundKeys : new List<string> { scope }).Distinct().ToList();
+        try {
+            var user = (await Authentication.GetAuthenticationStateAsync()).User;
+            foreach (var key in keys) {
+                stop.Token.ThrowIfCancellationRequested();
+                var entry = new Entry { Key = key, Name = Securities.FirstOrDefault(s => s.Key == key)?.Name ?? key }; entries.Add(entry);
+                status = $"Checking {entries.Count} of {keys.Count}: {entry.Name}"; StateHasChanged();
+                try { entry.Preview = await RefreshService.PreviewAsync(key, user, stop.Token); }
+                catch (OperationCanceledException) { entry.Error = "Refresh stopped. No prices saved."; throw; }
+                catch (Exception ex) { entry.Error = ex.Message; }
+                StateHasChanged();
+            }
+            status = keys.Count == 0 ? "This fund has no holdings to refresh." : $"Checked {keys.Count} securities. {entries.Count(e => e.Error is not null)} unavailable. No prices saved yet.";
+        } catch (OperationCanceledException) { status = "Refresh stopped. Completed previews remain available."; }
+        finally { busy = false; }
+    }
+    private async Task Apply(Entry entry) {
+        if (busy || entry.Preview is null) return;
+        busy = true; entry.Error = null;
+        try {
+            await RefreshService.ApplyAsync(entry.Preview, entry.AcceptRevisions, (await Authentication.GetAuthenticationStateAsync()).User);
+            entry.Saved = true; await OnSaved.InvokeAsync(); status = $"Saved refreshed prices for {entry.Name}.";
+        } catch (Exception ex) { entry.Error = ex.Message; }
+        finally { busy = false; }
+    }
+    public void Dispose() { stop?.Cancel(); stop?.Dispose(); }
+}

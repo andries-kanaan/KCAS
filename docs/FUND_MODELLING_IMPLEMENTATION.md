@@ -13,7 +13,7 @@ Research-only. No client investments, compliance assessments, fee claims or brok
 - EF migration and dedicated Python runtime installer.
 
 ## Still required before the full agreed module is complete
-- Online refresh adapter/scheduler with configured business-use permission and credentials.
+- Optional scheduled refresh (manual public-price refresh is implemented; no background market downloads).
 - Excel column mapping, broker statement adapter and multi-currency FX histories.
 - Evidenced fund-level fee overlay (currently explicitly excluded).
 - Encrypted transfer preview/apply and integration with deployment runtime preflight.
@@ -33,7 +33,7 @@ Research-only. No client investments, compliance assessments, fee claims or brok
 The usability follow-up adds audit-retained deletion for stopped runs, saved-scenario deletion without changing old runs, security monthly-return tables (live and frozen run inputs), and graded frontier axes with current/proposed markers. Fifteen affected C# tests passed; actual saved-result layouts checked at 1440px and 390px. KCAS restarted with the FundModelUx build.
 
 1. Browser/UI and report visual verification, permission/integration tests and native XLSX validation.
-2. Online provider refresh with persisted job results and environment switches.
+2. Evaluate additional public/authorised data sources and optional scheduled refresh separately.
 3. Encrypted fund transfers with immutable snapshots and preview conflict checks.
 4. Mandate-specific fee overlays and FX conversion inputs; then broader spreadsheet/statement adapters.
 5. Scenario comparisons, interactive frontier selection, trade amounts and remaining source population.
@@ -44,4 +44,20 @@ The single-instance background worker marks interrupted runs on startup; multi-i
 `deploy/windows/Install-KCAS-FundModelRuntime.ps1` creates an isolated runtime from pinned requirements. Configure `FundModelling__PythonPath` for the KCAS service account. Never require desktop Excel or Solver on live.
 
 ## Limitations
+Security returns now offers 3-year, 5-year and Max saved-history presets. They set both the displayed price-table range and CAR endpoints, anchored to the latest saved month. Exact 36/60-month opening observations are required; unavailable fixed periods are disabled rather than silently shortened. Max uses existing records only and never downloads more data. Custom month-end selections remain available. A selected-security-only month-end refresh reuses the existing authorised preview/revision/save workflow; no scope selector or all-fund request is exposed there. It is available to investment managers on current histories only, never on frozen run histories. Saving refreshed prices reloads the displayed series and recalculates the selected preset.
+
+Security history: Prices > View prices / CAR opens the chosen underlying's Security returns tab. The table shows saved monthly prices, monthly returns and sources. CAR from/to month-end controls calculate compounded annual growth using elapsed calendar months / 12, separately from cumulative growth and separately for price versus dividend-adjusted total return. Missing endpoint data never falls back to another basis. The year filter affects the table, not the selected CAR period. Editing/imports remain separate. Also available for frozen run histories. Verified with 26 focused tests and rendered desktop/mobile checks; local runtime is now FundHistory on port 5143.
+
 Results labelled net deduct the trading allowance only, not Kanaan management/performance fees or investor tax. Price mode excludes distributed dividends. Selected-universe tests retain selection/survivorship bias. Historical targets are not risk guarantees.
+
+## Manual public prices and deletion controls
+- Investments > Fund modelling > fund > Prices > Refresh market prices. Choose all fund holdings or one registered security.
+- Uses the saved Yahoo Finance symbol (including the exchange suffix/share class). No paid account or API key, no browser/background polling and no scheduled refresh. Only the ticker and date range leave KCAS, not client or portfolio details.
+- Daily public history is reduced to the last quoted trading date in each completed exchange-local calendar month. Current-month prices, stale final observations and missing final quotes are not manufactured into month-end values.
+- Currency must match exactly; GBp is not silently treated as GBP. Price is the provider's split-adjusted close; the separate total-return series uses its dividend-adjusted close. Reference: https://help.yahoo.com/kb/SLN28256.html.
+- Download preview shows new, changed and unchanged months. Historical revisions require explicit acceptance; saved histories and completed-run snapshots remain unchanged until saving. Incomplete replacement of a revised history is blocked to avoid mixing adjustment scales.
+- Saves are permission checked, concurrency checked and recorded in ModelEvents, including previous prices, changed rows and retrieval/source details. No schema migration is required.
+- Successful requests are cached in memory for 15 minutes; failures for 2 minutes. Requests are serialised and spaced by at least 2 seconds, with a 30-second timeout and 16 MB response limit. Restart clears this cache.
+- Public endpoints are best-effort, not a contracted feed or assurance of redistribution rights. Unavailable/unsupported symbols retain the CSV/XLSX option. Do not substitute a similarly named share class. No purchase or subscription is created.
+- Holding, scenario and stopped-run deletion use compact bundled trash icons with named confirmation dialogs. Cancel receives initial focus; Escape cancels. A holding is removed only from the draft until Save fund; shared prices survive. Deleted runs retain the audit record.
+- Verification (15 November 2026): 24 focused C# tests passed. Actual authorised service previews fetched TSLA and XS2D.L successfully through October 2026, without saving price revisions. All 22 local EOIBKRBrokers symbols were mapped from their existing verified source metadata (only blank mappings filled). New components were rendered and checked with Playwright at 1440px and 390px, including icon dimensions, initial Cancel focus and Escape cancellation. The full authenticated save/delete workflow was not exercised against user records. Local KCAS restarted using FundRefresh on port 5143.

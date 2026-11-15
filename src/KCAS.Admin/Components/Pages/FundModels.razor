@@ -32,18 +32,20 @@ else
         <div class="row g-3"><label class="col-md-5">Fund name<input class="form-control" @bind="fund.Name" maxlength="160" /></label><label class="col-md-2">Currency<select class="form-select" @bind="fund.Currency"><option>USD</option><option>ZAR</option><option>GBP</option><option>EUR</option></select></label><label class="col-md-3">Cash value<input class="form-control" type="number" min="0" step="0.01" @bind="cash" /></label><label class="col-md-2"><input type="checkbox" @bind="fund.Archived" /> Archived</label></div>
         <div class="table-responsive"><table class="table mt-3"><thead><tr><th>Underlying</th><th>Current value</th><th>Min %</th><th>Max %</th><th>From</th><th>To</th><th>Include</th><th></th></tr></thead><tbody>
         @foreach (var h in holdings)
-        { <tr @key="h"><td><select class="form-select" @bind="h.Security"><option value="">Select security</option>@foreach(var s in securities) { <option value="@s.Key">@s.Name (@s.Key)</option> }</select></td><td><input class="form-control" type="number" min="0" @bind="h.Value" /></td><td><input class="form-control model-number" type="number" value="@(h.Minimum*100)" @onchange="e => h.Minimum = Number(e)/100" /></td><td><input class="form-control model-number" type="number" value="@(h.Maximum*100)" @onchange="e => h.Maximum = Number(e)/100" /></td><td><input type="month" class="form-control" value="@h.From" @onchange="e => h.From = e.Value?.ToString() ?? string.Empty" /></td><td><input type="month" class="form-control" value="@h.To" @onchange="e => h.To = e.Value?.ToString() ?? string.Empty" /></td><td><input type="checkbox" @bind="h.Included" aria-label="Include security" /></td><td><button title="Remove from this draft" class="btn btn-outline-danger" @onclick="() => holdings.Remove(h)"><span class="bi bi-trash" aria-hidden="true"></span></button></td></tr> }
+        { <tr @key="h"><td><select class="form-select" @bind="h.Security"><option value="">Select security</option>@foreach(var s in securities) { <option value="@s.Key">@s.Name (@s.Key)</option> }</select></td><td><input class="form-control" type="number" min="0" @bind="h.Value" /></td><td><input class="form-control model-number" type="number" value="@(h.Minimum*100)" @onchange="e => h.Minimum = Number(e)/100" /></td><td><input class="form-control model-number" type="number" value="@(h.Maximum*100)" @onchange="e => h.Maximum = Number(e)/100" /></td><td><input type="month" class="form-control" value="@h.From" @onchange="e => h.From = e.Value?.ToString() ?? string.Empty" /></td><td><input type="month" class="form-control" value="@h.To" @onchange="e => h.To = e.Value?.ToString() ?? string.Empty" /></td><td><input type="checkbox" @bind="h.Included" aria-label="Include security" /></td><td><FundModelDeleteButton Title="@($"Remove {h.Security} from this fund")" Explanation="Remove this holding from the draft? Shared security prices and completed runs are kept. The change takes effect when you save the fund." Action="Remove holding" Disabled="@busy" OnConfirm="() => RemoveHolding(h)" /></td></tr> }
         </tbody></table></div>
         <button class="btn btn-outline-secondary" @onclick="() => holdings.Add(new())">Add holding</button> <button class="btn btn-primary" @onclick="Save">Save fund</button>
         </fieldset>
     }
     else if (tab == "Security returns")
     {
-        <FundSecurityReturns Securities="@(securities.Where(s=>holdings.Any(h=>h.Security==s.Key)).ToList())" />
+        <FundSecurityReturns @key="historyKey" Securities="@(securities.Where(s=>s.Key==historyKey || holdings.Any(h=>h.Security==s.Key)).ToList())" SelectedKey="@historyKey" SelectedKeyChanged="SetHistorySecurity" AllowRefresh="canManage" OnRefreshSaved="ReloadSecurities" />
+        @if(canManage && securities.FirstOrDefault(s=>s.Key==historyKey) is { } historySecurity) { <button class="btn btn-outline-secondary" @onclick="() => EditSecurity(historySecurity)">Edit security / import prices</button> }
     }
     else if (tab == "Prices")
     {
-        <table class="table"><thead><tr><th>Security</th><th>Currency</th><th>Observations</th><th>Latest month</th><th></th></tr></thead><tbody>@foreach(var s in securities) { var prices = FundModelJson.Read<List<ModelObservation>>(s.SeriesJson); <tr><td>@s.Name (@s.Key)</td><td>@s.Currency</td><td>@prices.Count</td><td>@prices.LastOrDefault()?.Month</td><td><button class="btn btn-sm btn-outline-secondary" @onclick="() => security = new() { Key = s.Key, Name = s.Name, Currency = s.Currency, ProviderSymbol = s.ProviderSymbol }">Select</button></td></tr> }</tbody></table>
+        @if (canManage) { <FundMarketRefresh @key="fund.Key" Securities="securities" FundKeys="@(holdings.Select(h => h.Security).Where(k => !string.IsNullOrEmpty(k)).Distinct().ToList())" OnSaved="ReloadSecurities" /> }
+        <table class="table"><thead><tr><th>Security</th><th>Currency</th><th>Observations</th><th>Latest month</th><th></th></tr></thead><tbody>@foreach(var s in securities) { var prices = FundModelJson.Read<List<ModelObservation>>(s.SeriesJson); <tr><td>@s.Name (@s.Key)</td><td>@s.Currency</td><td>@prices.Count</td><td>@prices.LastOrDefault()?.Month</td><td><button class="btn btn-sm btn-outline-secondary" @onclick="() => SelectSecurity(s)">View prices / CAR</button></td></tr> }</tbody></table>
         @if(canManage) {
         <fieldset disabled="@busy"><div class="row g-3"><label class="col-md-3">Security key<input class="form-control" @bind="security.Key" /></label><label class="col-md-4">Name / share class<input class="form-control" @bind="security.Name" /></label><label class="col-md-2">Currency<input class="form-control" @bind="security.Currency" maxlength="3" /></label><label class="col-md-3">Online symbol<input class="form-control" @bind="security.ProviderSymbol" /></label></div>
         <button class="btn btn-primary my-3" @onclick="SaveSecurity">Save security</button>
@@ -65,13 +67,13 @@ else
         <label class="col-md-3">Start month<input type="month" class="form-control" value="@scenario.Start" @onchange="e => scenario.Start = e.Value?.ToString() ?? string.Empty" /></label><label class="col-md-3">Last complete month<input type="month" class="form-control" value="@scenario.End" @onchange="e => scenario.End = e.Value?.ToString() ?? string.Empty" /></label>
         <label class="col-md-3">Universe<select class="form-select" @bind="scenario.Universe"><option value="Selected">Selected holdings</option><option value="Dated">Effective-dated holdings</option></select></label>
         </div><button class="btn btn-primary mt-3" @onclick="SaveScenario">Save scenario</button>
-        <button class="btn btn-outline-danger mt-3 ms-2" disabled="@(fund.Id == 0 || string.IsNullOrEmpty(savedScenarioName))" @onclick="DeleteScenario"><span class="bi bi-trash" aria-hidden="true"></span> Delete saved scenario</button></fieldset>
+        <span class="ms-2"><FundModelDeleteButton Title="@($"Delete scenario '{savedScenarioName}'")" Explanation="Remove this saved scenario? Completed runs will remain unchanged." Disabled="@(fund.Id == 0 || string.IsNullOrEmpty(savedScenarioName) || busy)" OnConfirm="DeleteScenario" /></span></fieldset>
     }
     else if (tab == "Results")
     {
         @if(canManage) { <button class="btn btn-primary" disabled="@(busy || fund.Id == 0)" @onclick="Run">Run @scenario.Name</button> }
         <button class="btn btn-outline-secondary ms-2" @onclick="RefreshRuns">Refresh results</button>
-        <table class="table mt-3"><thead><tr><th>Run</th><th>Created</th><th>Status</th><th>Progress</th><th></th></tr></thead><tbody>@foreach(var r in runs) { <tr><td><button class="btn btn-link" @onclick="() => selected = r">#@r.Id</button></td><td>@r.CreatedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td><td>@r.State</td><td>@r.Progress</td><td>@if(canManage && r.State is "Queued" or "Running") { <button class="btn btn-sm btn-outline-danger" @onclick="() => Cancel(r.Id)">Cancel</button> } @if(canManage && FundModelService.CanDeleteRun(r.State)) { <button class="btn btn-sm btn-outline-danger" disabled="@busy" title="Delete run" aria-label="@($"Delete run {r.Id}")" @onclick="() => DeleteRun(r.Id)"><span class="bi bi-trash" aria-hidden="true"></span></button> }</td></tr> }</tbody></table>
+        <table class="table mt-3"><thead><tr><th>Run</th><th>Created</th><th>Status</th><th>Progress</th><th></th></tr></thead><tbody>@foreach(var r in runs) { <tr><td><button class="btn btn-link" @onclick="() => selected = r">#@r.Id</button></td><td>@r.CreatedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td><td>@r.State</td><td>@r.Progress</td><td>@if(canManage && r.State is "Queued" or "Running") { <button class="btn btn-sm btn-outline-danger" @onclick="() => Cancel(r.Id)">Cancel</button> } @if(canManage && FundModelService.CanDeleteRun(r.State)) { <FundModelDeleteButton Title="@($"Delete run #{r.Id}")" Explanation="Remove this run from Results? Its audit record is retained. Securities, prices and scenarios are not affected." Disabled="@busy" OnConfirm="() => DeleteRun(r.Id)" /> }</td></tr> }</tbody></table>
         @if(selected?.State == "Complete") { <FundModelResult Run="selected" /> }
     }
 }
@@ -81,7 +83,7 @@ else
     private ClaimsPrincipal user = new(); private bool canManage, busy, failed, revisePrices;
     private string? message; private string savedScenarioName=""; private string tab="Results"; private string[] tabs=["Holdings","Prices","Security returns","Assumptions","Results"];
     private List<ModelFund> funds=[]; private ModelFund? fund; private List<ModelHolding> holdings=[];
-    private List<ModelSecurity> securities=[]; private ModelSecurity security=new(); private List<ModelObservation> preview=[];
+    private List<ModelSecurity> securities=[]; private ModelSecurity security=new(); private List<ModelObservation> preview=[]; private string historyKey="";
     private List<ModelScenario> scenarios=[]; private ModelScenario scenario=new(); private List<ModelRun> runs=[]; private ModelRun? selected; private double cash;
     private readonly CancellationTokenSource timerStop=new(); private Task? timer;
     private record PercentageField(string Label, Func<ModelScenario,double> Get, Action<ModelScenario,double> Set);
@@ -102,16 +104,20 @@ else
     private Task SaveScenario()=>Attempt(async()=>{scenarios.RemoveAll(x=>x.Name==scenario.Name);scenarios.Add(FundModelJson.Read<ModelScenario>(FundModelJson.Write(scenario)));await SaveCore();savedScenarioName=scenario.Name;message="Scenario saved.";});
     private void SelectScenario(ChangeEventArgs e) { savedScenarioName=e.Value?.ToString()??"";scenario=FundModelJson.Read<ModelScenario>(FundModelJson.Write(scenarios.FirstOrDefault(x=>x.Name==savedScenarioName)??new())); }
     private Task DeleteScenario()=>Attempt(async()=> {
-        if(fund is null || !await JS.InvokeAsync<bool>("confirm",$"Delete saved scenario '{savedScenarioName}'? Completed runs will remain unchanged."))return;
+        if(fund is null)return;
         await Models.DeleteScenarioAsync(fund.Id,savedScenarioName,fund.Revision,user);
         var latest=await Models.LoadAsync(fund.Id,user);fund.Revision=latest.Revision;fund.UpdatedUtc=latest.UpdatedUtc;fund.ScenariosJson=latest.ScenariosJson;
         scenarios=FundModelJson.Read<List<ModelScenario>>(latest.ScenariosJson);savedScenarioName=scenarios.FirstOrDefault()?.Name??"";scenario=FundModelJson.Read<ModelScenario>(FundModelJson.Write(scenarios.FirstOrDefault()??new()));message="Saved scenario deleted. Existing runs are unchanged.";
     });
     private Task DeleteRun(long id)=>Attempt(async()=> {
-        if(!await JS.InvokeAsync<bool>("confirm",$"Delete run #{id} from Results? Its audit record will be retained. Securities, prices and scenarios are not affected."))return;
         await Models.DeleteRunAsync(id,user);await RefreshRuns();message=$"Run #{id} deleted from Results.";
     });
     private Task SaveSecurity()=>Attempt(async()=>{await Models.SaveSecurityAsync(security,user);securities=await Models.SecuritiesAsync(user);message="Security saved.";});
+    private void SelectSecurity(ModelSecurity s) { historyKey=s.Key;tab="Security returns";message=null; }
+    private void SetHistorySecurity(string key) { historyKey=key; }
+    private void EditSecurity(ModelSecurity s) { security=new(){Key=s.Key,Name=s.Name,Currency=s.Currency,ProviderSymbol=s.ProviderSymbol};preview=[];revisePrices=false;tab="Prices";message=$"Editing {s.Name} ({s.Key}).";failed=false; }
+    private async Task ReloadSecurities() { securities = await Models.SecuritiesAsync(user); }
+    private void RemoveHolding(ModelHolding h) { holdings.Remove(h); message="Holding removed from the draft. Save fund to keep this change. Shared prices and completed runs are unchanged."; failed=false; }
     private Task ReadPrices(InputFileChangeEventArgs e)=>Attempt(async()=>{using var stream=e.File.OpenReadStream(10*1024*1024);using var buffer=new MemoryStream();await stream.CopyToAsync(buffer);preview=FundModelPriceReader.Read(buffer.ToArray(),e.File.Name);});
     private Task ImportPrices()=>Attempt(async()=>{await Models.ImportPricesAsync(security.Key,preview,revisePrices,user);securities=await Models.SecuritiesAsync(user);preview=[];message="Price observations saved with source history.";});
     private Task Run()=>Attempt(async()=>{await SaveCore();var id=await Models.QueueAsync(fund!.Id,scenario,cash,user);await RefreshRuns();selected=runs.First(x=>x.Id==id);message=$"Run #{id}: {selected.State}.";});

@@ -61,7 +61,7 @@ public sealed class FundModelService(IDbContextFactory<ApplicationDbContext> fac
     public async Task SaveSecurityAsync(ModelSecurity input, ClaimsPrincipal principal)
     {
         await using var db = await factory.CreateDbContextAsync(); var actor = await Authorize(db, principal, true);
-        if (!System.Text.RegularExpressions.Regex.IsMatch(input.Key, "^[A-Za-z0-9._:-]{1,100}$") || string.IsNullOrWhiteSpace(input.Name) || input.Name.Length > 200 || !System.Text.RegularExpressions.Regex.IsMatch(input.Currency, "^[A-Z]{3}$"))
+        if (!System.Text.RegularExpressions.Regex.IsMatch(input.Key, "^[A-Za-z0-9._:-]{1,100}$") || string.IsNullOrWhiteSpace(input.Name) || input.Name.Length > 200 || !System.Text.RegularExpressions.Regex.IsMatch(input.Currency, "^[A-Z]{3}$") || input.ProviderSymbol.Length > 50)
             throw new ValidationException("Use a stable security key, name and three-letter currency.");
         var row = await db.ModelSecurities.SingleOrDefaultAsync(x => x.Key == input.Key);
         if (row is null) { row = new ModelSecurity { Key = input.Key }; db.ModelSecurities.Add(row); }

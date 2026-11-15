@@ -1,0 +1,40 @@
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<button type="button" class="fund-delete-action" title="@Title" aria-label="@Title" disabled="@(Disabled || pending)" @onclick="Open">
+    <span class="fund-trash-icon" aria-hidden="true"></span>
+</button>
+<dialog @ref="dialog" class="fund-confirm-dialog" aria-labelledby="@headingId">
+    <h2 id="@headingId" class="h5">@Title</h2>
+    <p>@Explanation</p>
+    <div class="d-flex justify-content-end gap-2">
+        <button type="button" class="btn btn-outline-secondary" data-cancel disabled="@pending" @onclick="Close">Cancel</button>
+        <button type="button" class="btn btn-danger" disabled="@pending" @onclick="Confirm">@(pending ? "Please wait..." : Action)</button>
+    </div>
+</dialog>
+
+@code {
+    [Parameter] public string Title { get; set; } = "Delete";
+    [Parameter] public string Explanation { get; set; } = "";
+    [Parameter] public string Action { get; set; } = "Delete";
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback OnConfirm { get; set; }
+    private readonly string headingId = "fund-delete-" + Guid.NewGuid().ToString("N");
+    private ElementReference dialog;
+    private IJSObjectReference? module;
+    private bool pending;
+    private async Task Open() {
+        if (Disabled || pending) return;
+        module ??= await JS.InvokeAsync<IJSObjectReference>("import", "/fund-model-dialog.js");
+        await module.InvokeVoidAsync("open", dialog);
+    }
+    private async Task Close() { if (module is not null) await module.InvokeVoidAsync("close", dialog); }
+    private async Task Confirm() {
+        if (Disabled || pending) return;
+        pending = true;
+        try { await Close(); await OnConfirm.InvokeAsync(); } finally { pending = false; }
+    }
+    public async ValueTask DisposeAsync() {
+        if (module is not null) try { await module.DisposeAsync(); } catch (JSDisconnectedException) { }
+    }
+}

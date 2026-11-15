@@ -1663,6 +1663,18 @@ h1:focus {
 }
 .client-edit-form .bi { width: 1.1rem; height: 1.1rem; margin: 0; vertical-align: middle; background: currentColor; mask-repeat: no-repeat; mask-position: center; mask-size: contain; }
 .client-edit-form .bi-trash { mask-image: url('/images/icons/bootstrap/trash.svg'); }
+.fund-delete-action { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 8px; border: 1px solid transparent; border-radius: 4px; color: #62666b; background: transparent; vertical-align: middle; flex-shrink: 0; }
+.fund-delete-action:hover:not(:disabled) { color: #a52834; background: #fff0f1; border-color: #eccbd0; }
+.fund-delete-action:focus-visible { outline: 2px solid #525a64; outline-offset: 2px; }
+.fund-delete-action:disabled { opacity: .4; }
+.fund-trash-icon { display: block; width: 16px; height: 16px; background: currentColor; mask: url('/images/icons/bootstrap/trash.svg') center / contain no-repeat; }
+.fund-confirm-dialog { width: min(440px, calc(100vw - 32px)); padding: 24px; border: 1px solid #d5d7da; border-radius: 6px; box-shadow: 0 12px 44px #0003; }
+.fund-confirm-dialog::backdrop { background: #0005; }
+.fund-confirm-dialog p, .fund-confirm-dialog h2 { overflow-wrap: anywhere; }
+.fund-price-refresh select { max-width: 100%; }
+.fund-price-refresh label { max-width: 100%; }
+.fund-price-entry { padding: 12px 0; border-bottom: 1px solid #dfe2e5; overflow-wrap: anywhere; }
+.fund-price-comparison { max-height: 320px; }
 .client-edit-form .bi-plus { mask-image: url('/images/icons/bootstrap/plus.svg'); }
 .client-edit-form .bi-check-lg { mask-image: url('/images/icons/bootstrap/check-lg.svg'); }
 

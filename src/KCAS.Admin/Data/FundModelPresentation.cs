@@ -4,6 +4,32 @@ namespace KCAS.Admin.Data;
 
 public static class FundModelPresentation
 {
+    public static (string From, string To)? SavedPeriod(IEnumerable<ModelObservation> observations, int? months)
+    {
+        var rows=observations.OrderBy(x=>x.Month,StringComparer.Ordinal).ToList();
+        if(rows.Count==0)return null;
+        var to=rows[^1].Month;
+        if(months is null)return(rows[0].Month,to);
+        if(months<=0 || !DateTime.TryParseExact(to,"yyyy-MM",CultureInfo.InvariantCulture,DateTimeStyles.None,out var end))return null;
+        var from=end.AddMonths(-months.Value).ToString("yyyy-MM",CultureInfo.InvariantCulture);
+        return rows.Any(x=>x.Month==from)?(from,to):null;
+    }
+    public sealed record PeriodReturn(double Growth, double Car, int Months, double Opening, double Closing);
+    public static PeriodReturn? ReturnSince(IEnumerable<ModelObservation> observations, string from, string to, bool totalReturn)
+    {
+        if (!DateTime.TryParseExact(from, "yyyy-MM", CultureInfo.InvariantCulture, DateTimeStyles.None, out var start) ||
+            !DateTime.TryParseExact(to, "yyyy-MM", CultureInfo.InvariantCulture, DateTimeStyles.None, out var end)) return null;
+        var months = (end.Year-start.Year)*12+end.Month-start.Month;
+        if (months <= 0) return null;
+        var first = observations.SingleOrDefault(x => x.Month == from);
+        var last = observations.SingleOrDefault(x => x.Month == to);
+        var opening = totalReturn ? first?.TotalReturnIndex : first?.Price;
+        var closing = totalReturn ? last?.TotalReturnIndex : last?.Price;
+        if (opening is not > 0 || closing is not > 0 || !double.IsFinite(opening.Value) || !double.IsFinite(closing.Value)) return null;
+        var ratio = closing.Value/opening.Value;
+        var car = Math.Pow(ratio,12d/months)-1;
+        return double.IsFinite(car) ? new(ratio-1,car,months,opening.Value,closing.Value) : null;
+    }
     public static double? MonthlyReturn(IEnumerable<ModelObservation> observations, string month, bool totalReturn)
     {
         var date = DateTime.ParseExact(month, "yyyy-MM", CultureInfo.InvariantCulture);
