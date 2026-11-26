@@ -1,0 +1,11 @@
+.aum-grid th, .aum-grid td {
+    padding: .42rem .7rem;
+}
+
+.aum-grid th {
+    min-width: 7rem;
+}
+
+.aum-row-label {
+    font-weight: 500;
+}

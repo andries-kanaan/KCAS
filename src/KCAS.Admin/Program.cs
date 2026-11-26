@@ -90,6 +90,7 @@ builder.Services.AddScoped<ClientVisibilityService>();
 builder.Services.AddScoped<InvestmentSummaryService>();
 builder.Services.AddScoped<FundModelService>();
 builder.Services.AddScoped<FundModelTransferService>();
+builder.Services.AddScoped<AumProjectionService>();
 builder.Services.AddScoped<FundModelRuntime>();
 builder.Services.AddHttpClient("FundPublicPrices", client =>
 {
@@ -173,6 +174,7 @@ builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSe
 
 var app = builder.Build();
 app.MapFundModelReports();
+app.MapAumProjectionReports();
 var webRoot = app.Environment.WebRootPath;
 
 if (app.Configuration.GetValue("Database:MigrateOnStartup", false))
