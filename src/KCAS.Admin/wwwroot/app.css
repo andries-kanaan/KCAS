@@ -230,16 +230,16 @@ a, .btn-link {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='white' viewBox='0 0 16 16'%3E%3Cpath d='M12.5 15a.5.5 0 0 1-.5-.5v-13a.5.5 0 0 1 1 0v13a.5.5 0 0 1-.5.5ZM10 8a.5.5 0 0 1-.5.5H3.707l2.147 2.146a.5.5 0 0 1-.708.708l-3-3a.5.5 0 0 1 0-.708l3-3a.5.5 0 1 1 .708.708L3.707 7.5H9.5a.5.5 0 0 1 .5.5Z'/%3E%3C/svg%3E");
 }
 
-.nav-item {
+.workspace-navigation .nav-item {
     font-size: .92rem;
     padding-bottom: .35rem;
 }
 
-.nav-item:last-of-type {
+.workspace-navigation .nav-item:last-of-type {
     padding-bottom: 1rem;
 }
 
-.nav-item .nav-link {
+.workspace-navigation .nav-item .nav-link {
     color: rgba(255, 255, 255, .75);
     background: none;
     border: none;
@@ -254,13 +254,13 @@ a, .btn-link {
     text-decoration: none;
 }
 
-.nav-item a.active {
+.workspace-navigation .nav-item a.active {
     background-color: rgba(198, 170, 82, .18);
     color: white;
     box-shadow: inset 3px 0 0 #c6aa52;
 }
 
-.nav-item .nav-link:hover {
+.workspace-navigation .nav-item .nav-link:hover {
     background-color: rgba(255, 255, 255, .08);
     color: white;
 }
