@@ -16,7 +16,7 @@ public static class WorkspaceNavigation
             new("Client risk register", "/compliance/client-risk", KcasPermissions.RiskAssessmentsView)]),
         new("Investments", "bi-list-nested-nav-menu", [
             new("Fund modelling", "/investments/fund-models", KcasPermissions.InvestmentsView),
-            new("AUM projections", "/investments/aum-projections", KcasPolicies.AdministratorOnly),
+            new("AUM projections", "/investments/aum-projections", KcasPolicies.ApprovedAccount),
             new("Fund modelling transfers", "/investments/fund-model-transfers", KcasPolicies.AdministratorOnly),
             new("Investment summary", "/investments/summary", KcasPermissions.InvestmentsView),
             new("Annual PDF claims", "/investments/performance-fees", KcasPolicies.PerformanceFeesView),

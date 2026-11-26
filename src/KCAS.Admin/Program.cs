@@ -59,6 +59,8 @@ builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy(KcasPolicies.AdministratorOnly, policy =>
         policy.RequireRole(KcasRoles.Administrator));
+    options.AddPolicy(KcasPolicies.ApprovedAccount, policy =>
+        policy.RequireAuthenticatedUser().AddRequirements(new ApprovedAccountRequirement()));
     options.AddPolicy(KcasPolicies.PerformanceFeesView, policy => policy.RequireAuthenticatedUser().RequireAssertion(context =>
         context.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.InvestmentsView) ||
         context.User.HasClaim(KcasClaimTypes.Permission, KcasPermissions.ComplianceManage) &&
@@ -74,6 +76,7 @@ builder.Services.AddAuthorization(options =>
     }
 });
 builder.Services.AddScoped<IAuthorizationHandler, EmployeePermissionAuthorizationHandler>();
+builder.Services.AddScoped<IAuthorizationHandler, ApprovedAccountAuthorizationHandler>();
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
 builder.Services.AddDbContext<ApplicationDbContext>(options =>

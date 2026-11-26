@@ -129,7 +129,7 @@ public sealed class AumProjectionTests
         });
     }
 
-    private static AumSnapshot Fixture() => new(
+    internal static AumSnapshot Fixture() => new(
         Version: 1, Source: "Test workbook.xlsx", SourceHash: new string('a', 64), AsOf: new(2026, 10, 8),
         BrokerShare: .25, BrokerWrapperCost: 0, MonthlyFeeIncome: 100, FeeBaseAum: 100_000,
         PdfIncomeShare: 0, OffshorePdfEnabled: 0, RetirementRate: .07, SupportRate: .08, SupportThreshold: 100_000,

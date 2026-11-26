@@ -21,7 +21,7 @@ public static class AumProjectionReports
                     : Results.File(Pdf(run), "application/pdf", $"KCAS-AUM-{id}.pdf");
             }
             catch (UnauthorizedAccessException) { return Results.Forbid(); }
-        }).RequireAuthorization(KcasPolicies.AdministratorOnly);
+        }).RequireAuthorization(KcasPolicies.ApprovedAccount);
     }
 
     internal static byte[] Excel(AumSavedProjection run)

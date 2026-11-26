@@ -1,6 +1,6 @@
 @page "/investments/aum-projections"
 @rendermode InteractiveServer
-@attribute [Authorize(Policy = KcasPolicies.AdministratorOnly)]
+@attribute [Authorize(Policy = KcasPolicies.ApprovedAccount)]
 @using System.ComponentModel.DataAnnotations
 @using System.Globalization
 @using System.Security.Claims
@@ -39,13 +39,16 @@
         {
             <p>No input snapshot has been imported.</p>
         }
-        <fieldset disabled="@busy">
-            <label class="form-label" for="aum-snapshot">Prepared AUM snapshot (.json)</label>
-            <div class="d-flex flex-wrap align-items-center gap-2">
-                <InputFile id="aum-snapshot" class="form-control w-auto mw-100" accept=".json" OnChange="SelectFile" @key="fileKey" />
-                <button type="button" class="btn btn-outline-primary" disabled="@(selectedFile is null)" @onclick="Import">Import snapshot</button>
-            </div>
-        </fieldset>
+        @if (CanImport)
+        {
+            <fieldset disabled="@busy">
+                <label class="form-label" for="aum-snapshot">Prepared AUM snapshot (.json)</label>
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                    <InputFile id="aum-snapshot" class="form-control w-auto mw-100" accept=".json" OnChange="SelectFile" @key="fileKey" />
+                    <button type="button" class="btn btn-outline-primary" disabled="@(selectedFile is null)" @onclick="Import">Import snapshot</button>
+                </div>
+            </fieldset>
+        }
     </section>
     @if (snapshot is not null)
     {
@@ -171,6 +174,7 @@ else if (!busy)
     private bool busy, custom;
     private string? error, notice;
     private ClaimsPrincipal user = new();
+    private bool CanImport => user.IsInRole(KcasRoles.Administrator);
     private AumSnapshotInfo? snapshot;
     private AumSavedProjection? run;
     private AumSavedRunInfo[] saved = [];
@@ -262,7 +266,7 @@ else if (!busy)
         try { await action(); }
         catch (ValidationException ex) { error = ex.Message; }
         catch (IOException) { error = "The snapshot could not be read. Check the file and its size (maximum 12 MB)."; }
-        catch (UnauthorizedAccessException) { error = "Only an approved administrator can access projections."; }
+        catch (UnauthorizedAccessException ex) { error = ex.Message; }
         catch (Exception ex)
         {
             Logger.LogError(ex, "AUM projection action failed");
