@@ -89,28 +89,66 @@ public static class FundModelReports
 
 internal static class ModelWorkbook
 {
-    internal static byte[] Write(List<(string Name,List<object?[]> Rows)> sheets)
+    internal sealed record Caption(string Text);
+    internal sealed record Number(double Value, int Style);
+
+    internal static byte[] Write(List<(string Name,List<object?[]> Rows)> sheets, bool formatted = false)
     {
         XNamespace ns="http://schemas.openxmlformats.org/spreadsheetml/2006/main",rel="http://schemas.openxmlformats.org/officeDocument/2006/relationships",pkg="http://schemas.openxmlformats.org/package/2006/relationships",types="http://schemas.openxmlformats.org/package/2006/content-types";
         using var output=new MemoryStream();
         using(var zip=new ZipArchive(output,ZipArchiveMode.Create,true))
         {
             void Add(string name,XElement doc) {using var stream=zip.CreateEntry(name).Open();doc.Save(stream);}
-            Add("[Content_Types].xml",new XElement(types+"Types",new XElement(types+"Default",new XAttribute("Extension","rels"),new XAttribute("ContentType","application/vnd.openxmlformats-package.relationships+xml")),new XElement(types+"Default",new XAttribute("Extension","xml"),new XAttribute("ContentType","application/xml")),new XElement(types+"Override",new XAttribute("PartName","/xl/workbook.xml"),new XAttribute("ContentType","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml")),sheets.Select((s,i)=>new XElement(types+"Override",new XAttribute("PartName",$"/xl/worksheets/sheet{i+1}.xml"),new XAttribute("ContentType","application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml")))));
+            Add("[Content_Types].xml",new XElement(types+"Types",new XElement(types+"Default",new XAttribute("Extension","rels"),new XAttribute("ContentType","application/vnd.openxmlformats-package.relationships+xml")),new XElement(types+"Default",new XAttribute("Extension","xml"),new XAttribute("ContentType","application/xml")),new XElement(types+"Override",new XAttribute("PartName","/xl/workbook.xml"),new XAttribute("ContentType","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml")),sheets.Select((s,i)=>new XElement(types+"Override",new XAttribute("PartName",$"/xl/worksheets/sheet{i+1}.xml"),new XAttribute("ContentType","application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"))),
+                formatted ? new XElement(types+"Override",new XAttribute("PartName","/xl/styles.xml"),new XAttribute("ContentType","application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml")) : null));
             Add("_rels/.rels",new XElement(pkg+"Relationships",new XElement(pkg+"Relationship",new XAttribute("Id","rId1"),new XAttribute("Type",rel.NamespaceName+"/officeDocument"),new XAttribute("Target","xl/workbook.xml"))));
             Add("xl/workbook.xml",new XElement(ns+"workbook",new XElement(ns+"sheets",sheets.Select((s,i)=>new XElement(ns+"sheet",new XAttribute("name",s.Name),new XAttribute("sheetId",i+1),new XAttribute(rel+"id","rId"+(i+1)))))));
-            Add("xl/_rels/workbook.xml.rels",new XElement(pkg+"Relationships",sheets.Select((s,i)=>new XElement(pkg+"Relationship",new XAttribute("Id","rId"+(i+1)),new XAttribute("Type",rel.NamespaceName+"/worksheet"),new XAttribute("Target",$"worksheets/sheet{i+1}.xml")))));
-            XElement Cell(object? value) => value is string text
-                ? new XElement(ns+"c",new XAttribute("t","inlineStr"),new XElement(ns+"is",new XElement(ns+"t",text)))
-                : new XElement(ns+"c",new XElement(ns+"v",value is null?"":Convert.ToString(value,CultureInfo.InvariantCulture)));
+            Add("xl/_rels/workbook.xml.rels",new XElement(pkg+"Relationships",sheets.Select((s,i)=>new XElement(pkg+"Relationship",new XAttribute("Id","rId"+(i+1)),new XAttribute("Type",rel.NamespaceName+"/worksheet"),new XAttribute("Target",$"worksheets/sheet{i+1}.xml"))),
+                formatted ? new XElement(pkg+"Relationship",new XAttribute("Id","rIdStyles"),new XAttribute("Type",rel.NamespaceName+"/styles"),new XAttribute("Target","styles.xml")) : null));
+            if (formatted) Add("xl/styles.xml", ReportStyles(ns));
+            XElement Inline(string text, int? style = null) => new(ns+"c", style is int index ? new XAttribute("s", index) : null,
+                new XAttribute("t","inlineStr"),new XElement(ns+"is",new XElement(ns+"t",text)));
+            XElement Cell(object? value) => value switch
+            {
+                Caption title => Inline(title.Text, 4),
+                string text => Inline(text),
+                Number number => new(ns+"c", new XAttribute("s", number.Style),
+                    new XElement(ns+"v",number.Value.ToString("R",CultureInfo.InvariantCulture))),
+                null => new(ns+"c"),
+                _ => new(ns+"c",new XElement(ns+"v",Convert.ToString(value,CultureInfo.InvariantCulture)))
+            };
             for(var i=0;i<sheets.Count;i++)
             {
                 var data = new XElement(ns+"sheetData",sheets[i].Rows.Select((row,j) =>
                     new XElement(ns+"row",new XAttribute("r",j+1),row.Select(Cell))));
-                var columns = new XElement(ns+"cols",new XElement(ns+"col",new XAttribute("min",1),new XAttribute("max",12),new XAttribute("width",24),new XAttribute("customWidth",1)));
+                XElement Col(int min, int max, int width) => new(ns+"col",new XAttribute("min",min),new XAttribute("max",max),new XAttribute("width",width),new XAttribute("customWidth",1));
+                var columns = formatted
+                    ? new XElement(ns+"cols", Col(1, 1, 52), Col(2, 2, 25), Col(3, 24, 25))
+                    : new XElement(ns+"cols",Col(1,12,24));
                 Add($"xl/worksheets/sheet{i+1}.xml",new XElement(ns+"worksheet",columns,data));
             }
         }
         return output.ToArray();
+    }
+
+    private static XElement ReportStyles(XNamespace ns)
+    {
+        XElement Xf(int format, int font = 0, int fill = 0) => new(ns+"xf", new XAttribute("numFmtId", format),
+            new XAttribute("fontId", font), new XAttribute("fillId", fill), new XAttribute("borderId", 0),
+            new XAttribute("xfId", 0), new XAttribute("applyNumberFormat", format == 0 ? 0 : 1),
+            new XAttribute("applyFont", font), new XAttribute("applyFill", fill == 0 ? 0 : 1));
+        XElement Fill(string pattern, string? rgb = null) => new(ns+"fill", new XElement(ns+"patternFill",
+            new XAttribute("patternType", pattern), rgb is null ? null : new XElement(ns+"fgColor", new XAttribute("rgb",rgb))));
+        return new(ns+"styleSheet",
+            new XElement(ns+"numFmts", new XAttribute("count",1),
+                new XElement(ns+"numFmt",new XAttribute("numFmtId",164),new XAttribute("formatCode","0.000000"))),
+            new XElement(ns+"fonts",new XAttribute("count",2), new XElement(ns+"font"),
+                new XElement(ns+"font", new XElement(ns+"b"), new XElement(ns+"color", new XAttribute("rgb","FFFFFFFF")))),
+            new XElement(ns+"fills",new XAttribute("count",3), Fill("none"), Fill("gray125"), Fill("solid","FF24463F")),
+            new XElement(ns+"borders",new XAttribute("count",1),new XElement(ns+"border")),
+            new XElement(ns+"cellStyleXfs",new XAttribute("count",1),new XElement(ns+"xf")),
+            new XElement(ns+"cellXfs",new XAttribute("count",5),Xf(0),Xf(3),Xf(10),Xf(164),Xf(0,1,2)),
+            new XElement(ns+"cellStyles",new XAttribute("count",1),new XElement(ns+"cellStyle",
+                new XAttribute("name","Normal"),new XAttribute("xfId",0),new XAttribute("builtinId",0))));
     }
 }
